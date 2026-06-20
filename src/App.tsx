@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useAuth } from './auth';
+import Login from './pages/Login';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
@@ -14,9 +16,9 @@ import NoonOrders from './pages/NoonOrders';
 import Settings from './pages/Settings';
 import { useStore } from './store/useStore';
 
-export default function App() {
+function App() {
+  const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('dashboard');
-
   const store = useStore();
   const { state } = store;
 
@@ -24,6 +26,21 @@ export default function App() {
     localStorage.removeItem('one_erp_data');
     window.location.reload();
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">جاري التحميل...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   const renderPage = () => {
     switch (currentPage) {
@@ -83,12 +100,7 @@ export default function App() {
           />
         );
       case 'inventory':
-        return (
-          <Inventory
-            products={state.products}
-            serials={state.serials}
-          />
-        );
+        return <Inventory products={state.products} serials={state.serials} />;
       case 'suppliers':
         return (
           <Suppliers
@@ -179,3 +191,5 @@ export default function App() {
     </Layout>
   );
 }
+
+export default App;
