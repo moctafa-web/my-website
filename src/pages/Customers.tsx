@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Customer, SaleInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
-import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2 } from 'lucide-react';
+import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar } from 'lucide-react';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 
 interface Props {
@@ -14,10 +14,11 @@ interface Props {
   onUpdateCustomer: (c: Customer) => void;
   onDeleteCustomer: (id: string) => void;
   onAddPayment: (p: Payment) => void;
+  onUpdateSaleInvoice: (inv: SaleInvoice) => void;
   onNavigateToSales?: (customerId: string) => void;
 }
 
-export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onNavigateToSales }: Props) {
+export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales }: Props) {
   const [viewMode, setViewMode] = useViewMode('customers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -28,7 +29,14 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank'>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', type: 'individual' as Customer['type'], notes: '', openingBalance: 0 });
+  const [viewInvoice, setViewInvoice] = useState<SaleInvoice | null>(null);
+  const [editingInvoiceDate, setEditingInvoiceDate] = useState<string | null>(null);
+  const [tempInvoiceDate, setTempInvoiceDate] = useState('');
+  // فلتر الفترة الزمنية لحركة الحساب
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const filtered = customers.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -65,13 +73,29 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       amount: parseFloat(paymentAmount),
       paymentMethod,
       direction: 'in',
-      date: getTodayStr(),
+      date: paymentDate || getTodayStr(),
       notes: paymentNotes,
       createdAt: new Date().toISOString(),
     });
     setPaymentAmount('');
     setPaymentNotes('');
+    setPaymentDate(getTodayStr());
     setShowPayment(null);
+  };
+
+  const openPaymentModal = (c: Customer) => {
+    setPaymentDate(getTodayStr());
+    setShowPayment(c);
+  };
+
+  // تعديل تاريخ فاتورة مباشرة من كشف الحساب (مفيد لإغلاق حساب شهر أو تصحيح تاريخ منسي)
+  const startEditInvoiceDate = (inv: SaleInvoice) => {
+    setEditingInvoiceDate(inv.id);
+    setTempInvoiceDate(inv.date);
+  };
+  const saveInvoiceDate = (inv: SaleInvoice) => {
+    if (tempInvoiceDate) onUpdateSaleInvoice({ ...inv, date: tempInvoiceDate });
+    setEditingInvoiceDate(null);
   };
 
   const getCustomerInvoices = (customerId: string) => saleInvoices.filter(inv => inv.customerId === customerId);
@@ -84,41 +108,52 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   };
 
   // كل حركات الحساب مجمّعة ومرتبة بالتاريخ (فواتير + دفعات) لعرضها بالتفصيل في الشاشة
-  const getFullStatementRows = (c: Customer) => {
+  // مع إمكانية فلترة فترة زمنية محددة (من-إلى) لعرض/طباعة جزء من الحساب فقط
+  const getFullStatementRows = (c: Customer, filterDates = true) => {
     const invs = getCustomerInvoices(c.id);
     const pmts = getCustomerPayments(c.id);
     const rows = [
       ...invs.map(inv => ({ date: inv.date, desc: `فاتورة ${inv.invoiceNumber}`, debit: inv.total, credit: 0, type: 'invoice' as const, ref: inv })),
       ...pmts.map(p => ({ date: p.date, desc: `دفعة (تحصيل) - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}${p.notes ? ' - ' + p.notes : ''}`, debit: 0, credit: p.amount, type: 'payment' as const, ref: p })),
     ].sort((a, b) => a.date.localeCompare(b.date));
+
+    // نحسب الرصيد الجاري على كل الحركات بترتيبها الطبيعي أولًا (حتى لو هنفلتر العرض بعدين)
     let running = c.openingBalance;
-    return rows.map(r => {
+    const withRunning = rows.map(r => {
       running += r.debit - r.credit;
       return { ...r, runningBalance: running };
     });
+
+    if (!filterDates || (!dateFrom && !dateTo)) return withRunning;
+    return withRunning.filter(r => (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo));
   };
 
   const printStatement = (c: Customer) => {
-    const invs = getCustomerInvoices(c.id);
-    const balance = getBalance(c);
-    const rows = getFullStatementRows(c).map(t =>
+    const rowsToPrint = getFullStatementRows(c);
+    const periodLabel = (dateFrom || dateTo) ? `من ${dateFrom || '...'} إلى ${dateTo || getTodayStr()}` : `حتى تاريخ: ${getTodayStr()}`;
+    const periodTotalDebit = rowsToPrint.reduce((s, r) => s + r.debit, 0);
+    const periodTotalCredit = rowsToPrint.reduce((s, r) => s + r.credit, 0);
+    const openingForPeriod = (dateFrom || dateTo) ? (rowsToPrint[0] ? rowsToPrint[0].runningBalance - rowsToPrint[0].debit + rowsToPrint[0].credit : c.openingBalance) : c.openingBalance;
+    const finalBalance = rowsToPrint.length > 0 ? rowsToPrint[rowsToPrint.length - 1].runningBalance : getBalance(c);
+
+    const rows = rowsToPrint.map(t =>
       `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`
     ).join('');
 
     printElement(`
       <div class="header">
         <div><div class="company-name">ONE</div></div>
-        <div class="invoice-info"><div><strong>كشف حساب عميل</strong></div><div>${c.name}</div><div>${c.phone || ''}</div><div>حتى تاريخ: ${getTodayStr()}</div></div>
+        <div class="invoice-info"><div><strong>كشف حساب عميل</strong></div><div>${c.name}</div><div>${c.phone || ''}</div><div>${periodLabel}</div></div>
       </div>
-      ${c.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${c.openingBalance.toLocaleString('ar-EG')} ج.م</p>` : ''}
+      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>` : (c.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${c.openingBalance.toLocaleString('ar-EG')} ج.م</p>` : '')}
       <table>
         <thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="totals"><table>
-        <tr><td>إجمالي الفواتير</td><td>${invs.reduce((s, i) => s + i.total, 0).toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>إجمالي المدفوع</td><td>${invs.reduce((s, i) => s + i.paid, 0).toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr class="total-row"><td>الرصيد النهائي (مستحق منه)</td><td>${balance.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr class="total-row"><td>الرصيد ${(dateFrom || dateTo) ? 'في نهاية الفترة' : 'النهائي (مستحق منه)'}</td><td>${finalBalance.toLocaleString('ar-EG')} ج.م</td></tr>
       </table></div>
     `);
   };
@@ -186,8 +221,8 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => setViewCustomer(c)} className="flex-1 py-1.5 text-xs bg-violet-900/20 border border-violet-700/30 rounded-xl text-violet-300 hover:bg-violet-900/40 flex items-center justify-center gap-1"><Eye size={12} /> كشف حساب</button>
-                  <button onClick={() => setShowPayment(c)} className="flex-1 py-1.5 text-xs bg-green-900/20 border border-green-700/30 rounded-xl text-green-300 hover:bg-green-900/40 flex items-center justify-center gap-1"><DollarSign size={12} /> تحصيل</button>
+                  <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="flex-1 py-1.5 text-xs bg-violet-900/20 border border-violet-700/30 rounded-xl text-violet-300 hover:bg-violet-900/40 flex items-center justify-center gap-1"><Eye size={12} /> كشف حساب</button>
+                  <button onClick={() => openPaymentModal(c)} className="flex-1 py-1.5 text-xs bg-green-900/20 border border-green-700/30 rounded-xl text-green-300 hover:bg-green-900/40 flex items-center justify-center gap-1"><DollarSign size={12} /> تحصيل</button>
                   <button onClick={() => openEdit(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-violet-400"><Edit size={12} /></button>
                   <button onClick={() => setConfirmDelete(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-red-400"><Trash2 size={12} /></button>
                 </div>
@@ -217,8 +252,8 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                   <div className="text-center"><div className="text-xs text-gray-500">الفواتير</div><div className="text-sm font-bold text-white">{invCount}</div></div>
                   <div className="text-center"><div className="text-xs text-gray-500">الرصيد</div><div className={`text-sm font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</div></div>
                   <div className="flex gap-1">
-                    <button onClick={() => setViewCustomer(c)} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
-                    <button onClick={() => setShowPayment(c)} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20"><DollarSign size={14} /></button>
+                    <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
+                    <button onClick={() => openPaymentModal(c)} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20"><DollarSign size={14} /></button>
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400"><Edit size={14} /></button>
                     <button onClick={() => setConfirmDelete(c)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400"><Trash2 size={14} /></button>
                   </div>
@@ -257,8 +292,8 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                     <td className={`py-2.5 px-3 text-center font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</td>
                     <td className="py-2.5 px-3">
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => setViewCustomer(c)} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
-                        <button onClick={() => setShowPayment(c)} className="p-1 rounded text-green-400 hover:bg-green-900/20"><DollarSign size={13} /></button>
+                        <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
+                        <button onClick={() => openPaymentModal(c)} className="p-1 rounded text-green-400 hover:bg-green-900/20"><DollarSign size={13} /></button>
                         <button onClick={() => openEdit(c)} className="p-1 rounded text-gray-400 hover:text-violet-400"><Edit size={13} /></button>
                         <button onClick={() => setConfirmDelete(c)} className="p-1 rounded text-gray-400 hover:text-red-400"><Trash2 size={13} /></button>
                       </div>
@@ -280,7 +315,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
               <h2 className="text-xl font-bold text-white">📊 كشف حساب - {viewCustomer.name}</h2>
               <div className="flex gap-2">
                 <button onClick={() => { setShowForm(false); setViewCustomer(null); onNavigateToSales?.(viewCustomer.id); }} className="btn-primary text-sm flex items-center gap-1"><FilePlus2 size={14} /> فاتورة جديدة</button>
-                <button onClick={() => setShowPayment(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><DollarSign size={14} /> تحصيل دفعة</button>
+                <button onClick={() => openPaymentModal(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><DollarSign size={14} /> تحصيل دفعة</button>
                 <button onClick={() => printStatement(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><Printer size={14} /> طباعة PDF</button>
                 <button onClick={() => setViewCustomer(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
               </div>
@@ -313,6 +348,18 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
               </div>
             </div>
 
+            {/* فلتر فترة زمنية لحركة الحساب - مفيد لو حابب تطبع/تعرض جزء معين من الحساب بس */}
+            <div className="bg-[#252545] rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1 text-violet-300 text-sm font-medium"><Calendar size={14} /> فترة محددة:</div>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input-dark text-sm" placeholder="من تاريخ" />
+              <span className="text-gray-500 text-sm">إلى</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input-dark text-sm" placeholder="إلى تاريخ" />
+              {(dateFrom || dateTo) && (
+                <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-xs text-red-400 hover:underline">إلغاء الفلتر (عرض الكل)</button>
+              )}
+              <span className="text-xs text-gray-500 mr-auto">سيتم تطبيق هذه الفترة على العرض والطباعة معًا</span>
+            </div>
+
             {/* حركة الحساب الكاملة بالتفصيل: فواتير + دفعات مرتبة بالتاريخ مع رصيد جاري */}
             <h3 className="text-sm font-bold text-violet-300 mb-2">📜 حركة الحساب بالتفصيل</h3>
             <div className="overflow-x-auto mb-4">
@@ -329,36 +376,93 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                 <tbody>
                   {getFullStatementRows(viewCustomer).map((t, idx) => (
                     <tr key={idx} className="border-t border-white/5 hover:bg-white/5">
-                      <td className="py-2 px-3 text-gray-400 text-xs">{t.date}</td>
-                      <td className="py-2 px-3 text-white">{t.desc}</td>
+                      <td className="py-2 px-3 text-gray-400 text-xs">
+                        {t.type === 'invoice' && editingInvoiceDate === (t.ref as SaleInvoice).id ? (
+                          <div className="flex items-center gap-1">
+                            <input type="date" value={tempInvoiceDate} onChange={e => setTempInvoiceDate(e.target.value)} className="input-dark text-xs py-0.5 px-1 w-32" autoFocus />
+                            <button onClick={() => saveInvoiceDate(t.ref as SaleInvoice)} className="text-green-400 text-xs">✔</button>
+                            <button onClick={() => setEditingInvoiceDate(null)} className="text-red-400 text-xs">✕</button>
+                          </div>
+                        ) : (
+                          <span className={t.type === 'invoice' ? 'cursor-pointer hover:text-violet-300 hover:underline' : ''} onClick={() => t.type === 'invoice' && startEditInvoiceDate(t.ref as SaleInvoice)} title={t.type === 'invoice' ? 'اضغط لتعديل تاريخ الفاتورة' : ''}>
+                            {t.date} {t.type === 'invoice' && '✎'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-white">
+                        {t.type === 'invoice' ? (
+                          <button onClick={() => setViewInvoice(t.ref as SaleInvoice)} className="text-violet-300 hover:underline text-right">{t.desc}</button>
+                        ) : t.desc}
+                      </td>
                       <td className="py-2 px-3 text-center text-red-400">{t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td>
                       <td className="py-2 px-3 text-center text-green-400">{t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td>
                       <td className="py-2 px-3 text-center text-white font-medium">{t.runningBalance.toLocaleString('ar-EG')}</td>
                     </tr>
                   ))}
                   {getFullStatementRows(viewCustomer).length === 0 && (
-                    <tr><td colSpan={5} className="text-center py-8 text-gray-500">لا توجد حركات</td></tr>
+                    <tr><td colSpan={5} className="text-center py-8 text-gray-500">لا توجد حركات {(dateFrom || dateTo) ? 'في هذه الفترة' : ''}</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
 
-            {/* عرض جميع فواتير المبيعات لهذا العميل */}
+            {/* عرض جميع فواتير المبيعات لهذا العميل - يمكن الضغط على كل فاتورة لعرض تفاصيلها كاملة */}
             <h3 className="text-sm font-bold text-violet-300 mb-2">🧾 جميع فواتير المبيعات ({getCustomerInvoices(viewCustomer.id).length})</h3>
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {getCustomerInvoices(viewCustomer.id).map(inv => (
-                <div key={inv.id} className="bg-[#252545] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2">
+                <button key={inv.id} onClick={() => setViewInvoice(inv)} className="w-full text-right bg-[#252545] hover:bg-[#2d2d5a] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2 transition-colors">
                   <div>
                     <div className="font-medium text-white text-sm font-mono">{inv.invoiceNumber}</div>
                     <div className="text-xs text-gray-500">{inv.date} • {inv.items.length} منتج</div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold text-white">{formatCurrency(inv.total)}</div>
-                    {inv.remaining > 0 ? <div className="text-xs text-red-400">متبقي: {formatCurrency(inv.remaining)}</div> : <div className="text-xs text-green-400">✓ مدفوعة بالكامل</div>}
+                  <div className="text-right flex items-center gap-2">
+                    <div>
+                      <div className="font-bold text-white">{formatCurrency(inv.total)}</div>
+                      {inv.remaining > 0 ? <div className="text-xs text-red-400">متبقي: {formatCurrency(inv.remaining)}</div> : <div className="text-xs text-green-400">✓ مدفوعة بالكامل</div>}
+                    </div>
+                    <Eye size={14} className="text-violet-400" />
                   </div>
-                </div>
+                </button>
               ))}
               {getCustomerInvoices(viewCustomer.id).length === 0 && <div className="text-center text-gray-500 py-8">لا توجد فواتير</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Detail Modal - عرض تفاصيل الفاتورة كاملة بدل النص فقط */}
+      {viewInvoice && (
+        <div className="fixed inset-0 bg-black/90 z-[60] flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white">📄 فاتورة {viewInvoice.invoiceNumber}</h2>
+              <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
+              <div><div className="text-xs text-gray-500">العميل</div><div className="font-bold text-white">{viewInvoice.customerName}</div></div>
+              <div><div className="text-xs text-gray-500">التاريخ</div><div className="font-bold text-white">{viewInvoice.date}</div></div>
+              <div><div className="text-xs text-gray-500">طريقة الدفع</div><div className="font-bold text-white">{viewInvoice.paymentMethod === 'cash' ? 'كاش' : viewInvoice.paymentMethod === 'bank' ? 'بنك' : 'انستاباي'}</div></div>
+            </div>
+            <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
+              {viewInvoice.items.map(item => (
+                <div key={item.id} className="bg-[#252545] rounded-xl p-3 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-white text-sm">{item.productName}</div>
+                    <div className="text-xs text-gray-500">{item.sku} • الكمية: {item.quantity} × {formatCurrency(item.unitPrice)}</div>
+                    {item.serials && item.serials.length > 0 && (
+                      <div className="text-xs text-gray-500 font-mono">{item.serials.map(s => s.serial).join(', ')}</div>
+                    )}
+                  </div>
+                  <div className="font-bold text-white">{formatCurrency(item.total)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1 border-t border-white/10 pt-3">
+              <div className="flex justify-between text-sm"><span className="text-gray-400">المجموع</span><span className="text-white">{formatCurrency(viewInvoice.subtotal)}</span></div>
+              {viewInvoice.discount > 0 && <div className="flex justify-between text-sm"><span className="text-gray-400">الخصم</span><span className="text-red-400">- {formatCurrency(viewInvoice.discount)}</span></div>}
+              <div className="flex justify-between font-bold"><span className="text-white">الإجمالي</span><span className="text-violet-400 text-lg">{formatCurrency(viewInvoice.total)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-400">المدفوع</span><span className="text-green-400">{formatCurrency(viewInvoice.paid)}</span></div>
+              {viewInvoice.remaining > 0 && <div className="flex justify-between text-sm"><span className="text-gray-400">المتبقي</span><span className="text-red-400">{formatCurrency(viewInvoice.remaining)}</span></div>}
             </div>
           </div>
         </div>
@@ -372,6 +476,11 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             <p className="text-gray-400 text-sm mb-4">{showPayment.name} • الرصيد: {formatCurrency(getBalance(showPayment))}</p>
             <div className="space-y-3">
               <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="input-dark w-full" placeholder="المبلغ المحصل" />
+              <div>
+                <label className="form-label">تاريخ الدفعة</label>
+                <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="input-dark w-full" />
+                <p className="text-xs text-gray-500 mt-1">يمكنك تغيير التاريخ لو الدفعة متأخرة أو منسية من شهر سابق</p>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => setPaymentMethod('cash')} className={`py-2 rounded-xl border text-sm ${paymentMethod === 'cash' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>💵 كاش</button>
                 <button onClick={() => setPaymentMethod('bank')} className={`py-2 rounded-xl border text-sm ${paymentMethod === 'bank' ? 'bg-blue-700/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}>🏦 بنك</button>

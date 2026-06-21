@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, ChevronDown } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, ChevronDown, Trash2, Edit } from 'lucide-react';
 
 interface Props {
   saleInvoices: SaleInvoice[];
@@ -13,6 +13,7 @@ interface Props {
   onAddSaleInvoice: (inv: SaleInvoice) => void;
   onAddCustomer: (c: Customer) => void;
   onUpdateSaleInvoice: (inv: SaleInvoice) => void;
+  onDeleteSaleInvoice: (invoiceId: string) => void;
   preselectedCustomerId?: string | null;
   onPreselectedHandled?: () => void;
 }
@@ -32,10 +33,12 @@ interface SaleItem {
   total: number;
 }
 
-export default function Sales({ saleInvoices, customers, products, serials, settings, onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice, preselectedCustomerId, onPreselectedHandled }: Props) {
+export default function Sales({ saleInvoices, customers, products, serials, settings, onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice, onDeleteSaleInvoice, preselectedCustomerId, onPreselectedHandled }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [viewInvoice, setViewInvoice] = useState<SaleInvoice | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<SaleInvoice | null>(null);
+  const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<SaleInvoice | null>(null);
   const [addCustomerModal, setAddCustomerModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', type: 'individual' as Customer['type'] });
 
@@ -52,6 +55,55 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
   const [notes, setNotes] = useState('');
   const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
+  const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
+  const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const makeEmptySaleItem = (): SaleItem => ({
+    id: generateId(), productId: '', productName: '', sku: '', description: '',
+    quantity: 1, unitPrice: 0, discount: 0, discountType: 'percent', taxRate: 0,
+    serials: [], total: 0,
+  });
+
+  // فتح فورم فاتورة جديدة: يبدأ بسطر منتج واحد جاهز للتعبئة فورًا
+  const openNewForm = () => {
+    resetForm();
+    const firstItem = makeEmptySaleItem();
+    setSaleItems([firstItem]);
+    setItemSearch({ [firstItem.id]: '' });
+    setShowForm(true);
+  };
+
+  // فتح فورم تعديل فاتورة موجودة
+  const openEditForm = (inv: SaleInvoice) => {
+    setEditingInvoice(inv);
+    setCustomerId(inv.customerId);
+    setCustomerSearch(inv.customerName);
+    setFormDate(inv.date);
+    setNotes(inv.notes || '');
+    setPaymentMethod(inv.paymentMethod);
+    setInstapayPerson(inv.instapayPerson || '');
+    setPaid(String(inv.paid));
+    setDiscount(inv.discount);
+    const items: SaleItem[] = inv.items.map(item => ({
+      id: item.id,
+      productId: item.productId,
+      productName: item.productName,
+      sku: item.sku,
+      description: item.description || '',
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discount: item.discount,
+      discountType: item.discountType,
+      taxRate: item.taxRate,
+      serials: item.serials ? item.serials.map(s => ({ serial: s.serial, imei1: s.imei1 || '', imei2: s.imei2 || '' })) : [],
+      total: item.total,
+    }));
+    setSaleItems(items);
+    const searches: Record<string, string> = {};
+    items.forEach(it => { searches[it.id] = it.productName; });
+    setItemSearch(searches);
+    setShowForm(true);
+  };
 
   // عند القدوم من كشف حساب عميل بزرار "فاتورة جديدة": يفتح الفورم تلقائيًا مع تحديد العميل
   useEffect(() => {
@@ -84,13 +136,102 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
   const remaining = totalAfterDiscount - paidAmount;
 
   const addItem = () => {
-    const id = generateId();
-    setSaleItems(prev => [...prev, {
-      id, productId: '', productName: '', sku: '', description: '',
-      quantity: 1, unitPrice: 0, discount: 0, discountType: 'percent', taxRate: 0,
-      serials: [], total: 0,
-    }]);
-    setItemSearch(prev => ({ ...prev, [id]: '' }));
+    const newItem = makeEmptySaleItem();
+    setSaleItems(prev => [...prev, newItem]);
+    setItemSearch(prev => ({ ...prev, [newItem.id]: '' }));
+  };
+
+  // تحقق من تكرار سيريال داخل نفس الفاتورة (نفس السيريال لا يمكن بيعه مرتين في فاتورة واحدة)
+  const isDuplicateSaleSerial = (serial: string, currentItemId: string, currentIndex: number): boolean => {
+    const normalized = serial.trim().toLowerCase();
+    if (!normalized) return false;
+    for (const item of saleItems) {
+      for (let i = 0; i < item.serials.length; i++) {
+        if (item.id === currentItemId && i === currentIndex) continue;
+        if (item.serials[i].serial.trim().toLowerCase() === normalized) return true;
+      }
+    }
+    return false;
+  };
+
+  // هل السيريال موجود فعليًا في المخزون وحالته "متاح" (أو هو نفسه كان مباعًا في هذه الفاتورة عند التعديل)؟
+  const isValidAvailableSerial = (serial: string, productId: string): boolean => {
+    const normalized = serial.trim().toLowerCase();
+    if (!normalized) return true;
+    const record = serials.find(s => s.serial.trim().toLowerCase() === normalized && s.productId === productId);
+    if (!record) return false;
+    if (record.status === 'available') return true;
+    if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
+    return false;
+  };
+
+  const updateSerialField = (itemId: string, index: number, field: 'serial' | 'imei1' | 'imei2', value: string) => {
+    setSaleItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const ns = [...item.serials];
+      ns[index] = { ...ns[index], [field]: value };
+      return { ...item, serials: ns };
+    }));
+    if (field === 'serial' && isDuplicateSaleSerial(value, itemId, index)) {
+      setDuplicateSerialWarning(value);
+    } else if (duplicateSerialWarning === value) {
+      setDuplicateSerialWarning(null);
+    }
+  };
+
+  // إضافة خانة سيريال جديدة + رفع الكمية تلقائيًا لتطابق عدد السيريالات
+  const addSerialSlot = (itemId: string, focusAfter = false) => {
+    let newLength = 0;
+    setSaleItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const newSerials = [...item.serials, { serial: '', imei1: '', imei2: '' }];
+      newLength = newSerials.length;
+      const discountAmt = item.discountType === 'percent' ? (item.unitPrice * newSerials.length * item.discount / 100) : item.discount;
+      return { ...item, serials: newSerials, quantity: newSerials.length, total: Math.max(0, item.unitPrice * newSerials.length - discountAmt) };
+    }));
+    if (focusAfter) {
+      setTimeout(() => { serialInputRefs.current[`${itemId}-${newLength - 1}`]?.focus(); }, 30);
+    }
+  };
+
+  // إدخال متتابع بقارئ الباركود: كتابة السيريال + Enter ينتقل للخانة التالية أو يضيفها تلقائيًا
+  const handleSerialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, itemId: string, index: number) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const item = saleItems.find(i => i.id === itemId);
+    if (!item) return;
+    const currentValue = item.serials[index]?.serial || '';
+    if (!currentValue.trim()) return;
+    if (isDuplicateSaleSerial(currentValue, itemId, index)) return;
+    if (!isValidAvailableSerial(currentValue, item.productId)) return;
+
+    const isLastSlot = index === item.serials.length - 1;
+    if (isLastSlot) {
+      addSerialSlot(itemId, true);
+    } else {
+      serialInputRefs.current[`${itemId}-${index + 1}`]?.focus();
+    }
+  };
+
+  // مزامنة الكمية اليدوية مع عدد خانات السيريال (للمنتجات ذات السيريال فقط)
+  const syncSerialsWithQuantity = (itemId: string, newQuantity: number) => {
+    setSaleItems(prev => prev.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      const isSerialProduct = product?.productType === 'serial';
+      if (item.id !== itemId) return item;
+      if (!isSerialProduct) {
+        const discountAmt = item.discountType === 'percent' ? (item.unitPrice * newQuantity * item.discount / 100) : item.discount;
+        return { ...item, quantity: newQuantity, total: Math.max(0, item.unitPrice * newQuantity - discountAmt) };
+      }
+      let newSerials = [...item.serials];
+      if (newQuantity > newSerials.length) {
+        while (newSerials.length < newQuantity) newSerials.push({ serial: '', imei1: '', imei2: '' });
+      } else if (newQuantity < newSerials.length && newQuantity >= 1) {
+        newSerials = newSerials.slice(0, newQuantity);
+      }
+      const discountAmt = item.discountType === 'percent' ? (item.unitPrice * newSerials.length * item.discount / 100) : item.discount;
+      return { ...item, quantity: newSerials.length, serials: newSerials, total: Math.max(0, item.unitPrice * newSerials.length - discountAmt) };
+    }));
   };
 
   const updateItem = (id: string, updates: Partial<SaleItem>) => {
@@ -132,7 +273,17 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
 
   const handleSave = () => {
     if (!customerId || saleItems.length === 0) return;
-    const invoiceNumber = `${settings.invoicePrefix}-${String(settings.lastSaleInvoiceNum + 1).padStart(4, '0')}`;
+
+    // تحقق نهائي قبل الحفظ: منع التكرار
+    for (const item of saleItems) {
+      for (let i = 0; i < item.serials.length; i++) {
+        if (item.serials[i].serial && isDuplicateSaleSerial(item.serials[i].serial, item.id, i)) {
+          setDuplicateSerialWarning(item.serials[i].serial);
+          return;
+        }
+      }
+    }
+
     const items: InvoiceItem[] = saleItems.map(item => ({
       id: item.id,
       productId: item.productId,
@@ -148,6 +299,30 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
       serials: item.serials.filter(s => s.serial),
     }));
 
+    if (editingInvoice) {
+      const updatedInvoice: SaleInvoice = {
+        ...editingInvoice,
+        customerId,
+        customerName: selectedCustomer?.name || '',
+        date: formDate,
+        items,
+        subtotal,
+        discount,
+        total: totalAfterDiscount,
+        paid: paidAmount,
+        remaining,
+        status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+        paymentMethod,
+        instapayPerson: paymentMethod === 'instapay' ? instapayPerson : undefined,
+        notes,
+      };
+      onUpdateSaleInvoice(updatedInvoice);
+      resetForm();
+      setShowForm(false);
+      return;
+    }
+
+    const invoiceNumber = `${settings.invoicePrefix}-${String(settings.lastSaleInvoiceNum + 1).padStart(4, '0')}`;
     const invoice: SaleInvoice = {
       id: generateId(),
       invoiceNumber,
@@ -176,6 +351,13 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
   const resetForm = () => {
     setSaleItems([]); setCustomerId(''); setCustomerSearch(''); setPaid(''); setDiscount(0);
     setNotes(''); setPaymentMethod('cash'); setInstapayPerson(''); setFormDate(getTodayStr());
+    setEditingInvoice(null); setDuplicateSerialWarning(null); setItemSearch({});
+  };
+
+  const handleDeleteInvoice = () => {
+    if (!confirmDeleteInvoice) return;
+    onDeleteSaleInvoice(confirmDeleteInvoice.id);
+    setConfirmDeleteInvoice(null);
   };
 
   const handleAddCustomer = () => {
@@ -236,7 +418,7 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div><h2 className="text-xl font-bold text-white">🛒 المبيعات</h2><p className="text-gray-500 text-sm">{saleInvoices.length} فاتورة</p></div>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2"><Plus size={16} /> فاتورة بيع جديدة</button>
+        <button onClick={openNewForm} className="btn-primary flex items-center gap-2"><Plus size={16} /> فاتورة بيع جديدة</button>
       </div>
 
       {/* Search */}
@@ -290,8 +472,10 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex gap-1 justify-end">
-                    <button onClick={() => setViewInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
-                    <button onClick={() => printInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-400 hover:bg-green-900/20"><Printer size={14} /></button>
+                    <button onClick={() => setViewInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20" title="عرض"><Eye size={14} /></button>
+                    <button onClick={() => printInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-400 hover:bg-green-900/20" title="طباعة"><Printer size={14} /></button>
+                    <button onClick={() => openEditForm(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-900/20" title="تعديل"><Edit size={14} /></button>
+                    <button onClick={() => setConfirmDeleteInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20" title="حذف"><Trash2 size={14} /></button>
                   </div>
                 </td>
               </tr>
@@ -305,7 +489,7 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold text-white">➕ فاتورة بيع جديدة</h2>
+              <h2 className="text-xl font-bold text-white">{editingInvoice ? `✏️ تعديل فاتورة ${editingInvoice.invoiceNumber}` : '➕ فاتورة بيع جديدة'}</h2>
               <button onClick={() => { setShowForm(false); resetForm(); }} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
             </div>
 
@@ -391,7 +575,7 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
 
                       <div className="col-span-4 md:col-span-2">
                         <label className="form-label text-xs">الكمية</label>
-                        <input type="number" min="1" value={item.quantity} onChange={e => updateItem(item.id, { quantity: parseInt(e.target.value) || 1 })} className="input-dark w-full text-sm" />
+                        <input type="number" min="1" value={item.quantity} onChange={e => syncSerialsWithQuantity(item.id, Math.max(1, parseInt(e.target.value) || 1))} className="input-dark w-full text-sm" />
                       </div>
                       <div className="col-span-4 md:col-span-2">
                         <label className="form-label text-xs">سعر الوحدة</label>
@@ -413,37 +597,57 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
                     </div>
 
                     {/* Serials */}
-                    {item.serials.map((sl, si) => (
-                      <div key={si} className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-white/5">
-                        <div>
-                          <label className="form-label text-xs">السيريال {si + 1}</label>
-                          <input type="text" value={sl.serial} onChange={e => {
-                            const newSerials = [...item.serials];
-                            newSerials[si] = { ...sl, serial: e.target.value };
-                            updateItem(item.id, { serials: newSerials });
-                          }} className="input-dark w-full text-xs" placeholder="Serial Number" />
+                    {item.serials.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-white/5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs text-gray-400 font-medium">السيريالات ({item.serials.filter(s => s.serial).length} / {item.quantity}):</div>
+                          <div className="text-xs text-violet-400">💡 Enter للانتقال للخانة التالية تلقائيًا</div>
                         </div>
-                        <div>
-                          <label className="form-label text-xs">IMEI 1</label>
-                          <input type="text" value={sl.imei1} onChange={e => {
-                            const newSerials = [...item.serials];
-                            newSerials[si] = { ...sl, imei1: e.target.value };
-                            updateItem(item.id, { serials: newSerials });
-                          }} className="input-dark w-full text-xs" />
-                        </div>
-                        <div>
-                          <label className="form-label text-xs">IMEI 2</label>
-                          <input type="text" value={sl.imei2} onChange={e => {
-                            const newSerials = [...item.serials];
-                            newSerials[si] = { ...sl, imei2: e.target.value };
-                            updateItem(item.id, { serials: newSerials });
-                          }} className="input-dark w-full text-xs" />
-                        </div>
+                        {item.serials.map((sl, si) => {
+                          const isDup = sl.serial && isDuplicateSaleSerial(sl.serial, item.id, si);
+                          const isInvalid = sl.serial && !isDup && !isValidAvailableSerial(sl.serial, item.productId);
+                          return (
+                            <div key={si}>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                  <label className="form-label text-xs">السيريال {si + 1}</label>
+                                  <input
+                                    ref={el => { serialInputRefs.current[`${item.id}-${si}`] = el; }}
+                                    type="text"
+                                    value={sl.serial}
+                                    onChange={e => updateSerialField(item.id, si, 'serial', e.target.value)}
+                                    onKeyDown={e => handleSerialKeyDown(e, item.id, si)}
+                                    className={`input-dark w-full text-xs ${isDup || isInvalid ? 'border-red-500/60 bg-red-900/10' : ''}`}
+                                    placeholder="Serial Number"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="form-label text-xs">IMEI 1</label>
+                                  <input type="text" value={sl.imei1} onChange={e => updateSerialField(item.id, si, 'imei1', e.target.value)} className="input-dark w-full text-xs" />
+                                </div>
+                                <div className="flex gap-1">
+                                  <div className="flex-1">
+                                    <label className="form-label text-xs">IMEI 2</label>
+                                    <input type="text" value={sl.imei2} onChange={e => updateSerialField(item.id, si, 'imei2', e.target.value)} className="input-dark w-full text-xs" />
+                                  </div>
+                                  {item.serials.length > 1 && (
+                                    <button onClick={() => {
+                                      const newSerials = item.serials.filter((_, i) => i !== si);
+                                      updateItem(item.id, { serials: newSerials, quantity: newSerials.length });
+                                    }} className="p-1 text-red-400 self-end mb-0.5"><X size={12} /></button>
+                                  )}
+                                </div>
+                              </div>
+                              {isDup && <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال مكرر في الفاتورة</div>}
+                              {isInvalid && <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال غير متاح في المخزون لهذا المنتج</div>}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
+                    )}
                     {item.productId && products.find(p => p.id === item.productId)?.productType === 'serial' && (
-                      <button onClick={() => updateItem(item.id, { serials: [...item.serials, { serial: '', imei1: '', imei2: '' }] })}
-                        className="mt-2 text-xs text-violet-400 hover:text-violet-300">+ إضافة سيريال آخر</button>
+                      <button onClick={() => addSerialSlot(item.id, true)}
+                        className="mt-2 text-xs text-violet-400 hover:text-violet-300">+ إضافة سيريال آخر (الكمية ستزيد تلقائيًا)</button>
                     )}
                   </div>
                 ))}
@@ -494,9 +698,21 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
               </div>
             </div>
 
+            {duplicateSerialWarning && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mb-3 text-red-400">
+                ⚠️ السيريال "{duplicateSerialWarning}" مكرر في هذه الفاتورة. يرجى تصحيحه قبل الحفظ.
+              </div>
+            )}
+
             <div className="flex gap-3 mt-5">
-              <button onClick={handleSave} className="btn-primary flex-1">🖨️ حفظ وطباعة</button>
-              <button onClick={handleSave} className="btn-secondary flex-1">💾 حفظ فقط</button>
+              {editingInvoice ? (
+                <button onClick={handleSave} className="btn-primary flex-1">💾 حفظ التعديلات</button>
+              ) : (
+                <>
+                  <button onClick={handleSave} className="btn-primary flex-1">🖨️ حفظ وطباعة</button>
+                  <button onClick={handleSave} className="btn-secondary flex-1">💾 حفظ فقط</button>
+                </>
+              )}
               <button onClick={() => { setShowForm(false); resetForm(); }} className="btn-secondary px-4">إلغاء</button>
             </div>
           </div>
@@ -578,6 +794,22 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
             <div className="flex gap-2 mt-4">
               <button onClick={handleAddCustomer} className="btn-primary flex-1">إضافة</button>
               <button onClick={() => setAddCustomerModal(false)} className="btn-secondary flex-1">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Invoice Confirmation */}
+      {confirmDeleteInvoice && (
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+            <h3 className="font-bold text-white mb-2">🗑️ حذف فاتورة المبيعات</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              هل أنت متأكد من حذف فاتورة <span className="text-white font-medium font-mono">{confirmDeleteInvoice.invoiceNumber}</span>؟
+              سيتم إرجاع السيريالات المباعة فيها إلى المخزون كـ "متاحة"، وتصحيح رصيد العميل والخزينة تلقائيًا. لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={handleDeleteInvoice} className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">🗑️ تأكيد الحذف</button>
+              <button onClick={() => setConfirmDeleteInvoice(null)} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

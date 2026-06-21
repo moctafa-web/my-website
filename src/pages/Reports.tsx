@@ -48,11 +48,47 @@ export default function Reports({ state }: Props) {
   const totalSales = state.saleInvoices.reduce((s, i) => s + i.total, 0);
   const totalPurchases = state.purchaseInvoices.reduce((s, i) => s + i.total, 0);
   const totalExpenses = state.expenses.reduce((s, e) => s + e.amount, 0);
-  const netProfit = totalSales - totalPurchases - totalExpenses;
+  const totalNoonProfit = state.noonOrders.reduce((s, o) => s + (o.settlementProfit || 0), 0);
+  const netProfit = totalSales - totalPurchases - totalExpenses + totalNoonProfit;
   const totalDebt = state.customers.reduce((s, c) => {
     const invs = state.saleInvoices.filter(i => i.customerId === c.id);
     return s + invs.reduce((x, i) => x + i.remaining, 0);
   }, 0);
+
+  // ربح الشهر الحالي: مبيعات + ربح تسويات نون/أمازون - مشتريات - مصروفات (كل عنصر محسوب بتاريخه الفعلي)
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const getMonthKey = (dateStr: string) => dateStr.slice(0, 7);
+
+  const buildMonthSummary = (monthKey: string) => {
+    const monthSales = state.saleInvoices.filter(i => getMonthKey(i.date) === monthKey).reduce((s, i) => s + i.total, 0);
+    const monthPurchases = state.purchaseInvoices.filter(i => getMonthKey(i.date) === monthKey).reduce((s, i) => s + i.total, 0);
+    const monthExpenses = state.expenses.filter(e => getMonthKey(e.date) === monthKey).reduce((s, e) => s + e.amount, 0);
+    // ربح أوردرات نون/أمازون يُحسب بتاريخ التسوية البنكية فعليًا (settledDate) وليس تاريخ إنشاء الأوردر
+    const monthNoonProfit = state.noonOrders.filter(o => o.settledDate && getMonthKey(o.settledDate) === monthKey).reduce((s, o) => s + (o.settlementProfit || 0), 0);
+    const monthNoonAmount = state.noonOrders.filter(o => o.settledDate && getMonthKey(o.settledDate) === monthKey).reduce((s, o) => s + (o.settledAmount || 0), 0);
+    return {
+      monthKey,
+      sales: monthSales,
+      purchases: monthPurchases,
+      expenses: monthExpenses,
+      noonProfit: monthNoonProfit,
+      noonAmount: monthNoonAmount,
+      net: monthSales - monthPurchases - monthExpenses + monthNoonProfit,
+    };
+  };
+
+  const currentMonthSummary = buildMonthSummary(currentMonthKey);
+  const last6MonthsKeys = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const monthlyHistory = last6MonthsKeys.map(buildMonthSummary);
+  const monthLabel = (key: string) => {
+    const [y, m] = key.split('-');
+    const d = new Date(parseInt(y), parseInt(m) - 1, 1);
+    return d.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+  };
 
   // Top products
   const productSales: Record<string, { name: string; qty: number; total: number }> = {};
@@ -98,9 +134,9 @@ export default function Reports({ state }: Props) {
           <div className="text-xs text-gray-500 mt-1">{state.purchaseInvoices.length} فاتورة</div>
         </div>
         <div className={`bg-gradient-to-br ${netProfit >= 0 ? 'from-violet-900/40 to-violet-900/10 border-violet-700/30' : 'from-red-900/40 to-red-900/10 border-red-700/30'} border rounded-2xl p-4`}>
-          <div className={`text-xs mb-1 ${netProfit >= 0 ? 'text-violet-400' : 'text-red-400'}`}>صافي الربح</div>
+          <div className={`text-xs mb-1 ${netProfit >= 0 ? 'text-violet-400' : 'text-red-400'}`}>صافي الربح الإجمالي</div>
           <div className={`text-xl font-black ${netProfit >= 0 ? 'text-white' : 'text-red-400'}`}>{formatCurrency(netProfit)}</div>
-          <div className="text-xs text-gray-500 mt-1">بعد خصم المصروفات</div>
+          <div className="text-xs text-gray-500 mt-1">شامل ربح أوردرات نون/أمازون</div>
         </div>
         <div className="bg-gradient-to-br from-red-900/40 to-red-900/10 border border-red-700/30 rounded-2xl p-4">
           <div className="text-xs text-red-400 mb-1">مديونيات العملاء</div>
@@ -208,6 +244,63 @@ export default function Reports({ state }: Props) {
             ))}
           </div>
         )}
+      </div>
+
+      {/* ربح الشهر الحالي - شامل المبيعات والمصروفات وربح تسويات نون/أمازون */}
+      <div className="bg-gradient-to-br from-violet-900/30 to-[#1a1a35] border border-violet-700/40 rounded-2xl p-5">
+        <h3 className="font-bold text-white mb-1">📅 ربح شهر {monthLabel(currentMonthKey)}</h3>
+        <p className="text-xs text-gray-500 mb-4">إجمالي الربح هذا الشهر شامل المبيعات المباشرة وربح أوردرات نون/أمازون المحوّلة بنكيًا خلال الشهر</p>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-green-400">{formatCurrency(currentMonthSummary.sales)}</div>
+            <div className="text-xs text-gray-500 mt-1">مبيعات الشهر</div>
+          </div>
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-blue-400">{formatCurrency(currentMonthSummary.purchases)}</div>
+            <div className="text-xs text-gray-500 mt-1">مشتريات الشهر</div>
+          </div>
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-orange-400">{formatCurrency(currentMonthSummary.expenses)}</div>
+            <div className="text-xs text-gray-500 mt-1">مصروفات الشهر</div>
+          </div>
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-violet-300">{formatCurrency(currentMonthSummary.noonProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح أوردرات نون/أمازون</div>
+          </div>
+          <div className={`rounded-xl p-3 text-center border ${currentMonthSummary.net >= 0 ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'}`}>
+            <div className={`text-lg font-black ${currentMonthSummary.net >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatCurrency(currentMonthSummary.net)}</div>
+            <div className="text-xs text-gray-500 mt-1">صافي ربح الشهر</div>
+          </div>
+        </div>
+      </div>
+
+      {/* جدول مقارنة آخر 6 شهور */}
+      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5 overflow-x-auto">
+        <h3 className="font-bold text-white mb-4">📊 مقارنة آخر 6 شهور</h3>
+        <table className="w-full text-sm min-w-[600px]">
+          <thead className="bg-violet-900/20">
+            <tr>
+              <th className="text-right py-2 px-3 text-gray-400">الشهر</th>
+              <th className="text-center py-2 px-3 text-gray-400">المبيعات</th>
+              <th className="text-center py-2 px-3 text-gray-400">المشتريات</th>
+              <th className="text-center py-2 px-3 text-gray-400">المصروفات</th>
+              <th className="text-center py-2 px-3 text-gray-400">ربح نون/أمازون</th>
+              <th className="text-center py-2 px-3 text-gray-400">صافي الربح</th>
+            </tr>
+          </thead>
+          <tbody>
+            {monthlyHistory.map(m => (
+              <tr key={m.monthKey} className={`border-t border-white/5 ${m.monthKey === currentMonthKey ? 'bg-violet-900/10' : ''}`}>
+                <td className="py-2 px-3 text-white font-medium">{monthLabel(m.monthKey)}</td>
+                <td className="py-2 px-3 text-center text-green-400">{formatCurrency(m.sales)}</td>
+                <td className="py-2 px-3 text-center text-blue-400">{formatCurrency(m.purchases)}</td>
+                <td className="py-2 px-3 text-center text-orange-400">{formatCurrency(m.expenses)}</td>
+                <td className="py-2 px-3 text-center text-violet-300">{formatCurrency(m.noonProfit)}</td>
+                <td className={`py-2 px-3 text-center font-bold ${m.net >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(m.net)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Noon Stats */}
