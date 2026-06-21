@@ -37,7 +37,6 @@ const navItems: NavItem[] = [
   { id: 'suppliers', label: 'الموردون', icon: <Truck size={20} /> },
   { id: 'noon', label: 'نون / أمازون', icon: <Store size={20} /> },
   { id: 'finance', label: 'المالية', icon: <DollarSign size={20} /> },
-  { id: 'accounting', label: 'الحسابات العامة', icon: <BookOpen size={20} /> },
   { id: 'reports', label: 'التقارير', icon: <BarChart3 size={20} /> },
   { id: 'expenses', label: 'المصروفات', icon: <CreditCard size={20} /> },
   { id: 'products', label: 'المنتجات', icon: <TrendingUp size={20} /> },

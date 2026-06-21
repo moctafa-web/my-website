@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Customer, SaleInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
-import { Plus, Search, X, Printer, DollarSign, Eye } from 'lucide-react';
+import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2 } from 'lucide-react';
+import ViewToggle, { useViewMode } from '../components/ViewToggle';
 
 interface Props {
   customers: Customer[];
@@ -13,14 +14,17 @@ interface Props {
   onUpdateCustomer: (c: Customer) => void;
   onDeleteCustomer: (id: string) => void;
   onAddPayment: (p: Payment) => void;
+  onNavigateToSales?: (customerId: string) => void;
 }
 
-export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment }: Props) {
+export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onNavigateToSales }: Props) {
+  const [viewMode, setViewMode] = useViewMode('customers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null);
   const [showPayment, setShowPayment] = useState<Customer | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank'>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
@@ -42,6 +46,13 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       onAddCustomer({ id: generateId(), ...form, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() });
     }
     setShowForm(false);
+  };
+
+  const handleDelete = () => {
+    if (!confirmDelete) return;
+    onDeleteCustomer(confirmDelete.id);
+    if (viewCustomer?.id === confirmDelete.id) setViewCustomer(null);
+    setConfirmDelete(null);
   };
 
   const handlePayment = () => {
@@ -72,21 +83,27 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     return totalInv - totalPaid;
   };
 
-  const printStatement = (c: Customer) => {
+  // كل حركات الحساب مجمّعة ومرتبة بالتاريخ (فواتير + دفعات) لعرضها بالتفصيل في الشاشة
+  const getFullStatementRows = (c: Customer) => {
     const invs = getCustomerInvoices(c.id);
     const pmts = getCustomerPayments(c.id);
-    const balance = getBalance(c);
-
-    let running = c.openingBalance;
-    const allTrans = [
-      ...invs.map(inv => ({ date: inv.date, desc: `فاتورة ${inv.invoiceNumber}`, debit: inv.total, credit: 0, ref: inv.invoiceNumber })),
-      ...pmts.map(p => ({ date: p.date, desc: `دفعة - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}`, debit: 0, credit: p.amount, ref: '' })),
+    const rows = [
+      ...invs.map(inv => ({ date: inv.date, desc: `فاتورة ${inv.invoiceNumber}`, debit: inv.total, credit: 0, type: 'invoice' as const, ref: inv })),
+      ...pmts.map(p => ({ date: p.date, desc: `دفعة (تحصيل) - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}${p.notes ? ' - ' + p.notes : ''}`, debit: 0, credit: p.amount, type: 'payment' as const, ref: p })),
     ].sort((a, b) => a.date.localeCompare(b.date));
+    let running = c.openingBalance;
+    return rows.map(r => {
+      running += r.debit - r.credit;
+      return { ...r, runningBalance: running };
+    });
+  };
 
-    const rows = allTrans.map(t => {
-      running += t.debit - t.credit;
-      return `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${running.toLocaleString('ar-EG')}</td></tr>`;
-    }).join('');
+  const printStatement = (c: Customer) => {
+    const invs = getCustomerInvoices(c.id);
+    const balance = getBalance(c);
+    const rows = getFullStatementRows(c).map(t =>
+      `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`
+    ).join('');
 
     printElement(`
       <div class="header">
@@ -128,62 +145,153 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث بالاسم أو الهاتف..." className="input-dark w-full pr-9" />
+      <div className="flex items-center gap-3">
+        <div className="flex-1 relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث بالاسم أو الهاتف..." className="input-dark w-full pr-9" />
+        </div>
+        <ViewToggle value={viewMode} onChange={setViewMode} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(c => {
-          const balance = getBalance(c);
-          const invCount = getCustomerInvoices(c.id).length;
-          return (
-            <div key={c.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-violet-900/40 flex items-center justify-center text-lg font-bold text-violet-300">
-                    {c.name.charAt(0)}
+      {/* Grid View */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(c => {
+            const balance = getBalance(c);
+            const invCount = getCustomerInvoices(c.id).length;
+            return (
+              <div key={c.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-violet-900/40 flex items-center justify-center text-lg font-bold text-violet-300">
+                      {c.name.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="font-bold text-white text-sm">{c.name}</div>
+                      <div className="text-xs text-gray-500">{c.phone || 'لا يوجد هاتف'}</div>
+                    </div>
                   </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${c.type === 'individual' ? 'bg-blue-900/40 text-blue-400' : c.type === 'company' ? 'bg-purple-900/40 text-purple-400' : 'bg-orange-900/40 text-orange-400'}`}>
+                    {c.type === 'individual' ? 'فرد' : c.type === 'company' ? 'شركة' : c.type === 'wholesale' ? 'جملة' : 'تاجر'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="bg-[#252545] rounded-xl p-2 text-center">
+                    <div className="text-xs text-gray-500">عدد الفواتير</div>
+                    <div className="font-bold text-white">{invCount}</div>
+                  </div>
+                  <div className={`rounded-xl p-2 text-center ${balance > 0 ? 'bg-red-900/20' : 'bg-green-900/20'}`}>
+                    <div className="text-xs text-gray-500">الرصيد المستحق</div>
+                    <div className={`font-bold text-sm ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setViewCustomer(c)} className="flex-1 py-1.5 text-xs bg-violet-900/20 border border-violet-700/30 rounded-xl text-violet-300 hover:bg-violet-900/40 flex items-center justify-center gap-1"><Eye size={12} /> كشف حساب</button>
+                  <button onClick={() => setShowPayment(c)} className="flex-1 py-1.5 text-xs bg-green-900/20 border border-green-700/30 rounded-xl text-green-300 hover:bg-green-900/40 flex items-center justify-center gap-1"><DollarSign size={12} /> تحصيل</button>
+                  <button onClick={() => openEdit(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-violet-400"><Edit size={12} /></button>
+                  <button onClick={() => setConfirmDelete(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-red-400"><Trash2 size={12} /></button>
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && <div className="col-span-full text-center text-gray-500 py-12">لا يوجد عملاء</div>}
+        </div>
+      )}
+
+      {/* List View */}
+      {viewMode === 'list' && (
+        <div className="space-y-2">
+          {filtered.map(c => {
+            const balance = getBalance(c);
+            const invCount = getCustomerInvoices(c.id).length;
+            return (
+              <div key={c.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-violet-900/40 flex items-center justify-center text-sm font-bold text-violet-300">{c.name.charAt(0)}</div>
                   <div>
-                    <div className="font-bold text-white text-sm">{c.name}</div>
-                    <div className="text-xs text-gray-500">{c.phone || 'لا يوجد هاتف'}</div>
+                    <div className="font-medium text-white text-sm">{c.name}</div>
+                    <div className="text-xs text-gray-500">{c.phone || 'لا يوجد هاتف'} • {c.type === 'individual' ? 'فرد' : c.type === 'company' ? 'شركة' : c.type === 'wholesale' ? 'جملة' : 'تاجر'}</div>
                   </div>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${c.type === 'individual' ? 'bg-blue-900/40 text-blue-400' : c.type === 'company' ? 'bg-purple-900/40 text-purple-400' : 'bg-orange-900/40 text-orange-400'}`}>
-                  {c.type === 'individual' ? 'فرد' : c.type === 'company' ? 'شركة' : 'تاجر'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="bg-[#252545] rounded-xl p-2 text-center">
-                  <div className="text-xs text-gray-500">عدد الفواتير</div>
-                  <div className="font-bold text-white">{invCount}</div>
-                </div>
-                <div className={`rounded-xl p-2 text-center ${balance > 0 ? 'bg-red-900/20' : 'bg-green-900/20'}`}>
-                  <div className="text-xs text-gray-500">الرصيد المستحق</div>
-                  <div className={`font-bold text-sm ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</div>
+                <div className="flex items-center gap-5">
+                  <div className="text-center"><div className="text-xs text-gray-500">الفواتير</div><div className="text-sm font-bold text-white">{invCount}</div></div>
+                  <div className="text-center"><div className="text-xs text-gray-500">الرصيد</div><div className={`text-sm font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</div></div>
+                  <div className="flex gap-1">
+                    <button onClick={() => setViewCustomer(c)} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
+                    <button onClick={() => setShowPayment(c)} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20"><DollarSign size={14} /></button>
+                    <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400"><Edit size={14} /></button>
+                    <button onClick={() => setConfirmDelete(c)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400"><Trash2 size={14} /></button>
+                  </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setViewCustomer(c)} className="flex-1 py-1.5 text-xs bg-violet-900/20 border border-violet-700/30 rounded-xl text-violet-300 hover:bg-violet-900/40 flex items-center justify-center gap-1"><Eye size={12} /> كشف حساب</button>
-                <button onClick={() => setShowPayment(c)} className="flex-1 py-1.5 text-xs bg-green-900/20 border border-green-700/30 rounded-xl text-green-300 hover:bg-green-900/40 flex items-center justify-center gap-1"><DollarSign size={12} /> تحصيل</button>
-                <button onClick={() => printStatement(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-white"><Printer size={12} /></button>
-                <button onClick={() => openEdit(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-violet-400">✏️</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+          {filtered.length === 0 && <div className="text-center text-gray-500 py-12">لا يوجد عملاء</div>}
+        </div>
+      )}
 
-      {/* Customer Statement Modal */}
+      {/* Compact View */}
+      {viewMode === 'compact' && (
+        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-violet-900/20">
+              <tr>
+                <th className="text-right py-3 px-4 text-gray-400 font-medium">الاسم</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium hidden md:table-cell">النوع</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium">الفواتير</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium">الرصيد</th>
+                <th className="py-3 px-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(c => {
+                const balance = getBalance(c);
+                return (
+                  <tr key={c.id} className="border-t border-white/5 hover:bg-white/5">
+                    <td className="py-2.5 px-4">
+                      <div className="font-medium text-white text-sm">{c.name}</div>
+                      <div className="text-xs text-gray-500">{c.phone || '-'}</div>
+                    </td>
+                    <td className="py-2.5 px-3 text-center text-gray-400 text-xs hidden md:table-cell">{c.type === 'individual' ? 'فرد' : c.type === 'company' ? 'شركة' : c.type === 'wholesale' ? 'جملة' : 'تاجر'}</td>
+                    <td className="py-2.5 px-3 text-center text-white">{getCustomerInvoices(c.id).length}</td>
+                    <td className={`py-2.5 px-3 text-center font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</td>
+                    <td className="py-2.5 px-3">
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => setViewCustomer(c)} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
+                        <button onClick={() => setShowPayment(c)} className="p-1 rounded text-green-400 hover:bg-green-900/20"><DollarSign size={13} /></button>
+                        <button onClick={() => openEdit(c)} className="p-1 rounded text-gray-400 hover:text-violet-400"><Edit size={13} /></button>
+                        <button onClick={() => setConfirmDelete(c)} className="p-1 rounded text-gray-400 hover:text-red-400"><Trash2 size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-500">لا يوجد عملاء</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Customer Statement Modal - عرض كامل بالشاشة */}
       {viewCustomer && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-3xl my-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-xl font-bold text-white">📊 كشف حساب - {viewCustomer.name}</h2>
               <div className="flex gap-2">
+                <button onClick={() => { setShowForm(false); setViewCustomer(null); onNavigateToSales?.(viewCustomer.id); }} className="btn-primary text-sm flex items-center gap-1"><FilePlus2 size={14} /> فاتورة جديدة</button>
+                <button onClick={() => setShowPayment(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><DollarSign size={14} /> تحصيل دفعة</button>
                 <button onClick={() => printStatement(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><Printer size={14} /> طباعة PDF</button>
                 <button onClick={() => setViewCustomer(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
               </div>
+            </div>
+
+            {/* بيانات أساسية */}
+            <div className="bg-[#252545] rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-sm">
+              <span className="text-gray-400">📞 {viewCustomer.phone || '-'}</span>
+              {viewCustomer.email && <span className="text-gray-400">✉️ {viewCustomer.email}</span>}
+              {viewCustomer.address && <span className="text-gray-400">📍 {viewCustomer.address}</span>}
+              {viewCustomer.notes && <span className="text-gray-400">📝 {viewCustomer.notes}</span>}
             </div>
 
             <div className="grid grid-cols-4 gap-3 mb-4">
@@ -205,7 +313,9 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* حركة الحساب الكاملة بالتفصيل: فواتير + دفعات مرتبة بالتاريخ مع رصيد جاري */}
+            <h3 className="text-sm font-bold text-violet-300 mb-2">📜 حركة الحساب بالتفصيل</h3>
+            <div className="overflow-x-auto mb-4">
               <table className="w-full text-sm">
                 <thead className="bg-violet-900/20">
                   <tr>
@@ -213,24 +323,42 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                     <th className="text-right py-2 px-3 text-gray-400">البيان</th>
                     <th className="text-center py-2 px-3 text-gray-400">مدين</th>
                     <th className="text-center py-2 px-3 text-gray-400">دائن</th>
-                    <th className="text-center py-2 px-3 text-gray-400">الرصيد</th>
+                    <th className="text-center py-2 px-3 text-gray-400">الرصيد الجاري</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {getCustomerInvoices(viewCustomer.id).map(inv => (
-                    <tr key={inv.id} className="border-t border-white/5 hover:bg-white/5">
-                      <td className="py-2 px-3 text-gray-400 text-xs">{inv.date}</td>
-                      <td className="py-2 px-3 text-white">فاتورة {inv.invoiceNumber}</td>
-                      <td className="py-2 px-3 text-center text-red-400">{inv.total.toLocaleString('ar-EG')}</td>
-                      <td className="py-2 px-3 text-center text-green-400">{inv.paid.toLocaleString('ar-EG')}</td>
-                      <td className="py-2 px-3 text-center text-white">{inv.remaining.toLocaleString('ar-EG')}</td>
+                  {getFullStatementRows(viewCustomer).map((t, idx) => (
+                    <tr key={idx} className="border-t border-white/5 hover:bg-white/5">
+                      <td className="py-2 px-3 text-gray-400 text-xs">{t.date}</td>
+                      <td className="py-2 px-3 text-white">{t.desc}</td>
+                      <td className="py-2 px-3 text-center text-red-400">{t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td>
+                      <td className="py-2 px-3 text-center text-green-400">{t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td>
+                      <td className="py-2 px-3 text-center text-white font-medium">{t.runningBalance.toLocaleString('ar-EG')}</td>
                     </tr>
                   ))}
-                  {getCustomerInvoices(viewCustomer.id).length === 0 && (
-                    <tr><td colSpan={5} className="text-center py-8 text-gray-500">لا توجد فواتير</td></tr>
+                  {getFullStatementRows(viewCustomer).length === 0 && (
+                    <tr><td colSpan={5} className="text-center py-8 text-gray-500">لا توجد حركات</td></tr>
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* عرض جميع فواتير المبيعات لهذا العميل */}
+            <h3 className="text-sm font-bold text-violet-300 mb-2">🧾 جميع فواتير المبيعات ({getCustomerInvoices(viewCustomer.id).length})</h3>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {getCustomerInvoices(viewCustomer.id).map(inv => (
+                <div key={inv.id} className="bg-[#252545] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="font-medium text-white text-sm font-mono">{inv.invoiceNumber}</div>
+                    <div className="text-xs text-gray-500">{inv.date} • {inv.items.length} منتج</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-bold text-white">{formatCurrency(inv.total)}</div>
+                    {inv.remaining > 0 ? <div className="text-xs text-red-400">متبقي: {formatCurrency(inv.remaining)}</div> : <div className="text-xs text-green-400">✓ مدفوعة بالكامل</div>}
+                  </div>
+                </div>
+              ))}
+              {getCustomerInvoices(viewCustomer.id).length === 0 && <div className="text-center text-gray-500 py-8">لا توجد فواتير</div>}
             </div>
           </div>
         </div>
@@ -280,6 +408,20 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             <div className="flex gap-2 mt-4">
               <button onClick={handleSave} className="btn-primary flex-1">💾 حفظ</button>
               <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+            <h3 className="font-bold text-white mb-2">🗑️ حذف العميل</h3>
+            <p className="text-gray-400 text-sm mb-4">هل أنت متأكد من حذف <span className="text-white font-medium">{confirmDelete.name}</span>؟ لن يتم حذف الفواتير المرتبطة به، لكن لن تتمكن من الرجوع لهذا الإجراء.</p>
+            <div className="flex gap-2">
+              <button onClick={handleDelete} className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">🗑️ تأكيد الحذف</button>
+              <button onClick={() => setConfirmDelete(null)} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

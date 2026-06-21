@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X } from 'lucide-react';
@@ -15,6 +15,8 @@ interface Props {
   onAddProduct: (p: Product) => void;
   onAddSerials: (serials: SerialItem[]) => void;
   onUpdatePurchaseInvoice: (inv: PurchaseInvoice) => void;
+  preselectedSupplierId?: string | null;
+  onPreselectedHandled?: () => void;
 }
 
 interface PurchItem {
@@ -31,7 +33,7 @@ interface PurchItem {
   newProductData?: Partial<Product>;
 }
 
-export default function Purchases({ purchaseInvoices, suppliers, products, serials, brands, settings, onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials, onUpdatePurchaseInvoice }: Props) {
+export default function Purchases({ purchaseInvoices, suppliers, products, serials, brands, settings, onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials, onUpdatePurchaseInvoice, preselectedSupplierId, onPreselectedHandled }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
@@ -51,6 +53,19 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
   const [notes, setNotes] = useState('');
   const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
+
+  // عند القدوم من كشف حساب مورد بزرار "فاتورة شراء جديدة": يفتح الفورم تلقائيًا مع تحديد المورد
+  useEffect(() => {
+    if (preselectedSupplierId) {
+      const supplier = suppliers.find(s => s.id === preselectedSupplierId);
+      if (supplier) {
+        setSupplierId(supplier.id);
+        setSupplierSearch(supplier.name);
+      }
+      setShowForm(true);
+      onPreselectedHandled?.();
+    }
+  }, [preselectedSupplierId]);
 
   const filtered = purchaseInvoices.filter(inv =>
     inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||

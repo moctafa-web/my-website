@@ -213,12 +213,13 @@ export default function Reports({ state }: Props) {
       {/* Noon Stats */}
       <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
         <h3 className="font-bold text-white mb-4">🏪 أوردرات المنصات</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
             { label: 'إجمالي الأوردرات', value: state.noonOrders.length, color: 'text-white' },
             { label: 'معلق', value: state.noonOrders.filter(o => o.status === 'pending').length, color: 'text-yellow-400' },
             { label: 'تم الشحن', value: state.noonOrders.filter(o => o.status === 'shipped').length, color: 'text-blue-400' },
             { label: 'تم التوصيل', value: state.noonOrders.filter(o => o.status === 'delivered').length, color: 'text-green-400' },
+            { label: 'محول بنكيًا', value: state.noonOrders.filter(o => o.status === 'settled').length, color: 'text-violet-400' },
           ].map((s, i) => (
             <div key={i} className="bg-[#252545] rounded-xl p-3 text-center">
               <div className={`text-2xl font-black ${s.color}`}>{s.value}</div>
@@ -226,6 +227,18 @@ export default function Reports({ state }: Props) {
             </div>
           ))}
         </div>
+        {state.noonOrders.some(o => o.status === 'settled') && (
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-500">إجمالي المبالغ المحولة بنكيًا</div>
+              <div className="font-bold text-blue-300 text-lg">{formatCurrency(state.noonOrders.reduce((s, o) => s + (o.settledAmount || 0), 0))}</div>
+            </div>
+            <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-500">إجمالي ربح أوردرات المنصات</div>
+              <div className="font-bold text-green-300 text-lg">{formatCurrency(state.noonOrders.reduce((s, o) => s + (o.settlementProfit || 0), 0))}</div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

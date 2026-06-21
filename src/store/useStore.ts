@@ -1,19 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppState, Product, Customer, Supplier, SaleInvoice, PurchaseInvoice, Payment, Expense, TreasuryTransaction, NoonOrder, DailyClosing, SerialItem, Brand, AppSettings } from '../types';
 import { db } from '../firebase';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  updateDoc, 
-  deleteDoc, 
-  doc,
-  writeBatch,
-  query,
-  where
-} from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
 
 const STORAGE_KEY = 'one_erp_data';
+
+// ==================== Firebase Helper Functions ====================
+const saveToFirebase = async (collectionName: string, id: string, data: any) => {
+  try {
+    await setDoc(doc(db, collectionName, id), data);
+  } catch (error) {
+    console.error(`Error saving to ${collectionName}:`, error);
+  }
+};
+
+const deleteFromFirebase = async (collectionName: string, id: string) => {
+  try {
+    await deleteDoc(doc(db, collectionName, id));
+  } catch (error) {
+    console.error(`Error deleting from ${collectionName}:`, error);
+  }
+};
 
 const defaultSettings: AppSettings = {
   companyName: 'ONE',
@@ -112,19 +119,10 @@ export function useStore() {
     const loadDataFromFirebase = async () => {
       try {
         setIsLoading(true);
-        
-        // Load all collections
         const [
-          productsSnap,
-          serialsSnap,
-          customersSnap,
-          suppliersSnap,
-          saleInvoicesSnap,
-          purchaseInvoicesSnap,
-          paymentsSnap,
-          expensesSnap,
-          noonOrdersSnap,
-          brandsSnap,
+          productsSnap, serialsSnap, customersSnap, suppliersSnap,
+          saleInvoicesSnap, purchaseInvoicesSnap, paymentsSnap,
+          expensesSnap, noonOrdersSnap, brandsSnap,
         ] = await Promise.all([
           getDocs(collection(db, 'products')),
           getDocs(collection(db, 'serials')),
@@ -138,39 +136,37 @@ export function useStore() {
           getDocs(collection(db, 'brands')),
         ]);
 
-        // If Firebase is empty, use demo data
-        if (productsSnap.empty) {
-          console.log('Firebase is empty, using demo data');
+        // If Firebase is empty, keep local/demo data
+        if (productsSnap.empty && customersSnap.empty && saleInvoicesSnap.empty) {
+          console.log('Firebase is empty, using local data');
           setIsLoading(false);
           return;
         }
 
-        // Convert to arrays
-        const products = productsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Product));
-        const serials = serialsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as SerialItem));
-        const customers = customersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Customer));
-        const suppliers = suppliersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
-        const saleInvoices = saleInvoicesSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as SaleInvoice));
-        const purchaseInvoices = purchaseInvoicesSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as PurchaseInvoice));
-        const payments = paymentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
-        const expenses = expensesSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Expense));
-        const noonOrders = noonOrdersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as NoonOrder));
-        const brands = brandsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Brand));
+        const products = productsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Product));
+        const serials = serialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as SerialItem));
+        const customers = customersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Customer));
+        const suppliers = suppliersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Supplier));
+        const saleInvoices = saleInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as SaleInvoice));
+        const purchaseInvoices = purchaseInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as PurchaseInvoice));
+        const payments = paymentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Payment));
+        const expenses = expensesSnap.docs.map(d => ({ ...d.data(), id: d.id } as Expense));
+        const noonOrders = noonOrdersSnap.docs.map(d => ({ ...d.data(), id: d.id } as NoonOrder));
+        const brands = brandsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Brand));
 
         setState(prev => ({
           ...prev,
-          products,
-          serials,
-          customers,
-          suppliers,
+          products: products.length ? products : prev.products,
+          serials: serials.length ? serials : prev.serials,
+          customers: customers.length ? customers : prev.customers,
+          suppliers: suppliers.length ? suppliers : prev.suppliers,
           saleInvoices,
           purchaseInvoices,
           payments,
           expenses,
           noonOrders,
-          brands: brands.length > 0 ? brands : defaultBrands,
+          brands: brands.length ? brands : prev.brands,
         }));
-
         console.log('✅ Data loaded from Firebase successfully!');
       } catch (error) {
         console.error('Error loading from Firebase:', error);
@@ -178,11 +174,10 @@ export function useStore() {
         setIsLoading(false);
       }
     };
-
     loadDataFromFirebase();
   }, []);
 
-  // Save to localStorage whenever state changes
+  // Save to localStorage whenever state changes (backup)
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -194,392 +189,534 @@ export function useStore() {
   }, []);
 
   // ==================== PRODUCTS ====================
-  const addProduct = useCallback(async (product: Product) => {
-    try {
-      const docRef = await addDoc(collection(db, 'products'), product);
-      setState(prev => ({ ...prev, products: [...prev.products, { ...product, id: docRef.id }] }));
-      console.log('✅ Product added to Firebase');
-    } catch (error) {
-      console.error('Error adding product:', error);
-      setState(prev => ({ ...prev, products: [...prev.products, product] }));
-    }
+  const addProduct = useCallback((product: Product) => {
+    setState(prev => ({ ...prev, products: [...prev.products, product] }));
+    saveToFirebase('products', product.id, product);
   }, []);
 
-  const updateProduct = useCallback(async (product: Product) => {
-    try {
-      await updateDoc(doc(db, 'products', product.id), { ...product });
-      setState(prev => ({ ...prev, products: prev.products.map(p => p.id === product.id ? product : p) }));
-      console.log('✅ Product updated in Firebase');
-    } catch (error) {
-      console.error('Error updating product:', error);
-      setState(prev => ({ ...prev, products: prev.products.map(p => p.id === product.id ? product : p) }));
-    }
+  const updateProduct = useCallback((product: Product) => {
+    setState(prev => ({ ...prev, products: prev.products.map(p => p.id === product.id ? product : p) }));
+    saveToFirebase('products', product.id, product);
   }, []);
 
-  const deleteProduct = useCallback(async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'products', id));
-      setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
-      console.log('✅ Product deleted from Firebase');
-    } catch (error) {
-      console.error('Error deleting product:', error);
-      setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
-    }
+  const deleteProduct = useCallback((id: string) => {
+    setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
+    deleteFromFirebase('products', id);
   }, []);
 
   // ==================== SERIALS ====================
-  const addSerial = useCallback(async (serial: SerialItem) => {
-    try {
-      const docRef = await addDoc(collection(db, 'serials'), serial);
-      setState(prev => ({ ...prev, serials: [...prev.serials, { ...serial, id: docRef.id }] }));
-    } catch (error) {
-      console.error('Error adding serial:', error);
-      setState(prev => ({ ...prev, serials: [...prev.serials, serial] }));
-    }
+  const addSerial = useCallback((serial: SerialItem) => {
+    setState(prev => ({ ...prev, serials: [...prev.serials, serial] }));
+    saveToFirebase('serials', serial.id, serial);
   }, []);
 
-  const updateSerial = useCallback(async (serial: SerialItem) => {
-    try {
-      await updateDoc(doc(db, 'serials', serial.id), { ...serial });
-      setState(prev => ({ ...prev, serials: prev.serials.map(s => s.id === serial.id ? serial : s) }));
-    } catch (error) {
-      console.error('Error updating serial:', error);
-      setState(prev => ({ ...prev, serials: prev.serials.map(s => s.id === serial.id ? serial : s) }));
-    }
+  const updateSerial = useCallback((serial: SerialItem) => {
+    setState(prev => ({ ...prev, serials: prev.serials.map(s => s.id === serial.id ? serial : s) }));
+    saveToFirebase('serials', serial.id, serial);
   }, []);
 
-  const addSerials = useCallback(async (newSerials: SerialItem[]) => {
-    try {
-      const batch = writeBatch(db);
-      const serialsWithIds: SerialItem[] = [];
-      
-      for (const serial of newSerials) {
-        const docRef = doc(collection(db, 'serials'));
-        batch.set(docRef, serial);
-        serialsWithIds.push({ ...serial, id: docRef.id });
-      }
-      
-      await batch.commit();
-      setState(prev => ({ ...prev, serials: [...prev.serials, ...serialsWithIds] }));
-    } catch (error) {
-      console.error('Error adding serials:', error);
-      setState(prev => ({ ...prev, serials: [...prev.serials, ...newSerials] }));
-    }
+  const addSerials = useCallback((newSerials: SerialItem[]) => {
+    setState(prev => ({ ...prev, serials: [...prev.serials, ...newSerials] }));
+    newSerials.forEach(s => saveToFirebase('serials', s.id, s));
   }, []);
 
   // ==================== CUSTOMERS ====================
-  const addCustomer = useCallback(async (customer: Customer) => {
-    try {
-      const docRef = await addDoc(collection(db, 'customers'), customer);
-      setState(prev => ({ ...prev, customers: [...prev.customers, { ...customer, id: docRef.id }] }));
-    } catch (error) {
-      console.error('Error adding customer:', error);
-      setState(prev => ({ ...prev, customers: [...prev.customers, customer] }));
-    }
+  const addCustomer = useCallback((customer: Customer) => {
+    setState(prev => ({ ...prev, customers: [...prev.customers, customer] }));
+    saveToFirebase('customers', customer.id, customer);
   }, []);
 
-  const updateCustomer = useCallback(async (customer: Customer) => {
-    try {
-      await updateDoc(doc(db, 'customers', customer.id), { ...customer });
-      setState(prev => ({ ...prev, customers: prev.customers.map(c => c.id === customer.id ? customer : c) }));
-    } catch (error) {
-      console.error('Error updating customer:', error);
-      setState(prev => ({ ...prev, customers: prev.customers.map(c => c.id === customer.id ? customer : c) }));
-    }
+  const updateCustomer = useCallback((customer: Customer) => {
+    setState(prev => ({ ...prev, customers: prev.customers.map(c => c.id === customer.id ? customer : c) }));
+    saveToFirebase('customers', customer.id, customer);
   }, []);
 
-  const deleteCustomer = useCallback(async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'customers', id));
-      setState(prev => ({ ...prev, customers: prev.customers.filter(c => c.id !== id) }));
-    } catch (error) {
-      console.error('Error deleting customer:', error);
-      setState(prev => ({ ...prev, customers: prev.customers.filter(c => c.id !== id) }));
-    }
+  const deleteCustomer = useCallback((id: string) => {
+    setState(prev => ({ ...prev, customers: prev.customers.filter(c => c.id !== id) }));
+    deleteFromFirebase('customers', id);
   }, []);
 
   // ==================== SUPPLIERS ====================
-  const addSupplier = useCallback(async (supplier: Supplier) => {
-    try {
-      const docRef = await addDoc(collection(db, 'suppliers'), supplier);
-      setState(prev => ({ ...prev, suppliers: [...prev.suppliers, { ...supplier, id: docRef.id }] }));
-    } catch (error) {
-      console.error('Error adding supplier:', error);
-      setState(prev => ({ ...prev, suppliers: [...prev.suppliers, supplier] }));
-    }
+  const addSupplier = useCallback((supplier: Supplier) => {
+    setState(prev => ({ ...prev, suppliers: [...prev.suppliers, supplier] }));
+    saveToFirebase('suppliers', supplier.id, supplier);
   }, []);
 
-  const updateSupplier = useCallback(async (supplier: Supplier) => {
-    try {
-      await updateDoc(doc(db, 'suppliers', supplier.id), { ...supplier });
-      setState(prev => ({ ...prev, suppliers: prev.suppliers.map(s => s.id === supplier.id ? supplier : s) }));
-    } catch (error) {
-      console.error('Error updating supplier:', error);
-      setState(prev => ({ ...prev, suppliers: prev.suppliers.map(s => s.id === supplier.id ? supplier : s) }));
-    }
+  const updateSupplier = useCallback((supplier: Supplier) => {
+    setState(prev => ({ ...prev, suppliers: prev.suppliers.map(s => s.id === supplier.id ? supplier : s) }));
+    saveToFirebase('suppliers', supplier.id, supplier);
   }, []);
 
-  const deleteSupplier = useCallback(async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'suppliers', id));
-      setState(prev => ({ ...prev, suppliers: prev.suppliers.filter(s => s.id !== id) }));
-    } catch (error) {
-      console.error('Error deleting supplier:', error);
-      setState(prev => ({ ...prev, suppliers: prev.suppliers.filter(s => s.id !== id) }));
-    }
+  const deleteSupplier = useCallback((id: string) => {
+    setState(prev => ({ ...prev, suppliers: prev.suppliers.filter(s => s.id !== id) }));
+    deleteFromFirebase('suppliers', id);
   }, []);
 
   // ==================== SALE INVOICES ====================
-  const addSaleInvoice = useCallback(async (invoice: SaleInvoice) => {
-    try {
-      await addDoc(collection(db, 'saleInvoices'), invoice);
-      
-      setState(prev => {
-        const newState = { ...prev, saleInvoices: [...prev.saleInvoices, invoice] };
-        const custIdx = newState.customers.findIndex(c => c.id === invoice.customerId);
-        if (custIdx >= 0) {
-          const customer = { ...newState.customers[custIdx] };
-          customer.totalInvoices = (customer.totalInvoices || 0) + invoice.total;
-          customer.totalPaid = (customer.totalPaid || 0) + invoice.paid;
-          newState.customers = newState.customers.map(c => c.id === invoice.customerId ? customer : c);
-          updateDoc(doc(db, 'customers', invoice.customerId), { ...customer });
-        }
-        
-        if (invoice.paid > 0) {
-          const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
-          newState.cashBalance = treasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
-          newState.bankBalance = treasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
-        }
-        
-        invoice.items.forEach(item => {
-          if (item.serials && item.serials.length > 0) {
-            item.serials.forEach(sl => {
-              const serial = newState.serials.find(s => s.serial === sl.serial);
-              if (serial) {
-                const updatedSerial = { ...serial, status: 'sold' as const, saleInvoiceId: invoice.id, salePrice: item.unitPrice };
-                updateDoc(doc(db, 'serials', serial.id), updatedSerial);
-                newState.serials = newState.serials.map(s => s.serial === sl.serial ? updatedSerial : s);
+  const addSaleInvoice = useCallback((invoice: SaleInvoice) => {
+    setState(prev => {
+      const newState = { ...prev, saleInvoices: [...prev.saleInvoices, invoice] };
+      let updatedCustomer: Customer | null = null;
+      const updatedSerials: SerialItem[] = [];
+
+      // Update customer totals
+      const custIdx = newState.customers.findIndex(c => c.id === invoice.customerId);
+      if (custIdx >= 0) {
+        const customer = { ...newState.customers[custIdx] };
+        customer.totalInvoices = (customer.totalInvoices || 0) + invoice.total;
+        customer.totalPaid = (customer.totalPaid || 0) + invoice.paid;
+        newState.customers = newState.customers.map(c => c.id === invoice.customerId ? customer : c);
+        updatedCustomer = customer;
+      }
+      // Update treasury
+      if (invoice.paid > 0) {
+        const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
+        newState.treasuryTransactions = [...newState.treasuryTransactions, {
+          id: `tr_${Date.now()}`,
+          type: 'sale',
+          description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
+          amount: invoice.paid,
+          treasury,
+          direction: 'in',
+          referenceId: invoice.id,
+          date: invoice.date,
+          createdAt: new Date().toISOString(),
+        }];
+      }
+      // Update serials
+      invoice.items.forEach(item => {
+        if (item.serials && item.serials.length > 0) {
+          item.serials.forEach(sl => {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === sl.serial) {
+                const updated = { ...s, status: 'sold' as const, saleInvoiceId: invoice.id, salePrice: item.unitPrice };
+                updatedSerials.push(updated);
+                return updated;
               }
+              return s;
             });
-          }
-        });
-        
-        newState.settings = { ...newState.settings, lastSaleInvoiceNum: newState.settings.lastSaleInvoiceNum + 1 };
-        return newState;
+          });
+        }
       });
-    } catch (error) {
-      console.error('Error adding sale invoice:', error);
-    }
+      // Update invoice number
+      newState.settings = { ...newState.settings, lastSaleInvoiceNum: newState.settings.lastSaleInvoiceNum + 1 };
+
+      // 🔥 Save to Firebase
+      saveToFirebase('saleInvoices', invoice.id, invoice);
+      if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
+      return newState;
+    });
   }, []);
 
-  const updateSaleInvoice = useCallback(async (invoice: SaleInvoice) => {
-    try {
-      await updateDoc(doc(db, 'saleInvoices', invoice.id), { ...invoice });
-      setState(prev => ({ ...prev, saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    } catch (error) {
-      console.error('Error updating sale invoice:', error);
-      setState(prev => ({ ...prev, saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    }
+  const updateSaleInvoice = useCallback((invoice: SaleInvoice) => {
+    setState(prev => ({ ...prev, saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? invoice : i) }));
+    saveToFirebase('saleInvoices', invoice.id, invoice);
   }, []);
 
   // ==================== PURCHASE INVOICES ====================
-  const addPurchaseInvoice = useCallback(async (invoice: PurchaseInvoice) => {
-    try {
-      await addDoc(collection(db, 'purchaseInvoices'), invoice);
-      
-      setState(prev => {
-        const newState = { ...prev, purchaseInvoices: [...prev.purchaseInvoices, invoice] };
-        const supIdx = newState.suppliers.findIndex(s => s.id === invoice.supplierId);
-        if (supIdx >= 0) {
-          const supplier = { ...newState.suppliers[supIdx] };
-          supplier.totalInvoices = (supplier.totalInvoices || 0) + invoice.total;
-          supplier.totalPaid = (supplier.totalPaid || 0) + invoice.paid;
-          newState.suppliers = newState.suppliers.map(s => s.id === invoice.supplierId ? supplier : s);
-          updateDoc(doc(db, 'suppliers', invoice.supplierId), { ...supplier });
+  const addPurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
+    setState(prev => {
+      const newState = { ...prev, purchaseInvoices: [...prev.purchaseInvoices, invoice] };
+      let updatedSupplier: Supplier | null = null;
+      const updatedProducts: Product[] = [];
+
+      // Update supplier totals
+      const supIdx = newState.suppliers.findIndex(s => s.id === invoice.supplierId);
+      if (supIdx >= 0) {
+        const supplier = { ...newState.suppliers[supIdx] };
+        supplier.totalInvoices = (supplier.totalInvoices || 0) + invoice.total;
+        supplier.totalPaid = (supplier.totalPaid || 0) + invoice.paid;
+        newState.suppliers = newState.suppliers.map(s => s.id === invoice.supplierId ? supplier : s);
+        updatedSupplier = supplier;
+      }
+      // Update treasury (payment out)
+      if (invoice.paid > 0) {
+        const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
+        newState.treasuryTransactions = [...newState.treasuryTransactions, {
+          id: `tr_${Date.now()}`,
+          type: 'purchase',
+          description: `فاتورة مشتريات ${invoice.invoiceNumber} - ${invoice.supplierName}`,
+          amount: invoice.paid,
+          treasury,
+          direction: 'out',
+          referenceId: invoice.id,
+          date: invoice.date,
+          createdAt: new Date().toISOString(),
+        }];
+      }
+      // Update stock
+      invoice.items.forEach(item => {
+        const pIdx = newState.products.findIndex(p => p.id === item.productId);
+        if (pIdx >= 0) {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: p.stock + item.quantity };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
         }
-        
-        if (invoice.paid > 0) {
-          const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
-          newState.cashBalance = treasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
-          newState.bankBalance = treasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
-        }
-        
-        invoice.items.forEach(item => {
-          const product = newState.products.find(p => p.id === item.productId);
-          if (product) {
-            const updatedProduct = { ...product, stock: product.stock + item.quantity };
-            updateDoc(doc(db, 'products', item.productId), updatedProduct);
-            newState.products = newState.products.map(p => p.id === item.productId ? updatedProduct : p);
-          }
-        });
-        
-        newState.settings = { ...newState.settings, lastPurchaseInvoiceNum: newState.settings.lastPurchaseInvoiceNum + 1 };
-        return newState;
       });
-    } catch (error) {
-      console.error('Error adding purchase invoice:', error);
-    }
+      newState.settings = { ...newState.settings, lastPurchaseInvoiceNum: newState.settings.lastPurchaseInvoiceNum + 1 };
+
+      // 🔥 Save to Firebase
+      saveToFirebase('purchaseInvoices', invoice.id, invoice);
+      if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+
+      return newState;
+    });
   }, []);
 
-  const updatePurchaseInvoice = useCallback(async (invoice: PurchaseInvoice) => {
-    try {
-      await updateDoc(doc(db, 'purchaseInvoices', invoice.id), { ...invoice });
-      setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    } catch (error) {
-      console.error('Error updating purchase invoice:', error);
-      setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    }
+  const updatePurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
+    setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) }));
+    saveToFirebase('purchaseInvoices', invoice.id, invoice);
   }, []);
 
-  // ==================== PAYMENTS ====================
-  const addPayment = useCallback(async (payment: Payment) => {
-    try {
-      await addDoc(collection(db, 'payments'), payment);
-      
-      setState(prev => {
-        const newState = { ...prev, payments: [...prev.payments, payment] };
-        const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
-        
-        if (payment.direction === 'in') {
-          newState.cashBalance = treasury === 'cash' ? newState.cashBalance + payment.amount : newState.cashBalance;
-          newState.bankBalance = treasury === 'bank' ? newState.bankBalance + payment.amount : newState.bankBalance;
-          
-          if (payment.type === 'sale') {
-            newState.customers = newState.customers.map(c => {
-              if (c.id === payment.referenceId) {
-                const updated = { ...c, totalPaid: (c.totalPaid || 0) + payment.amount };
-                updateDoc(doc(db, 'customers', c.id), updated);
+  // ==================== PAYMENTS (FIFO - Claude's fix) ====================
+  const addPayment = useCallback((payment: Payment) => {
+    setState(prev => {
+      const newState = { ...prev, payments: [...prev.payments, payment] };
+      const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
+      let changedCustomer: Customer | null = null;
+      let changedSupplier: Supplier | null = null;
+      const changedSaleInvoices: SaleInvoice[] = [];
+      const changedPurchaseInvoices: PurchaseInvoice[] = [];
+
+      if (payment.direction === 'in') {
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance + payment.amount : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance + payment.amount : newState.bankBalance;
+        if (payment.type === 'sale') {
+          newState.customers = newState.customers.map(c => {
+            if (c.id === payment.referenceId) {
+              changedCustomer = { ...c, totalPaid: (c.totalPaid || 0) + payment.amount };
+              return changedCustomer;
+            }
+            return c;
+          });
+          // FIFO distribution
+          let remaining = payment.amount;
+          const sortedInvoices = [...newState.saleInvoices]
+            .filter(inv => inv.customerId === payment.referenceId && inv.remaining > 0)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const updates = new Map<string, { paid: number; remaining: number; status: SaleInvoice['status'] }>();
+          for (const inv of sortedInvoices) {
+            if (remaining <= 0) break;
+            const applied = Math.min(remaining, inv.remaining);
+            const newPaid = inv.paid + applied;
+            const newRemaining = inv.total - newPaid;
+            updates.set(inv.id, { paid: newPaid, remaining: newRemaining, status: newRemaining <= 0 ? 'paid' : 'partial' });
+            remaining -= applied;
+          }
+          if (updates.size > 0) {
+            newState.saleInvoices = newState.saleInvoices.map(inv => {
+              if (updates.has(inv.id)) {
+                const updated = { ...inv, ...updates.get(inv.id)! };
+                changedSaleInvoices.push(updated);
                 return updated;
               }
-              return c;
+              return inv;
             });
           }
-        } else {
-          newState.cashBalance = treasury === 'cash' ? newState.cashBalance - payment.amount : newState.cashBalance;
-          newState.bankBalance = treasury === 'bank' ? newState.bankBalance - payment.amount : newState.bankBalance;
-          
-          if (payment.type === 'purchase') {
-            newState.suppliers = newState.suppliers.map(s => {
-              if (s.id === payment.referenceId) {
-                const updated = { ...s, totalPaid: (s.totalPaid || 0) + payment.amount };
-                updateDoc(doc(db, 'suppliers', s.id), updated);
+        }
+      } else {
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance - payment.amount : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance - payment.amount : newState.bankBalance;
+        if (payment.type === 'purchase') {
+          newState.suppliers = newState.suppliers.map(s => {
+            if (s.id === payment.referenceId) {
+              changedSupplier = { ...s, totalPaid: (s.totalPaid || 0) + payment.amount };
+              return changedSupplier;
+            }
+            return s;
+          });
+          // FIFO distribution
+          let remaining = payment.amount;
+          const sortedInvoices = [...newState.purchaseInvoices]
+            .filter(inv => inv.supplierId === payment.referenceId && inv.remaining > 0)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const updates = new Map<string, { paid: number; remaining: number; status: PurchaseInvoice['status'] }>();
+          for (const inv of sortedInvoices) {
+            if (remaining <= 0) break;
+            const applied = Math.min(remaining, inv.remaining);
+            const newPaid = inv.paid + applied;
+            const newRemaining = inv.total - newPaid;
+            updates.set(inv.id, { paid: newPaid, remaining: newRemaining, status: newRemaining <= 0 ? 'paid' : 'partial' });
+            remaining -= applied;
+          }
+          if (updates.size > 0) {
+            newState.purchaseInvoices = newState.purchaseInvoices.map(inv => {
+              if (updates.has(inv.id)) {
+                const updated = { ...inv, ...updates.get(inv.id)! };
+                changedPurchaseInvoices.push(updated);
+                return updated;
+              }
+              return inv;
+            });
+          }
+        }
+      }
+      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+        id: `tr_${Date.now()}`,
+        type: payment.direction === 'in' ? 'payment_in' : 'payment_out',
+        description: payment.notes || `دفعة - ${payment.referenceName}`,
+        amount: payment.amount,
+        treasury,
+        direction: payment.direction,
+        referenceId: payment.referenceId,
+        date: payment.date,
+        createdAt: new Date().toISOString(),
+      }];
+
+      // 🔥 Save to Firebase
+      saveToFirebase('payments', payment.id, payment);
+      if (changedCustomer) saveToFirebase('customers', changedCustomer.id, changedCustomer);
+      if (changedSupplier) saveToFirebase('suppliers', changedSupplier.id, changedSupplier);
+      changedSaleInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
+      changedPurchaseInvoices.forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
+
+      return newState;
+    });
+  }, []);
+
+  // ==================== EXPENSES ====================
+  const addExpense = useCallback((expense: Expense) => {
+    setState(prev => {
+      const newState = { ...prev, expenses: [...prev.expenses, expense] };
+      const treasury = expense.paymentMethod === 'cash' ? 'cash' : 'bank';
+      newState.cashBalance = treasury === 'cash' ? newState.cashBalance - expense.amount : newState.cashBalance;
+      newState.bankBalance = treasury === 'bank' ? newState.bankBalance - expense.amount : newState.bankBalance;
+      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+        id: `tr_${Date.now()}`,
+        type: 'expense',
+        description: expense.description,
+        amount: expense.amount,
+        treasury,
+        direction: 'out',
+        referenceId: expense.id,
+        date: expense.date,
+        createdAt: new Date().toISOString(),
+      }];
+      return newState;
+    });
+    saveToFirebase('expenses', expense.id, expense);
+  }, []);
+
+  // ==================== NOON ORDERS (Claude's fixes) ====================
+  const addNoonOrder = useCallback((order: NoonOrder) => {
+    setState(prev => {
+      const itemsWithCost: NoonOrder['items'] = order.items.map(item => {
+        const product = prev.products.find(p => p.id === item.productId);
+        return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+      });
+      const finalOrder = { ...order, items: itemsWithCost };
+      const newState = { ...prev, noonOrders: [...prev.noonOrders, finalOrder] };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+
+      finalOrder.items.forEach(item => {
+        const serialRecord = item.serial ? newState.serials.find(s => s.serial === item.serial) : undefined;
+        const alreadyTransferred = serialRecord && serialRecord.status !== 'available';
+        if (!alreadyTransferred) {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
+        }
+        if (item.serial) {
+          newState.serials = newState.serials.map(s => {
+            if (s.serial === item.serial) {
+              const updated = { ...s, status: 'transferred' as const, noonOrderId: finalOrder.id };
+              updatedSerials.push(updated);
+              return updated;
+            }
+            return s;
+          });
+        }
+      });
+
+      // 🔥 Save to Firebase
+      saveToFirebase('noonOrders', finalOrder.id, finalOrder);
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
+      return newState;
+    });
+  }, []);
+
+  const updateNoonOrder = useCallback((order: NoonOrder) => {
+    setState(prev => {
+      const oldOrder = prev.noonOrders.find(o => o.id === order.id);
+      let newState = { ...prev, noonOrders: prev.noonOrders.map(o => o.id === order.id ? order : o) };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+
+      const justCanceled = oldOrder && oldOrder.status !== 'canceled' && order.status === 'canceled';
+      const justReactivated = oldOrder && oldOrder.status === 'canceled' && order.status !== 'canceled';
+
+      if (justCanceled) {
+        order.items.forEach(item => {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: p.stock + 1 };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
+          if (item.serial) {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === item.serial) {
+                const updated = { ...s, status: 'available' as const, noonOrderId: undefined };
+                updatedSerials.push(updated);
                 return updated;
               }
               return s;
             });
           }
-        }
-        
-        return newState;
-      });
-    } catch (error) {
-      console.error('Error adding payment:', error);
-    }
-  }, []);
-
-  // ==================== EXPENSES ====================
-  const addExpense = useCallback(async (expense: Expense) => {
-    try {
-      await addDoc(collection(db, 'expenses'), expense);
-      
-      setState(prev => {
-        const newState = { ...prev, expenses: [...prev.expenses, expense] };
-        const treasury = expense.paymentMethod === 'cash' ? 'cash' : 'bank';
-        newState.cashBalance = treasury === 'cash' ? newState.cashBalance - expense.amount : newState.cashBalance;
-        newState.bankBalance = treasury === 'bank' ? newState.bankBalance - expense.amount : newState.bankBalance;
-        return newState;
-      });
-    } catch (error) {
-      console.error('Error adding expense:', error);
-    }
-  }, []);
-
-  // ==================== NOON ORDERS ====================
-  const addNoonOrder = useCallback(async (order: NoonOrder) => {
-    try {
-      await addDoc(collection(db, 'noonOrders'), order);
-      
-      setState(prev => {
-        const newState = { ...prev, noonOrders: [...prev.noonOrders, order] };
-        
+        });
+      } else if (justReactivated) {
         order.items.forEach(item => {
-          const product = newState.products.find(p => p.id === item.productId);
-          if (product) {
-            const updatedProduct = { ...product, stock: Math.max(0, product.stock - 1) };
-            updateDoc(doc(db, 'products', item.productId), updatedProduct);
-            newState.products = newState.products.map(p => p.id === item.productId ? updatedProduct : p);
-          }
-          
-          if (item.serial) {
-            const serial = newState.serials.find(s => s.serial === item.serial);
-            if (serial) {
-              const updatedSerial = { ...serial, status: 'transferred' as const, noonOrderId: order.id };
-              updateDoc(doc(db, 'serials', serial.id), updatedSerial);
-              newState.serials = newState.serials.map(s => s.serial === item.serial ? updatedSerial : s);
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+              updatedProducts.push(updated);
+              return updated;
             }
-          }
-        });
-        
-        return newState;
-      });
-    } catch (error) {
-      console.error('Error adding noon order:', error);
-    }
-  }, []);
-
-  const updateNoonOrder = useCallback(async (order: NoonOrder) => {
-    try {
-      await updateDoc(doc(db, 'noonOrders', order.id), { ...order });
-      setState(prev => ({ ...prev, noonOrders: prev.noonOrders.map(o => o.id === order.id ? order : o) }));
-    } catch (error) {
-      console.error('Error updating noon order:', error);
-      setState(prev => ({ ...prev, noonOrders: prev.noonOrders.map(o => o.id === order.id ? order : o) }));
-    }
-  }, []);
-
-  const addNoonOrders = useCallback(async (orders: NoonOrder[]) => {
-    try {
-      const batch = writeBatch(db);
-      orders.forEach(order => {
-        const docRef = doc(collection(db, 'noonOrders'));
-        batch.set(docRef, order);
-      });
-      await batch.commit();
-      
-      setState(prev => {
-        const newState = { ...prev, noonOrders: [...prev.noonOrders, ...orders] };
-        orders.forEach(order => {
-          order.items.forEach(item => {
-            const product = newState.products.find(p => p.id === item.productId);
-            if (product) {
-              newState.products = newState.products.map(p =>
-                p.id === item.productId ? { ...p, stock: Math.max(0, p.stock - 1) } : p
-              );
-            }
-            
-            if (item.serial) {
-              newState.serials = newState.serials.map(s =>
-                s.serial === item.serial ? { ...s, status: 'transferred' as const, noonOrderId: order.id } : s
-              );
-            }
+            return p;
           });
+          if (item.serial) {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === item.serial) {
+                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
         });
-        return newState;
+      }
+
+      // 🔥 Save to Firebase
+      saveToFirebase('noonOrders', order.id, order);
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
+      return newState;
+    });
+  }, []);
+
+  const addNoonOrders = useCallback((orders: NoonOrder[]) => {
+    setState(prev => {
+      const ordersWithCost = orders.map(order => ({
+        ...order,
+        items: order.items.map(item => {
+          const product = prev.products.find(p => p.id === item.productId);
+          return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+        }),
+      }));
+      const newState = { ...prev, noonOrders: [...prev.noonOrders, ...ordersWithCost] };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+
+      ordersWithCost.forEach(order => {
+        order.items.forEach(item => {
+          const serialRecord = item.serial ? newState.serials.find(s => s.serial === item.serial) : undefined;
+          const alreadyTransferred = serialRecord && serialRecord.status !== 'available';
+          if (!alreadyTransferred) {
+            newState.products = newState.products.map(p => {
+              if (p.id === item.productId) {
+                const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+                updatedProducts.push(updated);
+                return updated;
+              }
+              return p;
+            });
+          }
+          if (item.serial) {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === item.serial) {
+                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
+        });
       });
-    } catch (error) {
-      console.error('Error adding noon orders:', error);
-    }
+
+      // 🔥 Save to Firebase
+      ordersWithCost.forEach(o => saveToFirebase('noonOrders', o.id, o));
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
+      return newState;
+    });
+  }, []);
+
+  // ==================== BULK BANK SETTLEMENT (Claude's feature) ====================
+  const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => {
+    setState(prev => {
+      let newState = { ...prev };
+      let totalSettled = 0;
+      const today = new Date().toISOString().split('T')[0];
+      const updatedOrders: NoonOrder[] = [];
+
+      newState.noonOrders = newState.noonOrders.map(order => {
+        const settlement = settlements.find(s => s.orderId === order.id);
+        if (!settlement) return order;
+        const totalCost = order.items.reduce((sum, it) => sum + (it.costPrice || 0), 0);
+        const profit = settlement.settledAmount - totalCost;
+        totalSettled += settlement.settledAmount;
+        const updated = {
+          ...order,
+          status: 'settled' as const,
+          settledAmount: settlement.settledAmount,
+          settledDate: settlement.settledDate || today,
+          settlementProfit: profit,
+        };
+        updatedOrders.push(updated);
+        return updated;
+      });
+
+      if (totalSettled > 0) {
+        newState.bankBalance = newState.bankBalance + totalSettled;
+        newState.treasuryTransactions = [...newState.treasuryTransactions, {
+          id: `tr_${Date.now()}`,
+          type: 'sale' as const,
+          description: `تسوية تحويل بنكي جماعي - ${settlements.length} أوردر`,
+          amount: totalSettled,
+          treasury: 'bank' as const,
+          direction: 'in' as const,
+          date: today,
+          createdAt: new Date().toISOString(),
+        }];
+      }
+
+      // 🔥 Save to Firebase
+      updatedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
+
+      return newState;
+    });
   }, []);
 
   // ==================== BRANDS ====================
-  const addBrand = useCallback(async (brand: Brand) => {
-    try {
-      const docRef = await addDoc(collection(db, 'brands'), brand);
-      setState(prev => ({ ...prev, brands: [...prev.brands, { ...brand, id: docRef.id }] }));
-    } catch (error) {
-      console.error('Error adding brand:', error);
-      setState(prev => ({ ...prev, brands: [...prev.brands, brand] }));
-    }
+  const addBrand = useCallback((brand: Brand) => {
+    setState(prev => ({ ...prev, brands: [...prev.brands, brand] }));
+    saveToFirebase('brands', brand.id, brand);
   }, []);
 
   // ==================== DAILY CLOSING ====================
@@ -627,7 +764,7 @@ export function useStore() {
     addPurchaseInvoice, updatePurchaseInvoice,
     addPayment,
     addExpense,
-    addNoonOrder, updateNoonOrder, addNoonOrders,
+    addNoonOrder, updateNoonOrder, addNoonOrders, settleNoonOrders,
     addBrand,
     addDailyClosing,
     updateSettings,

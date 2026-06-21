@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
 import { useAuth } from './auth';
 import Login from './pages/Login';
+import React, { useState } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
@@ -16,31 +16,39 @@ import NoonOrders from './pages/NoonOrders';
 import Settings from './pages/Settings';
 import { useStore } from './store/useStore';
 
-function App() {
+export default function App() {
+  // 🔐 Authentication hook (شغلنا)
   const { user, loading } = useAuth();
+  
+  // 📄 كل الـ Hooks في الأول (مهم جداً - قواعد React)
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
+  const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
+
   const store = useStore();
   const { state } = store;
 
-  const handleResetData = () => {
-    localStorage.removeItem('one_erp_data');
-    window.location.reload();
-  };
-
+  // 🔐 شاشة تحميل (شغلنا)
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0f0f1a]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">جاري التحميل...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600 mx-auto"></div>
+          <p className="mt-4 text-gray-400">جاري التحميل...</p>
         </div>
       </div>
     );
   }
 
+  // 🔐 لو مش مسجل دخول، اعرض صفحة Login (شغلنا)
   if (!user) {
     return <Login />;
   }
+
+  const handleResetData = () => {
+    localStorage.removeItem('one_erp_data');
+    window.location.reload();
+  };
 
   const renderPage = () => {
     switch (currentPage) {
@@ -67,6 +75,7 @@ function App() {
             onUpdateCustomer={store.updateCustomer}
             onDeleteCustomer={store.deleteCustomer}
             onAddPayment={store.addPayment}
+            onNavigateToSales={(customerId) => { setPendingCustomerId(customerId); setCurrentPage('sales'); }}
           />
         );
       case 'sales':
@@ -81,6 +90,8 @@ function App() {
             onAddSaleInvoice={store.addSaleInvoice}
             onAddCustomer={store.addCustomer}
             onUpdateSaleInvoice={store.updateSaleInvoice}
+            preselectedCustomerId={pendingCustomerId}
+            onPreselectedHandled={() => setPendingCustomerId(null)}
           />
         );
       case 'purchases':
@@ -97,10 +108,17 @@ function App() {
             onAddProduct={store.addProduct}
             onAddSerials={store.addSerials}
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
+            preselectedSupplierId={pendingSupplierId}
+            onPreselectedHandled={() => setPendingSupplierId(null)}
           />
         );
       case 'inventory':
-        return <Inventory products={state.products} serials={state.serials} />;
+        return (
+          <Inventory
+            products={state.products}
+            serials={state.serials}
+          />
+        );
       case 'suppliers':
         return (
           <Suppliers
@@ -111,6 +129,7 @@ function App() {
             onUpdateSupplier={store.updateSupplier}
             onDeleteSupplier={store.deleteSupplier}
             onAddPayment={store.addPayment}
+            onNavigateToPurchases={(supplierId) => { setPendingSupplierId(supplierId); setCurrentPage('purchases'); }}
           />
         );
       case 'noon':
@@ -122,19 +141,10 @@ function App() {
             onAddNoonOrder={store.addNoonOrder}
             onUpdateNoonOrder={store.updateNoonOrder}
             onAddNoonOrders={store.addNoonOrders}
+            onSettleNoonOrders={store.settleNoonOrders}
           />
         );
       case 'finance':
-        return (
-          <Finance
-            cashBalance={state.cashBalance}
-            bankBalance={state.bankBalance}
-            transactions={state.treasuryTransactions}
-            dailyClosings={state.dailyClosings}
-            adjustTreasury={store.adjustTreasury}
-          />
-        );
-      case 'accounting':
         return (
           <Finance
             cashBalance={state.cashBalance}
@@ -191,5 +201,3 @@ function App() {
     </Layout>
   );
 }
-
-export default App;

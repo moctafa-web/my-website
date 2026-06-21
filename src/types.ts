@@ -5,7 +5,7 @@ export type CustomerType = 'individual' | 'company' | 'wholesale' | 'trader';
 export type SupplierType = 'supplier' | 'trader' | 'both';
 export type ProductCategory = 'phones' | 'tablets' | 'laptops' | 'accessories' | 'other';
 export type ProductType = 'serial' | 'normal';
-export type OrderStatus = 'pending' | 'shipped' | 'delivered' | 'canceled';
+export type OrderStatus = 'pending' | 'shipped' | 'delivered' | 'canceled' | 'settled';
 export type OrderPlatform = 'noon' | 'amazon' | 'other';
 export type InvoiceStatus = 'draft' | 'paid' | 'partial' | 'unpaid' | 'canceled';
 export type ViewMode = 'grid' | 'list' | 'compact';
@@ -189,6 +189,7 @@ export interface NoonOrderItem {
   imei1?: string;
   imei2?: string;
   price: number;
+  costPrice?: number; // تكلفة القطعة وقت إضافتها للأوردر (لحساب الربح الصافي بعد التسوية)
 }
 
 export interface NoonOrder {
@@ -201,6 +202,10 @@ export interface NoonOrder {
   items: NoonOrderItem[];
   status: OrderStatus;
   notes?: string;
+  // Bank settlement fields (تسوية التحويل البنكي)
+  settledAmount?: number;      // المبلغ الصافي المحول فعليًا بعد العمولة والضريبة
+  settledDate?: string;        // تاريخ التحويل
+  settlementProfit?: number;   // الربح المحسوب = settledAmount - إجمالي تكلفة المنتجات
   createdAt: string;
 }
 

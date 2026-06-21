@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, ChevronDown } from 'lucide-react';
@@ -13,6 +13,8 @@ interface Props {
   onAddSaleInvoice: (inv: SaleInvoice) => void;
   onAddCustomer: (c: Customer) => void;
   onUpdateSaleInvoice: (inv: SaleInvoice) => void;
+  preselectedCustomerId?: string | null;
+  onPreselectedHandled?: () => void;
 }
 
 interface SaleItem {
@@ -30,7 +32,7 @@ interface SaleItem {
   total: number;
 }
 
-export default function Sales({ saleInvoices, customers, products, serials, settings, onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice }: Props) {
+export default function Sales({ saleInvoices, customers, products, serials, settings, onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice, preselectedCustomerId, onPreselectedHandled }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [viewInvoice, setViewInvoice] = useState<SaleInvoice | null>(null);
@@ -50,6 +52,19 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
   const [notes, setNotes] = useState('');
   const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
+
+  // عند القدوم من كشف حساب عميل بزرار "فاتورة جديدة": يفتح الفورم تلقائيًا مع تحديد العميل
+  useEffect(() => {
+    if (preselectedCustomerId) {
+      const customer = customers.find(c => c.id === preselectedCustomerId);
+      if (customer) {
+        setCustomerId(customer.id);
+        setCustomerSearch(customer.name);
+      }
+      setShowForm(true);
+      onPreselectedHandled?.();
+    }
+  }, [preselectedCustomerId]);
 
   const searchQuery = search.toLowerCase();
   const filtered = saleInvoices.filter(inv =>
