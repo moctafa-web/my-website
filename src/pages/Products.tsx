@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Product, Brand, SerialItem, ViewMode, ProductCategory } from '../types';
 import { formatCurrency, generateId, categoryLabel, getTodayStr } from '../utils/helpers';
-import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown } from 'lucide-react';
 
 const CATEGORIES = ['phones', 'tablets', 'laptops', 'accessories', 'other'];
 const CAT_SUB: Record<string, string[]> = {
@@ -55,7 +55,24 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
   }, [products, filterCat, filterSub, search]);
 
   const openAdd = () => { setEditProduct(null); setForm({ ...BLANK_PRODUCT }); setShowForm(true); };
-  const openEdit = (p: Product) => { setEditProduct(p); setForm({ name: p.name, description: p.description || '', sku: p.sku, upc: p.upc || '', barcode: p.barcode || '', category: p.category, brand: p.brand, productType: p.productType, costPrice: p.costPrice, salePrice: p.salePrice, stock: p.stock, minStock: p.minStock || 2 }); setShowForm(true); };
+  const openEdit = (p: Product) => { 
+    setEditProduct(p); 
+    setForm({ 
+      name: p.name, 
+      description: p.description || '', 
+      sku: p.sku, 
+      upc: p.upc || '', 
+      barcode: p.barcode || '', 
+      category: p.category, 
+      brand: p.brand, 
+      productType: p.productType, 
+      costPrice: p.costPrice, 
+      salePrice: p.salePrice, 
+      stock: p.stock, 
+      minStock: p.minStock || 2 
+    }); 
+    setShowForm(true); 
+  };
 
   const handleSave = () => {
     if (!form.name || !form.sku) return;
@@ -63,7 +80,16 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
     if (editProduct) {
       onUpdateProduct({ ...editProduct, ...form, updatedAt: now });
     } else {
-      onAddProduct({ id: generateId(), ...form, stock: Number(form.stock), costPrice: Number(form.costPrice), salePrice: Number(form.salePrice), minStock: Number(form.minStock), createdAt: now, updatedAt: now });
+      onAddProduct({ 
+        id: generateId(), 
+        ...form, 
+        stock: Number(form.stock), 
+        costPrice: Number(form.costPrice), 
+        salePrice: Number(form.salePrice), 
+        minStock: Number(form.minStock), 
+        createdAt: now, 
+        updatedAt: now 
+      });
     }
     setShowForm(false);
   };
@@ -75,7 +101,18 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
     setNewBrand('');
   };
 
-  const availableSerials = (productId: string) => serials.filter(s => s.productId === productId && s.status === 'available').length;
+  // حساب عدد السيريالات المتاحة
+  const availableSerials = (productId: string) => {
+    return serials.filter(s => s.productId === productId && s.status !== 'sold').length;
+  };
+
+  // حساب المخزون الحقيقي حسب نوع المنتج
+  const getRealStock = (product: Product) => {
+    if (product.productType === 'serial') {
+      return availableSerials(product.id);
+    }
+    return product.stock || 0;
+  };
 
   const catBtnClass = (id: string) =>
     `px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${filterCat === id && !filterSub ? 'bg-violet-700/40 border-violet-500/50 text-violet-300' : 'border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20'}`;
@@ -90,7 +127,9 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowJrard(!showJrard)} className="btn-secondary text-sm">📋 جرد المخزون</button>
-          <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> منتج جديد</button>
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> منتج جديد
+          </button>
         </div>
       </div>
 
@@ -100,7 +139,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
           <button onClick={() => { setFilterCat('all'); setFilterSub(''); setOpenCat(null); }} className={catBtnClass('all')}>🌐 الكل</button>
           <button onClick={() => { setFilterCat('phones'); setFilterSub(''); setOpenCat(null); }} className={catBtnClass('phones')}>📱 موبايلات</button>
 
-          {/* Tablets with sub */}
+          {/* Tablets */}
           <div className="relative">
             <button
               onClick={() => setOpenCat(openCat === 'tablets' ? null : 'tablets')}
@@ -120,7 +159,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
             )}
           </div>
 
-          {/* Laptops with sub */}
+          {/* Laptops */}
           <div className="relative">
             <button
               onClick={() => setOpenCat(openCat === 'laptops' ? null : 'laptops')}
@@ -140,7 +179,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
             )}
           </div>
 
-          {/* Accessories with sub */}
+          {/* Accessories */}
           <div className="relative">
             <button
               onClick={() => setOpenCat(openCat === 'accessories' ? null : 'accessories')}
@@ -203,15 +242,16 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
               </thead>
               <tbody>
                 {filtered.map(p => {
+                  const inSystem = getRealStock(p);
                   const actual = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
-                  const diff = !isNaN(actual) ? actual - p.stock : NaN;
+                  const diff = !isNaN(actual) ? actual - inSystem : NaN;
                   return (
                     <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
                       <td className="py-2 px-3">
                         <div className="font-medium text-white">{p.name}</div>
                         <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
                       </td>
-                      <td className="py-2 px-3 text-center font-bold text-white">{p.stock}</td>
+                      <td className="py-2 px-3 text-center font-bold text-white">{inSystem}</td>
                       <td className="py-2 px-3 text-center">
                         <input
                           type="number"
@@ -237,23 +277,37 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
         </div>
       )}
 
-      {/* Products Grid/List/Compact */}
+      {/* Products Grid */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map(p => (
-            <ProductCard key={p.id} product={p} availableSerials={availableSerials(p.id)} onEdit={() => openEdit(p)} onDelete={() => onDeleteProduct(p.id)} />
+            <ProductCard 
+              key={p.id} 
+              product={p} 
+              realStock={getRealStock(p)} 
+              onEdit={() => openEdit(p)} 
+              onDelete={() => onDeleteProduct(p.id)} 
+            />
           ))}
         </div>
       )}
 
+      {/* Products List */}
       {viewMode === 'list' && (
         <div className="space-y-2">
           {filtered.map(p => (
-            <ProductListRow key={p.id} product={p} availableSerials={availableSerials(p.id)} onEdit={() => openEdit(p)} onDelete={() => onDeleteProduct(p.id)} />
+            <ProductListRow 
+              key={p.id} 
+              product={p} 
+              realStock={getRealStock(p)} 
+              onEdit={() => openEdit(p)} 
+              onDelete={() => onDeleteProduct(p.id)} 
+            />
           ))}
         </div>
       )}
 
+      {/* Products Compact */}
       {viewMode === 'compact' && (
         <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
@@ -268,32 +322,40 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
               </tr>
             </thead>
             <tbody>
-              {filtered.map(p => (
-                <tr key={p.id} className="border-t border-white/5 hover:bg-white/5">
-                  <td className="py-2.5 px-4">
-                    <div className="font-medium text-white text-sm">{p.name}</div>
-                    <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
-                  </td>
-                  <td className="py-2.5 px-3 text-center">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${p.stock === 0 ? 'bg-red-900/40 text-red-400' : p.stock <= 2 ? 'bg-yellow-900/40 text-yellow-400' : 'bg-green-900/40 text-green-400'}`}>
-                      {p.stock}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-center text-gray-300 text-xs">{p.costPrice.toLocaleString('ar-EG')}</td>
-                  <td className="py-2.5 px-3 text-center text-white text-xs font-medium">{p.salePrice.toLocaleString('ar-EG')}</td>
-                  <td className="py-2.5 px-3 text-center">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${p.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
-                      {p.productType === 'serial' ? 'سيريال' : 'عادي'}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20"><Edit size={13} /></button>
-                      <button onClick={() => onDeleteProduct(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20"><Trash2 size={13} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(p => {
+                const realStock = getRealStock(p);
+                const stockColor = realStock === 0 ? 'text-red-400' : realStock <= 2 ? 'text-yellow-400' : 'text-green-400';
+                return (
+                  <tr key={p.id} className="border-t border-white/5 hover:bg-white/5">
+                    <td className="py-2.5 px-4">
+                      <div className="font-medium text-white text-sm">{p.name}</div>
+                      <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${realStock === 0 ? 'bg-red-900/40 text-red-400' : realStock <= 2 ? 'bg-yellow-900/40 text-yellow-400' : 'bg-green-900/40 text-green-400'}`}>
+                        {realStock}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-center text-gray-300 text-xs">{p.costPrice.toLocaleString('ar-EG')}</td>
+                    <td className="py-2.5 px-3 text-center text-white text-xs font-medium">{p.salePrice.toLocaleString('ar-EG')}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${p.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
+                        {p.productType === 'serial' ? 'سيريال' : 'عادي'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20">
+                          <Edit size={13} />
+                        </button>
+                        <button onClick={() => onDeleteProduct(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -348,13 +410,13 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
                     onClick={() => setForm(p => ({ ...p, productType: 'normal' }))}
                     className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${form.productType === 'normal' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}
                   >
-                    📦 عادي (بدون سيريال)
+                    📦 عادي
                   </button>
                   <button
                     onClick={() => setForm(p => ({ ...p, productType: 'serial' }))}
                     className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${form.productType === 'serial' ? 'bg-blue-700/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}
                   >
-                    🔢 بسيريال (IMEI)
+                    🔢 بسيريال
                   </button>
                 </div>
               </div>
@@ -390,8 +452,14 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
   );
 }
 
-function ProductCard({ product, availableSerials, onEdit, onDelete }: { product: Product; availableSerials: number; onEdit: () => void; onDelete: () => void }) {
-  const stockColor = product.stock === 0 ? 'text-red-400' : product.stock <= 2 ? 'text-yellow-400' : 'text-green-400';
+// ======= Card Component =======
+function ProductCard({ product, realStock, onEdit, onDelete }: { 
+  product: Product; 
+  realStock: number; 
+  onEdit: () => void; 
+  onDelete: () => void; 
+}) {
+  const stockColor = realStock === 0 ? 'text-red-400' : realStock <= 2 ? 'text-yellow-400' : 'text-green-400';
   return (
     <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
       <div className="flex items-start justify-between mb-3">
@@ -399,8 +467,12 @@ function ProductCard({ product, availableSerials, onEdit, onDelete }: { product:
           {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' : product.category === 'laptops' ? '💻' : product.category === 'accessories' ? '🎧' : '📦'}
         </div>
         <div className="flex gap-1">
-          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400 hover:bg-violet-900/20"><Edit size={14} /></button>
-          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20"><Trash2 size={14} /></button>
+          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400 hover:bg-violet-900/20">
+            <Edit size={14} />
+          </button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20">
+            <Trash2 size={14} />
+          </button>
         </div>
       </div>
       <h3 className="font-semibold text-white text-sm mb-1 line-clamp-2">{product.name}</h3>
@@ -413,7 +485,7 @@ function ProductCard({ product, availableSerials, onEdit, onDelete }: { product:
         <div className="text-right">
           <div className="text-xs text-gray-500">المخزون</div>
           <div className={`text-lg font-black ${stockColor}`}>
-            {product.productType === 'serial' ? availableSerials : product.stock}
+            {realStock}
           </div>
         </div>
       </div>
@@ -427,8 +499,14 @@ function ProductCard({ product, availableSerials, onEdit, onDelete }: { product:
   );
 }
 
-function ProductListRow({ product, availableSerials, onEdit, onDelete }: { product: Product; availableSerials: number; onEdit: () => void; onDelete: () => void }) {
-  const stockColor = product.stock === 0 ? 'text-red-400' : product.stock <= 2 ? 'text-yellow-400' : 'text-green-400';
+// ======= List Row Component =======
+function ProductListRow({ product, realStock, onEdit, onDelete }: { 
+  product: Product; 
+  realStock: number; 
+  onEdit: () => void; 
+  onDelete: () => void; 
+}) {
+  const stockColor = realStock === 0 ? 'text-red-400' : realStock <= 2 ? 'text-yellow-400' : 'text-green-400';
   return (
     <div className="bg-[#1a1a35] border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all">
       <div className="flex items-center gap-3">
@@ -450,12 +528,16 @@ function ProductListRow({ product, availableSerials, onEdit, onDelete }: { produ
           <div className="text-sm font-bold text-white">{product.salePrice.toLocaleString('ar-EG')}</div>
         </div>
         <div className="text-center">
-          <div className={`text-xl font-black ${stockColor}`}>{product.productType === 'serial' ? availableSerials : product.stock}</div>
+          <div className={`text-xl font-black ${stockColor}`}>{realStock}</div>
           <div className="text-xs text-gray-500">مخزون</div>
         </div>
         <div className="flex gap-1">
-          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400"><Edit size={14} /></button>
-          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400"><Trash2 size={14} /></button>
+          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400">
+            <Edit size={14} />
+          </button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400">
+            <Trash2 size={14} />
+          </button>
         </div>
       </div>
     </div>
