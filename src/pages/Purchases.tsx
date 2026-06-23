@@ -30,11 +30,14 @@ interface PurchItem {
   discount: number;
   serials: { serial: string; imei1: string; imei2: string }[];
   total: number;
-  isNew?: boolean;
-  newProductData?: Partial<Product>;
 }
 
-export default function Purchases({ purchaseInvoices, suppliers, products, serials, brands, settings, onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials, onUpdatePurchaseInvoice, onDeletePurchaseInvoice, preselectedSupplierId, onPreselectedHandled }: Props) {
+export default function Purchases({
+  purchaseInvoices, suppliers, products, serials, brands, settings,
+  onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials,
+  onUpdatePurchaseInvoice, onDeletePurchaseInvoice,
+  preselectedSupplierId, onPreselectedHandled
+}: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
@@ -43,9 +46,12 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
   const [addSupplierModal, setAddSupplierModal] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', type: 'supplier' as Supplier['type'] });
   const [showNewProductModal, setShowNewProductModal] = useState<string | null>(null);
-  const [newProductForm, setNewProductForm] = useState({ name: '', sku: '', category: 'phones' as Product['category'], brand: 'Apple', productType: 'serial' as Product['productType'], costPrice: '', salePrice: '' });
+  const [newProductForm, setNewProductForm] = useState({
+    name: '', sku: '', category: 'phones' as Product['category'],
+    brand: 'Apple', productType: 'serial' as Product['productType'],
+    costPrice: '', salePrice: ''
+  });
 
-  // Form state
   const [formDate, setFormDate] = useState(getTodayStr());
   const [supplierId, setSupplierId] = useState('');
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -57,15 +63,14 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
   const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
-  // مراجع حقول السيريال للتركيز التلقائي على الخانة التالية عند الإدخال المتتابع بالباركود
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const makeEmptyItem = (): PurchItem => ({
-    id: generateId(), productId: '', productName: '', sku: '', quantity: 1, unitPrice: 0, discount: 0,
+    id: generateId(), productId: '', productName: '', sku: '',
+    quantity: 1, unitPrice: 0, discount: 0,
     serials: [{ serial: '', imei1: '', imei2: '' }], total: 0,
   });
 
-  // فتح فورم فاتورة جديدة: يبدأ بسطر منتج واحد جاهز للتعبئة فورًا (بدل فورم فاضي تمامًا)
   const openNewForm = () => {
     resetForm();
     const firstItem = makeEmptyItem();
@@ -74,7 +79,6 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
     setShowForm(true);
   };
 
-  // فتح فورم تعديل فاتورة موجودة: يحمّل كل بياناتها في نفس الفورم
   const openEditForm = (inv: PurchaseInvoice) => {
     setEditingInvoice(inv);
     setSupplierId(inv.supplierId);
@@ -91,7 +95,9 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       discount: item.discount,
-      serials: item.serials && item.serials.length > 0 ? item.serials.map(s => ({ serial: s.serial, imei1: s.imei1 || '', imei2: s.imei2 || '' })) : [{ serial: '', imei1: '', imei2: '' }],
+      serials: item.serials && item.serials.length > 0
+        ? item.serials.map(s => ({ serial: s.serial, imei1: s.imei1 || '', imei2: s.imei2 || '' }))
+        : [{ serial: '', imei1: '', imei2: '' }],
       total: item.total,
     }));
     setPurchItems(items);
@@ -101,7 +107,6 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
     setShowForm(true);
   };
 
-  // عند القدوم من كشف حساب مورد بزرار "فاتورة شراء جديدة": يفتح الفورم تلقائيًا مع تحديد المورد
   useEffect(() => {
     if (preselectedSupplierId) {
       const supplier = suppliers.find(s => s.id === preselectedSupplierId);
@@ -109,15 +114,25 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
         setSupplierId(supplier.id);
         setSupplierSearch(supplier.name);
       }
+      const firstItem = makeEmptyItem();
+      setPurchItems([firstItem]);
+      setItemSearch({ [firstItem.id]: '' });
       setShowForm(true);
       onPreselectedHandled?.();
     }
   }, [preselectedSupplierId]);
 
-  const filtered = purchaseInvoices.filter(inv =>
-    inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
-    inv.supplierName.toLowerCase().includes(search.toLowerCase())
-  ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // ✅ بحث مرن في اسم المورد ورقم الفاتورة
+  const filtered = purchaseInvoices.filter(inv => {
+    const q = search.toLowerCase().trim();
+    if (!q) return true;
+    const supplierName = suppliers.find(s => s.id === inv.supplierId)?.name || '';
+    return (
+      inv.invoiceNumber.toLowerCase().includes(q) ||
+      inv.supplierName.toLowerCase().includes(q) ||
+      supplierName.toLowerCase().includes(q)
+    );
+  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const filteredSuppliers = suppliers.filter(s =>
     s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
@@ -134,23 +149,24 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
     setItemSearch(prev => ({ ...prev, [newItem.id]: '' }));
   };
 
-  // كل السيريالات المستخدمة فعليًا في النظام (لمنع تكرار سيريال موجود بالفعل في المخزون)
-  const existingSerialsSet = new Set(serials.map(s => s.serial.trim().toLowerCase()).filter(Boolean));
+  const existingSerialsSet = new Set(
+    serials.map(s => s.serial.trim().toLowerCase()).filter(Boolean)
+  );
 
   const isDuplicateSerial = (serial: string, currentItemId: string, currentIndex: number): boolean => {
     const normalized = serial.trim().toLowerCase();
     if (!normalized) return false;
-    // تحقق من التكرار داخل الفاتورة الحالية (كل السطور والخانات)
     for (const item of purchItems) {
       for (let i = 0; i < item.serials.length; i++) {
         if (item.id === currentItemId && i === currentIndex) continue;
         if (item.serials[i].serial.trim().toLowerCase() === normalized) return true;
       }
     }
-    // تحقق من التكرار مع سيريالات موجودة بالفعل في المخزون (إلا لو هي نفس الفاتورة اللي بنعدلها)
     if (existingSerialsSet.has(normalized)) {
       if (editingInvoice) {
-        const wasInThisInvoice = editingInvoice.items.some(it => it.serials?.some(s => s.serial.trim().toLowerCase() === normalized));
+        const wasInThisInvoice = editingInvoice.items.some(it =>
+          it.serials?.some(s => s.serial.trim().toLowerCase() === normalized)
+        );
         if (wasInThisInvoice) return false;
       }
       return true;
@@ -158,7 +174,7 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
     return false;
   };
 
-  // تحديث خانة سيريال واحدة مع: التحقق من التكرار + مزامنة الكمية مع عدد السيريالات
+  // ✅ إصلاح: رسالة السيريال المكرر تختفي فوراً عند تغيير القيمة
   const updateSerialField = (itemId: string, index: number, field: 'serial' | 'imei1' | 'imei2', value: string) => {
     setPurchItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
@@ -167,62 +183,65 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
       return { ...item, serials: ns };
     }));
     if (field === 'serial') {
-      if (isDuplicateSerial(value, itemId, index)) {
+      if (value && isDuplicateSerial(value, itemId, index)) {
         setDuplicateSerialWarning(value);
-      } else if (duplicateSerialWarning === value) {
-        setDuplicateSerialWarning(null);
+      } else {
+        setDuplicateSerialWarning(null); // ✅ تختفي فوراً
       }
     }
   };
 
-  // إضافة خانة سيريال جديدة (يدويًا أو تلقائيًا بعد إدخال متتابع) + رفع الكمية تلقائيًا لتطابق عدد السيريالات
   const addSerialSlot = (itemId: string, focusAfter = false) => {
     setPurchItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
       const newSerials = [...item.serials, { serial: '', imei1: '', imei2: '' }];
-      return { ...item, serials: newSerials, quantity: newSerials.length, total: Math.max(0, item.unitPrice * newSerials.length - item.discount) };
+      return {
+        ...item, serials: newSerials, quantity: newSerials.length,
+        total: Math.max(0, item.unitPrice * newSerials.length - item.discount)
+      };
     }));
     if (focusAfter) {
       setTimeout(() => {
-        const key = `${itemId}-${(purchItems.find(i => i.id === itemId)?.serials.length || 0)}`;
-        serialInputRefs.current[key]?.focus();
+        const currentLen = purchItems.find(i => i.id === itemId)?.serials.length || 0;
+        serialInputRefs.current[`${itemId}-${currentLen}`]?.focus();
       }, 30);
     }
   };
 
-  // الإدخال المتتابع بقارئ الباركود: بعد كتابة السيريال والضغط Enter،
-  // يضيف خانة جديدة فاضية تلقائيًا ويركّز عليها بدون الحاجة للضغط على "إضافة سيريال" كل مرة
   const handleSerialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, itemId: string, index: number) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     const item = purchItems.find(i => i.id === itemId);
     if (!item) return;
     const currentValue = item.serials[index]?.serial || '';
-    if (!currentValue.trim()) return; // لا تضيف خانة جديدة إذا كانت الخانة الحالية فاضية
-    if (isDuplicateSerial(currentValue, itemId, index)) return; // لا تكمل لو السيريال مكرر
-
+    if (!currentValue.trim()) return;
+    if (isDuplicateSerial(currentValue, itemId, index)) return;
     const isLastSlot = index === item.serials.length - 1;
     if (isLastSlot) {
       addSerialSlot(itemId, true);
     } else {
-      const key = `${itemId}-${index + 1}`;
-      serialInputRefs.current[key]?.focus();
+      serialInputRefs.current[`${itemId}-${index + 1}`]?.focus();
     }
   };
 
-  // مزامنة الكمية اليدوية مع عدد خانات السيريال (زيادة الكمية تضيف خانات، تقليلها تحذف من الآخر)
   const syncSerialsWithQuantity = (itemId: string, newQuantity: number) => {
     setPurchItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
       const isSerialProduct = item.serials.length > 0;
-      if (!isSerialProduct) return { ...item, quantity: newQuantity, total: Math.max(0, item.unitPrice * newQuantity - item.discount) };
+      if (!isSerialProduct) return {
+        ...item, quantity: newQuantity,
+        total: Math.max(0, item.unitPrice * newQuantity - item.discount)
+      };
       let newSerials = [...item.serials];
       if (newQuantity > newSerials.length) {
         while (newSerials.length < newQuantity) newSerials.push({ serial: '', imei1: '', imei2: '' });
       } else if (newQuantity < newSerials.length && newQuantity >= 1) {
         newSerials = newSerials.slice(0, newQuantity);
       }
-      return { ...item, quantity: newSerials.length, serials: newSerials, total: Math.max(0, item.unitPrice * newSerials.length - item.discount) };
+      return {
+        ...item, quantity: newSerials.length, serials: newSerials,
+        total: Math.max(0, item.unitPrice * newSerials.length - item.discount)
+      };
     }));
   };
 
@@ -247,11 +266,13 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
     setShowItemDrop(prev => ({ ...prev, [itemId]: false }));
   };
 
-  const getFilteredProducts = (search: string) => {
-    if (!search) return products.slice(0, 10);
-    const q = search.toLowerCase();
+  const getFilteredProducts = (searchStr: string) => {
+    if (!searchStr) return products.slice(0, 10);
+    const q = searchStr.toLowerCase();
     return products.filter(p =>
-      p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.upc || '').includes(q)
+      p.name.toLowerCase().includes(q) ||
+      p.sku.toLowerCase().includes(q) ||
+      (p.upc || '').includes(q)
     ).slice(0, 10);
   };
 
@@ -260,7 +281,6 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
   const handleSave = () => {
     if (!supplierId || purchItems.length === 0) return;
 
-    // تحقق نهائي: منع الحفظ لو فيه سيريال مكرر في أي مكان قبل الحفظ
     for (const item of purchItems) {
       for (let i = 0; i < item.serials.length; i++) {
         if (item.serials[i].serial && isDuplicateSerial(item.serials[i].serial, item.id, i)) {
@@ -285,7 +305,6 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
     }));
 
     if (editingInvoice) {
-      // وضع التعديل: نحدّث الفاتورة الموجودة بنفس رقمها وتاريخ إنشائها الأصلي
       const updatedInvoice: PurchaseInvoice = {
         ...editingInvoice,
         supplierId,
@@ -306,7 +325,8 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
       return;
     }
 
-    // وضع الإضافة: فاتورة جديدة + سيريالات جديدة للمخزون
+    // ✅ نولد invoiceId مسبقاً عشان نربط السيريالات بيه
+    const invoiceId = generateId();
     const invoiceNumber = `${settings.purchasePrefix}-${String(settings.lastPurchaseInvoiceNum + 1).padStart(4, '0')}`;
     const newSerials: SerialItem[] = [];
 
@@ -321,6 +341,7 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
             imei1: sl.imei1 || undefined,
             imei2: sl.imei2 || undefined,
             status: 'available',
+            purchaseInvoiceId: invoiceId, // ✅ ربط السيريال بالفاتورة
             costPrice: item.unitPrice,
             createdAt: new Date().toISOString(),
           });
@@ -328,10 +349,8 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
       }
     });
 
-    if (newSerials.length > 0) onAddSerials(newSerials);
-
     const invoice: PurchaseInvoice = {
-      id: generateId(),
+      id: invoiceId, // ✅ نفس الـ id
       invoiceNumber,
       supplierId,
       supplierName: selectedSupplier?.name || '',
@@ -349,24 +368,42 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
       createdAt: new Date().toISOString(),
     };
 
+    // ✅ الفاتورة الأول عشان تتسجل في Firebase، بعدين السيريالات
     onAddPurchaseInvoice(invoice);
+    if (newSerials.length > 0) onAddSerials(newSerials);
+
     resetForm();
     setShowForm(false);
   };
 
   const resetForm = () => {
-    setPurchItems([]); setSupplierId(''); setSupplierSearch(''); setPaid(''); setNotes(''); setPaymentMethod('cash'); setFormDate(getTodayStr()); setEditingInvoice(null); setDuplicateSerialWarning(null); setItemSearch({});
+    setPurchItems([]);
+    setSupplierId('');
+    setSupplierSearch('');
+    setPaid('');
+    setNotes('');
+    setPaymentMethod('cash');
+    setFormDate(getTodayStr());
+    setEditingInvoice(null);
+    setDuplicateSerialWarning(null);
+    setItemSearch({});
   };
 
+  // ✅ إصلاح: زرار الحذف شغال + يغلق نافذة العرض لو مفتوحة
   const handleDeleteInvoice = () => {
     if (!confirmDeleteInvoice) return;
     onDeletePurchaseInvoice(confirmDeleteInvoice.id);
     setConfirmDeleteInvoice(null);
+    setViewInvoice(null);
   };
 
   const handleAddSupplier = () => {
     if (!newSupplier.name) return;
-    const s: Supplier = { id: generateId(), name: newSupplier.name, phone: newSupplier.phone, type: newSupplier.type, openingBalance: 0, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() };
+    const s: Supplier = {
+      id: generateId(), name: newSupplier.name, phone: newSupplier.phone,
+      type: newSupplier.type, openingBalance: 0, totalInvoices: 0, totalPaid: 0,
+      createdAt: new Date().toISOString()
+    };
     onAddSupplier(s);
     setSupplierId(s.id);
     setSupplierSearch(s.name);
@@ -403,14 +440,25 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
         <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
         <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
       </tr>
-      ${item.serials?.map(s => `<tr><td colspan="4" style="font-size:11px;color:#666;padding-right:20px">السيريال: ${s.serial}${s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}${s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}</td></tr>`).join('') || ''}
+      ${item.serials?.map(s => `
+        <tr><td colspan="4" style="font-size:11px;color:#666;padding-right:20px">
+          السيريال: ${s.serial}${s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}${s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}
+        </td></tr>`).join('') || ''}
     `).join('');
     printElement(`
       <div class="header">
         <div><div class="company-name">ONE</div></div>
-        <div class="invoice-info"><div><strong>فاتورة مشتريات</strong></div><div>رقم: ${inv.invoiceNumber}</div><div>التاريخ: ${inv.date}</div><div>المورد: ${inv.supplierName}</div></div>
+        <div class="invoice-info">
+          <div><strong>فاتورة مشتريات</strong></div>
+          <div>رقم: ${inv.invoiceNumber}</div>
+          <div>التاريخ: ${inv.date}</div>
+          <div>المورد: ${inv.supplierName}</div>
+        </div>
       </div>
-      <table><thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+      <table>
+        <thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
+        <tbody>${itemsHtml}</tbody>
+      </table>
       <div class="totals"><table>
         <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
         <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
@@ -422,13 +470,22 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <div><h2 className="text-xl font-bold text-white">📦 المشتريات</h2><p className="text-gray-500 text-sm">{purchaseInvoices.length} فاتورة</p></div>
-        <button onClick={openNewForm} className="btn-primary flex items-center gap-2"><Plus size={16} /> فاتورة شراء جديدة</button>
+        <div>
+          <h2 className="text-xl font-bold text-white">📦 المشتريات</h2>
+          <p className="text-gray-500 text-sm">{purchaseInvoices.length} فاتورة</p>
+        </div>
+        <button onClick={openNewForm} className="btn-primary flex items-center gap-2">
+          <Plus size={16} /> فاتورة شراء جديدة
+        </button>
       </div>
 
       <div className="relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث برقم الفاتورة أو المورد..." className="input-dark w-full pr-9" />
+        <input
+          type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="بحث برقم الفاتورة أو اسم المورد..."
+          className="input-dark w-full pr-9"
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -463,18 +520,23 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
             {filtered.length === 0 ? (
               <tr><td colSpan={7} className="text-center py-12 text-gray-500">لا توجد فواتير مشتريات بعد</td></tr>
             ) : filtered.map(inv => (
-              <tr key={inv.id} className="border-t border-white/5 hover:bg-white/5">
+              <tr key={inv.id} className="border-t border-white/5 hover:bg-white/5 cursor-pointer"
+                onClick={() => setViewInvoice(inv)}>
                 <td className="py-3 px-4 font-mono text-blue-400 text-sm">{inv.invoiceNumber}</td>
                 <td className="py-3 px-4 text-white">{inv.supplierName}</td>
                 <td className="py-3 px-4 text-center text-gray-400 text-xs">{inv.date}</td>
                 <td className="py-3 px-4 text-center font-bold text-white">{formatCurrency(inv.total)}</td>
                 <td className="py-3 px-4 text-center text-green-400">{formatCurrency(inv.paid)}</td>
-                <td className="py-3 px-4 text-center"><span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(inv.status)}`}>{statusLabel(inv.status)}</span></td>
-                <td className="py-3 px-4">
+                <td className="py-3 px-4 text-center">
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(inv.status)}`}>
+                    {statusLabel(inv.status)}
+                  </span>
+                </td>
+                <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
                   <div className="flex gap-1 justify-end">
                     <button onClick={() => setViewInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400" title="عرض"><Eye size={14} /></button>
                     <button onClick={() => printInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-400" title="طباعة"><Printer size={14} /></button>
-                    <button onClick={() => openEditForm(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400" title="تعديل"><Edit size={14} /></button>
+                    <button onClick={() => { openEditForm(inv); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400" title="تعديل"><Edit size={14} /></button>
                     <button onClick={() => setConfirmDeleteInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400" title="حذف"><Trash2 size={14} /></button>
                   </div>
                 </td>
@@ -484,40 +546,44 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
         </table>
       </div>
 
-      {/* New Purchase Invoice Modal */}
+      {/* ==================== فورم الفاتورة ==================== */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold text-white">📦 {editingInvoice ? `تعديل فاتورة ${editingInvoice.invoiceNumber}` : 'فاتورة شراء جديدة'}</h2>
-              <button onClick={() => { setShowForm(false); resetForm(); }} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              <h2 className="text-xl font-bold text-white">
+                📦 {editingInvoice ? `تعديل فاتورة ${editingInvoice.invoiceNumber}` : 'فاتورة شراء جديدة'}
+              </h2>
+              <button onClick={() => { setShowForm(false); resetForm(); }} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
               <div className="relative">
                 <label className="form-label">المورد *</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={supplierSearch}
-                    onChange={e => { setSupplierSearch(e.target.value); setShowSupDrop(true); setSupplierId(''); }}
-                    onFocus={() => setShowSupDrop(true)}
-                    placeholder="ابحث عن مورد..."
-                    className="input-dark w-full"
-                  />
-                  {showSupDrop && (
-                    <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
-                      {filteredSuppliers.slice(0, 8).map(s => (
-                        <button key={s.id} onClick={() => { setSupplierId(s.id); setSupplierSearch(s.name); setShowSupDrop(false); }}
-                          className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">{s.name}</button>
-                      ))}
-                      <button onClick={() => { setAddSupplierModal(true); setShowSupDrop(false); }}
-                        className="block w-full text-right px-3 py-2 text-sm text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
-                        + إضافة مورد جديد
+                <input
+                  type="text" value={supplierSearch}
+                  onChange={e => { setSupplierSearch(e.target.value); setShowSupDrop(true); setSupplierId(''); }}
+                  onFocus={() => setShowSupDrop(true)}
+                  placeholder="ابحث عن مورد..."
+                  className="input-dark w-full"
+                />
+                {showSupDrop && (
+                  <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
+                    {filteredSuppliers.slice(0, 8).map(s => (
+                      <button key={s.id}
+                        onClick={() => { setSupplierId(s.id); setSupplierSearch(s.name); setShowSupDrop(false); }}
+                        className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">
+                        {s.name}
                       </button>
-                    </div>
-                  )}
-                </div>
+                    ))}
+                    <button onClick={() => { setAddSupplierModal(true); setShowSupDrop(false); }}
+                      className="block w-full text-right px-3 py-2 text-sm text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
+                      + إضافة مورد جديد
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="form-label">تاريخ الفاتورة</label>
@@ -529,11 +595,12 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
               </div>
             </div>
 
-            {/* Items */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-white text-sm">المنتجات المشتراة</h3>
-                <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1"><Plus size={13} /> إضافة منتج</button>
+                <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
+                  <Plus size={13} /> إضافة منتج
+                </button>
               </div>
 
               <div className="space-y-4">
@@ -545,9 +612,11 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
                         <div className="col-span-12 md:col-span-5 relative">
                           <label className="form-label text-xs">المنتج</label>
                           <input
-                            type="text"
-                            value={itemSearch[item.id] || ''}
-                            onChange={e => { setItemSearch(prev => ({ ...prev, [item.id]: e.target.value })); setShowItemDrop(prev => ({ ...prev, [item.id]: true })); }}
+                            type="text" value={itemSearch[item.id] || ''}
+                            onChange={e => {
+                              setItemSearch(prev => ({ ...prev, [item.id]: e.target.value }));
+                              setShowItemDrop(prev => ({ ...prev, [item.id]: true }));
+                            }}
                             onFocus={() => setShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
                             placeholder="ابحث أو أكتب SKU..."
                             className="input-dark w-full text-sm"
@@ -561,7 +630,8 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
                                   <div className="text-gray-500">{p.sku} • مخزون: {p.stock}</div>
                                 </button>
                               ))}
-                              <button onClick={() => { setShowNewProductModal(item.id); setShowItemDrop(prev => ({ ...prev, [item.id]: false })); }}
+                              <button
+                                onClick={() => { setShowNewProductModal(item.id); setShowItemDrop(prev => ({ ...prev, [item.id]: false })); }}
                                 className="block w-full text-right px-3 py-2 text-xs text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                                 + إضافة منتج جديد
                               </button>
@@ -570,11 +640,15 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
                         </div>
                         <div className="col-span-4 md:col-span-2">
                           <label className="form-label text-xs">الكمية</label>
-                          <input type="number" min="1" value={item.quantity} onChange={e => syncSerialsWithQuantity(item.id, Math.max(1, parseInt(e.target.value) || 1))} className="input-dark w-full text-sm" />
+                          <input type="number" min="1" value={item.quantity}
+                            onChange={e => syncSerialsWithQuantity(item.id, Math.max(1, parseInt(e.target.value) || 1))}
+                            className="input-dark w-full text-sm" />
                         </div>
                         <div className="col-span-4 md:col-span-2">
                           <label className="form-label text-xs">سعر الشراء</label>
-                          <input type="number" value={item.unitPrice} onChange={e => updateItem(item.id, { unitPrice: parseFloat(e.target.value) || 0 })} className="input-dark w-full text-sm" />
+                          <input type="number" value={item.unitPrice}
+                            onChange={e => updateItem(item.id, { unitPrice: parseFloat(e.target.value) || 0 })}
+                            className="input-dark w-full text-sm" />
                         </div>
                         <div className="col-span-3 md:col-span-2 flex items-end">
                           <div className="w-full">
@@ -583,48 +657,61 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
                           </div>
                         </div>
                         <div className="col-span-1 flex items-end pb-1 justify-end">
-                          <button onClick={() => setPurchItems(prev => prev.filter(i => i.id !== item.id))} className="p-1.5 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
+                          <button onClick={() => setPurchItems(prev => prev.filter(i => i.id !== item.id))}
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
                         </div>
                       </div>
 
-                      {/* Serials */}
                       {(linkedProduct?.productType === 'serial' || item.serials.length > 0) && (
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <div className="text-xs text-gray-400 font-medium">السيريالات والـ IMEI ({item.serials.filter(s => s.serial).length} / {item.quantity}):</div>
-                            <div className="text-xs text-violet-400">💡 اكتب السيريال واضغط Enter للانتقال للتالي تلقائيًا (مفيد مع قارئ الباركود)</div>
+                            <div className="text-xs text-gray-400 font-medium">
+                              السيريالات ({item.serials.filter(s => s.serial).length} / {item.quantity}):
+                            </div>
+                            <div className="text-xs text-violet-400">
+                              💡 اضغط Enter بعد كل سيريال للانتقال للتالي
+                            </div>
                           </div>
                           {item.serials.map((sl, si) => {
-                            const isDup = sl.serial && isDuplicateSerial(sl.serial, item.id, si);
+                            const isDup = sl.serial ? isDuplicateSerial(sl.serial, item.id, si) : false;
                             return (
                               <div key={si}>
                                 <div className="grid grid-cols-3 gap-2">
                                   <input
                                     ref={el => { serialInputRefs.current[`${item.id}-${si}`] = el; }}
-                                    type="text"
-                                    value={sl.serial}
+                                    type="text" value={sl.serial}
                                     onChange={e => updateSerialField(item.id, si, 'serial', e.target.value)}
                                     onKeyDown={e => handleSerialKeyDown(e, item.id, si)}
-                                    className={`input-dark w-full text-xs ${isDup ? 'border-red-500/60 bg-red-900/10' : ''}`}
+                                    className={`input-dark w-full text-xs font-mono ${isDup ? 'border-red-500/60 bg-red-900/10' : ''}`}
                                     placeholder={`Serial ${si + 1}`}
                                   />
-                                  <input type="text" value={sl.imei1} onChange={e => updateSerialField(item.id, si, 'imei1', e.target.value)} className="input-dark w-full text-xs" placeholder="IMEI 1" />
+                                  <input type="text" value={sl.imei1}
+                                    onChange={e => updateSerialField(item.id, si, 'imei1', e.target.value)}
+                                    className="input-dark w-full text-xs" placeholder="IMEI 1" />
                                   <div className="flex gap-1">
-                                    <input type="text" value={sl.imei2} onChange={e => updateSerialField(item.id, si, 'imei2', e.target.value)} className="input-dark flex-1 text-xs" placeholder="IMEI 2" />
+                                    <input type="text" value={sl.imei2}
+                                      onChange={e => updateSerialField(item.id, si, 'imei2', e.target.value)}
+                                      className="input-dark flex-1 text-xs" placeholder="IMEI 2" />
                                     {item.serials.length > 1 && (
                                       <button onClick={() => {
                                         const newSerials = item.serials.filter((_, i) => i !== si);
                                         updateItem(item.id, { serials: newSerials, quantity: newSerials.length });
-                                      }} className="p-1 text-red-400"><X size={12} /></button>
+                                      }} className="p-1 text-red-400 hover:text-red-300"><X size={12} /></button>
                                     )}
                                   </div>
                                 </div>
-                                {isDup && <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال موجود بالفعل، لا يمكن إضافته مرة أخرى</div>}
+                                {isDup && (
+                                  <div className="text-xs text-red-400 mt-1">
+                                    ⚠️ هذا السيريال موجود بالفعل
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
                           <button onClick={() => addSerialSlot(item.id, true)}
-                            className="text-xs text-violet-400 hover:text-violet-300">+ إضافة سيريال آخر (الكمية ستزيد تلقائيًا)</button>
+                            className="text-xs text-violet-400 hover:text-violet-300">
+                            + إضافة سيريال آخر
+                          </button>
                         </div>
                       )}
                     </div>
@@ -633,10 +720,12 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
               </div>
             </div>
 
-            {/* Payment */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2 border-t border-white/10 pt-4">
-                <div className="flex justify-between text-sm"><span className="text-gray-400">الإجمالي</span><span className="font-bold text-white text-lg">{formatCurrency(subtotal)}</span></div>
+              <div className="border-t border-white/10 pt-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">الإجمالي</span>
+                  <span className="font-bold text-white text-lg">{formatCurrency(subtotal)}</span>
+                </div>
               </div>
               <div className="space-y-3">
                 <div>
@@ -644,7 +733,11 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
                   <div className="grid grid-cols-3 gap-2">
                     {(['cash', 'bank', 'credit'] as PaymentMethod[]).map(method => (
                       <button key={method} onClick={() => setPaymentMethod(method)}
-                        className={`py-2 rounded-xl border text-xs font-medium transition-colors ${paymentMethod === method ? 'bg-violet-700/30 border-violet-500/50 text-violet-300' : 'border-white/10 text-gray-400'}`}>
+                        className={`py-2 rounded-xl border text-xs font-medium transition-colors ${
+                          paymentMethod === method
+                            ? 'bg-violet-700/30 border-violet-500/50 text-violet-300'
+                            : 'border-white/10 text-gray-400'
+                        }`}>
                         {method === 'cash' ? '💵 كاش' : method === 'bank' ? '🏦 بنك' : '⏳ آجل'}
                       </button>
                     ))}
@@ -652,57 +745,78 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
                 </div>
                 <div>
                   <label className="form-label">المبلغ المدفوع</label>
-                  <input type="number" value={paid} onChange={e => setPaid(e.target.value)} className="input-dark w-full" placeholder={`من ${formatCurrency(subtotal)}`} />
+                  <input type="number" value={paid} onChange={e => setPaid(e.target.value)}
+                    className="input-dark w-full" placeholder={`من ${formatCurrency(subtotal)}`} />
                 </div>
                 {remaining > 0 && (
                   <div className="bg-yellow-900/20 border border-yellow-700/30 rounded-xl px-3 py-2 text-sm">
-                    <span className="text-yellow-400">⏳ متبقي آجل: {formatCurrency(remaining)}</span>
+                    <span className="text-yellow-400">⏳ متبقي: {formatCurrency(remaining)}</span>
                   </div>
                 )}
               </div>
             </div>
 
             {duplicateSerialWarning && (
-              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mb-3 text-red-400">
-                ⚠️ السيريال "{duplicateSerialWarning}" مكرر أو موجود بالفعل في المخزون. يرجى تصحيحه قبل الحفظ.
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-4 text-red-400">
+                ⚠️ السيريال "{duplicateSerialWarning}" مكرر أو موجود بالفعل في المخزون.
               </div>
             )}
 
             <div className="flex gap-3 mt-5">
-              <button onClick={handleSave} className="btn-primary flex-1">💾 {editingInvoice ? 'حفظ التعديلات' : 'حفظ الفاتورة'}</button>
+              <button onClick={handleSave} className="btn-primary flex-1">
+                💾 {editingInvoice ? 'حفظ التعديلات' : 'حفظ الفاتورة'}
+              </button>
               <button onClick={() => { setShowForm(false); resetForm(); }} className="btn-secondary px-4">إلغاء</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Quick Add Product Modal */}
+      {/* ==================== إضافة منتج جديد ==================== */}
       {showNewProductModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
             <h3 className="font-bold text-white mb-4">➕ إضافة منتج جديد سريع</h3>
             <div className="space-y-3">
-              <input type="text" value={newProductForm.name} onChange={e => setNewProductForm(p => ({ ...p, name: e.target.value }))} className="input-dark w-full" placeholder="اسم المنتج *" />
-              <input type="text" value={newProductForm.sku} onChange={e => setNewProductForm(p => ({ ...p, sku: e.target.value }))} className="input-dark w-full" placeholder="SKU *" />
+              <input type="text" value={newProductForm.name}
+                onChange={e => setNewProductForm(p => ({ ...p, name: e.target.value }))}
+                className="input-dark w-full" placeholder="اسم المنتج *" />
+              <input type="text" value={newProductForm.sku}
+                onChange={e => setNewProductForm(p => ({ ...p, sku: e.target.value }))}
+                className="input-dark w-full" placeholder="SKU *" />
               <div className="grid grid-cols-2 gap-3">
-                <select value={newProductForm.category} onChange={e => setNewProductForm(p => ({ ...p, category: e.target.value as Product['category'] }))} className="input-dark w-full">
+                <select value={newProductForm.category}
+                  onChange={e => setNewProductForm(p => ({ ...p, category: e.target.value as Product['category'] }))}
+                  className="input-dark w-full">
                   <option value="phones">موبايلات</option>
                   <option value="tablets">تابلت</option>
                   <option value="laptops">لابتوب</option>
                   <option value="accessories">إكسسوارات</option>
                   <option value="other">أخرى</option>
                 </select>
-                <select value={newProductForm.brand} onChange={e => setNewProductForm(p => ({ ...p, brand: e.target.value }))} className="input-dark w-full">
+                <select value={newProductForm.brand}
+                  onChange={e => setNewProductForm(p => ({ ...p, brand: e.target.value }))}
+                  className="input-dark w-full">
                   <option>Apple</option><option>Samsung</option><option>DJI</option><option>Others</option>
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setNewProductForm(p => ({ ...p, productType: 'serial' }))} className={`py-2 rounded-xl border text-xs ${newProductForm.productType === 'serial' ? 'bg-blue-700/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}>🔢 بسيريال</button>
-                <button onClick={() => setNewProductForm(p => ({ ...p, productType: 'normal' }))} className={`py-2 rounded-xl border text-xs ${newProductForm.productType === 'normal' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>📦 عادي</button>
+                <button onClick={() => setNewProductForm(p => ({ ...p, productType: 'serial' }))}
+                  className={`py-2 rounded-xl border text-xs ${newProductForm.productType === 'serial' ? 'bg-blue-700/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}>
+                  🔢 بسيريال
+                </button>
+                <button onClick={() => setNewProductForm(p => ({ ...p, productType: 'normal' }))}
+                  className={`py-2 rounded-xl border text-xs ${newProductForm.productType === 'normal' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>
+                  📦 عادي
+                </button>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <input type="number" value={newProductForm.costPrice} onChange={e => setNewProductForm(p => ({ ...p, costPrice: e.target.value }))} className="input-dark w-full" placeholder="سعر الشراء" />
-                <input type="number" value={newProductForm.salePrice} onChange={e => setNewProductForm(p => ({ ...p, salePrice: e.target.value }))} className="input-dark w-full" placeholder="سعر البيع" />
+                <input type="number" value={newProductForm.costPrice}
+                  onChange={e => setNewProductForm(p => ({ ...p, costPrice: e.target.value }))}
+                  className="input-dark w-full" placeholder="سعر الشراء" />
+                <input type="number" value={newProductForm.salePrice}
+                  onChange={e => setNewProductForm(p => ({ ...p, salePrice: e.target.value }))}
+                  className="input-dark w-full" placeholder="سعر البيع" />
               </div>
             </div>
             <div className="flex gap-2 mt-4">
@@ -713,66 +827,107 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
         </div>
       )}
 
-      {/* View Invoice */}
+      {/* ==================== عرض الفاتورة ==================== */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📄 {viewInvoice.invoiceNumber}</h2>
               <div className="flex gap-2">
-                <button onClick={() => printInvoice(viewInvoice)} className="btn-secondary flex items-center gap-1 text-sm"><Printer size={14} /> طباعة</button>
-                <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+                <button onClick={() => { openEditForm(viewInvoice); setViewInvoice(null); }}
+                  className="btn-secondary flex items-center gap-1 text-sm">
+                  <Edit size={14} /> تعديل
+                </button>
+                <button onClick={() => printInvoice(viewInvoice)}
+                  className="btn-secondary flex items-center gap-1 text-sm">
+                  <Printer size={14} /> طباعة
+                </button>
+                <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">
+                  <X size={18} />
+                </button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div><div className="text-xs text-gray-500">المورد</div><div className="font-bold text-white">{viewInvoice.supplierName}</div></div>
               <div><div className="text-xs text-gray-500">التاريخ</div><div className="font-bold text-white">{viewInvoice.date}</div></div>
+              <div><div className="text-xs text-gray-500">طريقة الدفع</div><div className="text-gray-300">{paymentMethodLabel(viewInvoice.paymentMethod)}</div></div>
+              <div>
+                <div className="text-xs text-gray-500">الحالة</div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(viewInvoice.status)}`}>
+                  {statusLabel(viewInvoice.status)}
+                </span>
+              </div>
             </div>
             <table className="w-full text-sm mb-4">
-              <thead className="bg-violet-900/20"><tr><th className="text-right py-2 px-3 text-gray-400">المنتج</th><th className="text-center py-2 px-3 text-gray-400">الكمية</th><th className="text-center py-2 px-3 text-gray-400">السعر</th><th className="text-center py-2 px-3 text-gray-400">الإجمالي</th></tr></thead>
+              <thead className="bg-violet-900/20">
+                <tr>
+                  <th className="text-right py-2 px-3 text-gray-400">المنتج</th>
+                  <th className="text-center py-2 px-3 text-gray-400">الكمية</th>
+                  <th className="text-center py-2 px-3 text-gray-400">السعر</th>
+                  <th className="text-center py-2 px-3 text-gray-400">الإجمالي</th>
+                </tr>
+              </thead>
               <tbody>
                 {viewInvoice.items.map(item => (
                   <React.Fragment key={item.id}>
                     <tr className="border-t border-white/5">
                       <td className="py-2 px-3 text-white">{item.productName}</td>
                       <td className="py-2 px-3 text-center text-gray-300">{item.quantity}</td>
-                      <td className="py-2 px-3 text-center text-gray-300">{item.unitPrice.toLocaleString('ar-EG')}</td>
-                      <td className="py-2 px-3 text-center font-bold text-white">{item.total.toLocaleString('ar-EG')}</td>
+                      <td className="py-2 px-3 text-center text-gray-300">{formatCurrency(item.unitPrice)}</td>
+                      <td className="py-2 px-3 text-center font-bold text-white">{formatCurrency(item.total)}</td>
                     </tr>
                     {item.serials?.map((s, i) => (
-                      <tr key={i} className="bg-violet-900/10"><td colSpan={4} className="py-1 px-6 text-xs text-gray-500">🔢 {s.serial}{s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}{s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}</td></tr>
+                      <tr key={i} className="bg-violet-900/10">
+                        <td colSpan={4} className="py-1 px-6 text-xs text-gray-500 font-mono">
+                          🔢 {s.serial}{s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}{s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}
+                        </td>
+                      </tr>
                     ))}
                   </React.Fragment>
                 ))}
               </tbody>
             </table>
-            <div className="flex justify-between font-bold border-t border-white/10 pt-3">
-              <span className="text-white">الإجمالي</span>
-              <span className="text-blue-400 text-lg">{formatCurrency(viewInvoice.total)}</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
-              <span className="text-gray-400">المدفوع</span>
-              <span className="text-green-400">{formatCurrency(viewInvoice.paid)}</span>
-            </div>
-            {viewInvoice.remaining > 0 && (
-              <div className="flex justify-between text-sm mt-1">
-                <span className="text-gray-400">المتبقي</span>
-                <span className="text-red-400">{formatCurrency(viewInvoice.remaining)}</span>
+            <div className="space-y-1 border-t border-white/10 pt-3">
+              <div className="flex justify-between font-bold">
+                <span className="text-white">الإجمالي</span>
+                <span className="text-blue-400 text-lg">{formatCurrency(viewInvoice.total)}</span>
               </div>
-            )}
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">المدفوع</span>
+                <span className="text-green-400">{formatCurrency(viewInvoice.paid)}</span>
+              </div>
+              {viewInvoice.remaining > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">المتبقي</span>
+                  <span className="text-red-400">{formatCurrency(viewInvoice.remaining)}</span>
+                </div>
+              )}
+              {viewInvoice.notes && (
+                <div className="mt-2 pt-2 border-t border-white/10">
+                  <span className="text-gray-500 text-xs">ملاحظات: </span>
+                  <span className="text-gray-300 text-xs">{viewInvoice.notes}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Add Supplier Modal */}
+      {/* ==================== إضافة مورد ==================== */}
       {addSupplierModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-4">➕ إضافة مورد جديد</h3>
             <div className="space-y-3">
-              <input type="text" value={newSupplier.name} onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))} className="input-dark w-full" placeholder="اسم المورد *" />
-              <input type="text" value={newSupplier.phone} onChange={e => setNewSupplier(p => ({ ...p, phone: e.target.value }))} className="input-dark w-full" placeholder="رقم الهاتف" />
-              <select value={newSupplier.type} onChange={e => setNewSupplier(p => ({ ...p, type: e.target.value as Supplier['type'] }))} className="input-dark w-full">
+              <input type="text" value={newSupplier.name}
+                onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))}
+                className="input-dark w-full" placeholder="اسم المورد *" />
+              <input type="text" value={newSupplier.phone}
+                onChange={e => setNewSupplier(p => ({ ...p, phone: e.target.value }))}
+                className="input-dark w-full" placeholder="رقم الهاتف" />
+              <select value={newSupplier.type}
+                onChange={e => setNewSupplier(p => ({ ...p, type: e.target.value as Supplier['type'] }))}
+                className="input-dark w-full">
                 <option value="supplier">مورد</option>
                 <option value="trader">تاجر</option>
                 <option value="both">مورد وتاجر</option>
@@ -785,18 +940,29 @@ export default function Purchases({ purchaseInvoices, suppliers, products, seria
           </div>
         </div>
       )}
-      {/* Delete Invoice Confirmation */}
+
+      {/* ==================== تأكيد الحذف ==================== */}
       {confirmDeleteInvoice && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-2">🗑️ حذف فاتورة الشراء</h3>
             <p className="text-gray-400 text-sm mb-4">
-              هل أنت متأكد من حذف فاتورة <span className="text-white font-medium font-mono">{confirmDeleteInvoice.invoiceNumber}</span>؟
-              سيتم خصم الكمية من المخزون، حذف السيريالات المرتبطة بها (إن لم تكن مباعة)، وتصحيح رصيد المورد والخزينة تلقائيًا. لا يمكن التراجع عن هذا الإجراء.
+              هل أنت متأكد من حذف فاتورة{' '}
+              <span className="text-white font-medium font-mono">{confirmDeleteInvoice.invoiceNumber}</span>؟
+              <br />
+              سيتم خصم الكمية من المخزون وحذف السيريالات المرتبطة وتصحيح رصيد المورد والخزينة تلقائيًا.
             </p>
             <div className="flex gap-2">
-              <button onClick={handleDeleteInvoice} className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">🗑️ تأكيد الحذف</button>
-              <button onClick={() => setConfirmDeleteInvoice(null)} className="btn-secondary flex-1">إلغاء</button>
+              <button
+                onClick={handleDeleteInvoice}
+                className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">
+                🗑️ تأكيد الحذف
+              </button>
+              <button
+                onClick={() => setConfirmDeleteInvoice(null)}
+                className="btn-secondary flex-1">
+                إلغاء
+              </button>
             </div>
           </div>
         </div>

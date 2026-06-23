@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NoonOrder, NoonOrderItem, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
 import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor } from '../utils/helpers';
-import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote } from 'lucide-react';
+import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote, Edit } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface Props {
@@ -22,9 +22,11 @@ const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: strin
 
 export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders }: Props) {
   const [showForm, setShowForm] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<NoonOrder | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
   const [selected, setSelected] = useState<string[]>([]);
+  const [viewOrder, setViewOrder] = useState<NoonOrder | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const settleFileRef = useRef<HTMLInputElement>(null);
 
@@ -39,7 +41,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   const [productSearch, setProductSearch] = useState('');
   const [showProductDrop, setShowProductDrop] = useState(false);
 
-  // Bulk settlement state (تسوية التحويل البنكي الجماعي)
+  // Bulk settlement state
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [settleAmounts, setSettleAmounts] = useState<Record<string, string>>({});
   const [settleDate, setSettleDate] = useState(getTodayStr());
@@ -54,7 +56,11 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   const availableProducts = products.filter(p => {
     if (!productSearch) return p.stock > 0;
     const q = productSearch.toLowerCase();
-    return p.stock > 0 && (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.upc || '').includes(q));
+    return p.stock > 0 && (
+      p.name.toLowerCase().includes(q) ||
+      p.sku.toLowerCase().includes(q) ||
+      (p.upc || '').includes(q)
+    );
   }).slice(0, 10);
 
   const addItemFromProduct = (product: Product) => {
@@ -76,8 +82,28 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     setShowProductDrop(false);
   };
 
+  // ✅ فتح فورم التعديل
+  const openEditForm = (order: NoonOrder) => {
+    setEditingOrder(order);
+    setPlatform(order.platform);
+    setOrderNumber(order.orderNumber);
+    setShipmentNumber(order.shipmentNumber || '');
+    setOrderDate(order.date);
+    setCustomerName(order.customerName || '');
+    setOrderNotes(order.notes || '');
+    setOrderItems(order.items.map(item => ({
+      ...item,
+      tempSerial: item.serial || '',
+      tempImei1: item.imei1 || '',
+      tempImei2: item.imei2 || '',
+    })));
+    setShowForm(true);
+    setViewOrder(null);
+  };
+
   const handleSaveOrder = () => {
     if (!orderNumber || orderItems.length === 0) return;
+
     const items: NoonOrderItem[] = orderItems.map(item => ({
       productId: item.productId,
       productName: item.productName,
@@ -86,27 +112,52 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       imei1: item.tempImei1,
       imei2: item.tempImei2,
       price: item.price,
+      costPrice: item.costPrice,
     }));
-    const order: NoonOrder = {
-      id: generateId(),
-      orderNumber,
-      shipmentNumber,
-      platform,
-      customerName,
-      date: orderDate,
-      items,
-      status: 'pending',
-      notes: orderNotes,
-      createdAt: new Date().toISOString(),
-    };
-    onAddNoonOrder(order);
+
+    if (editingOrder) {
+      // ✅ تعديل أوردر موجود
+      const updatedOrder: NoonOrder = {
+        ...editingOrder,
+        platform,
+        orderNumber,
+        shipmentNumber,
+        date: orderDate,
+        customerName,
+        notes: orderNotes,
+        items,
+      };
+      onUpdateNoonOrder(updatedOrder);
+    } else {
+      // إضافة أوردر جديد
+      const order: NoonOrder = {
+        id: generateId(),
+        orderNumber,
+        shipmentNumber,
+        platform,
+        customerName,
+        date: orderDate,
+        items,
+        status: 'pending',
+        notes: orderNotes,
+        createdAt: new Date().toISOString(),
+      };
+      onAddNoonOrder(order);
+    }
+
     resetForm();
     setShowForm(false);
   };
 
   const resetForm = () => {
-    setOrderNumber(''); setShipmentNumber(''); setCustomerName(''); setOrderNotes('');
-    setOrderItems([]); setOrderDate(getTodayStr()); setPlatform('noon');
+    setOrderNumber('');
+    setShipmentNumber('');
+    setCustomerName('');
+    setOrderNotes('');
+    setOrderItems([]);
+    setOrderDate(getTodayStr());
+    setPlatform('noon');
+    setEditingOrder(null);
   };
 
   const updateStatus = (orderId: string, status: OrderStatus) => {
@@ -126,13 +177,11 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  // ==================== EXCEL TEMPLATE & IMPORT/EXPORT (بدل CSV) ====================
   const downloadTemplate = () => {
     const data = [
       { orderNumber: 'NNN-001', shipmentNumber: 'SHP-001', platform: 'noon', customerName: 'أحمد محمد', date: getTodayStr(), productName: 'iPhone 15 Pro', upc: '195949035951', serial: 'F2LXQ7H2QP', imei1: '352938113456789', imei2: '', price: 52000 },
     ];
     const ws = XLSX.utils.json_to_sheet(data);
-    ws['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 10 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
     XLSX.writeFile(wb, 'noon_orders_template.xlsx');
@@ -147,7 +196,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       const wb = XLSX.read(data, { type: 'binary' });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
-
       const grouped: Record<string, typeof rows> = {};
       rows.forEach(row => {
         const key = String(row.orderNumber || '');
@@ -155,7 +203,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
         if (!grouped[key]) grouped[key] = [];
         grouped[key].push(row);
       });
-
       const orders: NoonOrder[] = Object.entries(grouped).map(([orderNum, orderRows]) => {
         const first = orderRows[0];
         const items: NoonOrderItem[] = orderRows.map(row => {
@@ -190,7 +237,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     reader.readAsBinaryString(file);
   };
 
-  // ==================== BULK BANK SETTLEMENT (تسوية تحويل بنكي جماعي) ====================
   const eligibleForSettlement = filtered.filter(o => o.status === 'delivered' || o.status === 'shipped');
   const selectedEligible = selected.filter(id => eligibleForSettlement.some(o => o.id === id));
 
@@ -212,7 +258,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     setSettleAmounts({});
   };
 
-  // استيراد ملف Excel لتسوية جماعية: عمودين orderNumber + settledAmount
   const handleImportSettlement = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -241,7 +286,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       ? eligibleForSettlement.map(o => ({ orderNumber: o.orderNumber, settledAmount: '' }))
       : [{ orderNumber: 'NNN-001', settledAmount: '' }];
     const ws = XLSX.utils.json_to_sheet(data);
-    ws['!cols'] = [{ wch: 16 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Settlement');
     XLSX.writeFile(wb, 'noon_settlement_template.xlsx');
@@ -262,6 +306,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     () => selectedEligible.reduce((sum, id) => sum + (parseFloat(settleAmounts[id]) || 0), 0),
     [selectedEligible, settleAmounts]
   );
+
   const totalSettlementProfit = useMemo(() => {
     return selectedEligible.reduce((sum, id) => {
       const order = noonOrders.find(o => o.id === id);
@@ -275,13 +320,21 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h2 className="text-xl font-bold text-white">🏪 أوردرات نون / أمازون</h2><p className="text-gray-500 text-sm">{noonOrders.length} أوردر</p></div>
+        <div>
+          <h2 className="text-xl font-bold text-white">🏪 أوردرات نون / أمازون</h2>
+          <p className="text-gray-500 text-sm">{noonOrders.length} أوردر</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={downloadTemplate} className="btn-secondary text-sm flex items-center gap-1"><Download size={14} /> نموذج Excel</button>
-          <label className="btn-secondary text-sm flex items-center gap-1 cursor-pointer"><Upload size={14} /> استيراد Excel
+          <button onClick={downloadTemplate} className="btn-secondary text-sm flex items-center gap-1">
+            <Download size={14} /> نموذج Excel
+          </button>
+          <label className="btn-secondary text-sm flex items-center gap-1 cursor-pointer">
+            <Upload size={14} /> استيراد Excel
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
           </label>
-          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2"><Plus size={16} /> أوردر جديد</button>
+          <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> أوردر جديد
+          </button>
         </div>
       </div>
 
@@ -289,7 +342,11 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       <div className="flex items-center gap-2 flex-wrap">
         {(['all', 'pending', 'shipped', 'delivered', 'settled', 'canceled'] as const).map(s => (
           <button key={s} onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${statusFilter === s ? 'bg-violet-700/40 border-violet-500/50 text-violet-300' : 'border-white/10 text-gray-400 hover:border-white/20'}`}>
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
+              statusFilter === s
+                ? 'bg-violet-700/40 border-violet-500/50 text-violet-300'
+                : 'border-white/10 text-gray-400 hover:border-white/20'
+            }`}>
             {s === 'all' ? 'الكل' : statusLabel(s)} ({statusCounts[s]})
           </button>
         ))}
@@ -302,17 +359,19 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           <button onClick={() => bulkUpdateStatus('shipped')} className="px-3 py-1.5 bg-blue-700/30 border border-blue-500/40 rounded-lg text-xs text-blue-300">📦 شحن الكل</button>
           <button onClick={() => bulkUpdateStatus('delivered')} className="px-3 py-1.5 bg-green-700/30 border border-green-500/40 rounded-lg text-xs text-green-300">✅ تم التوصيل</button>
           {selectedEligible.length > 0 && (
-            <button onClick={openSettleModal} className="px-3 py-1.5 bg-violet-700/30 border border-violet-500/40 rounded-lg text-xs text-violet-300 flex items-center gap-1"><Banknote size={13} /> تسوية تحويل بنكي ({selectedEligible.length})</button>
+            <button onClick={openSettleModal} className="px-3 py-1.5 bg-violet-700/30 border border-violet-500/40 rounded-lg text-xs text-violet-300 flex items-center gap-1">
+              <Banknote size={13} /> تسوية بنكية ({selectedEligible.length})
+            </button>
           )}
           <button onClick={() => bulkUpdateStatus('canceled')} className="px-3 py-1.5 bg-red-700/30 border border-red-500/40 rounded-lg text-xs text-red-300">❌ إلغاء</button>
           <button onClick={() => setSelected([])} className="text-xs text-gray-500 mr-auto">إلغاء التحديد</button>
         </div>
       )}
 
-      {/* Settlement Import shortcut */}
+      {/* Settlement Import */}
       <div className="bg-[#1a1a35] border border-violet-900/20 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
         <Banknote size={16} className="text-violet-400" />
-        <span className="text-gray-400">تسوية جماعية بملف Excel (رقم الأوردر + المبلغ المحول):</span>
+        <span className="text-gray-400">تسوية جماعية بملف Excel:</span>
         <button onClick={downloadSettlementTemplate} className="text-violet-300 hover:underline">نموذج التسوية</button>
         <label className="text-violet-300 hover:underline cursor-pointer">
           استيراد ملف التسوية
@@ -322,7 +381,9 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
       <div className="relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث برقم الأوردر أو العميل..." className="input-dark w-full pr-9" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="بحث برقم الأوردر أو العميل..."
+          className="input-dark w-full pr-9" />
       </div>
 
       {/* Orders Table */}
@@ -332,7 +393,9 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             <tr>
               <th className="py-3 px-4 w-8">
                 <button onClick={() => setSelected(selected.length === filtered.length ? [] : filtered.map(o => o.id))}>
-                  {selected.length === filtered.length && filtered.length > 0 ? <CheckSquare size={14} className="text-violet-400" /> : <Square size={14} className="text-gray-500" />}
+                  {selected.length === filtered.length && filtered.length > 0
+                    ? <CheckSquare size={14} className="text-violet-400" />
+                    : <Square size={14} className="text-gray-500" />}
                 </button>
               </th>
               <th className="text-right py-3 px-3 text-gray-400 font-medium">رقم الأوردر</th>
@@ -352,15 +415,19 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             ) : filtered.map(o => {
               const pInfo = platformInfo(o.platform);
               return (
-                <tr key={o.id} className={`border-t border-white/5 hover:bg-white/5 ${selected.includes(o.id) ? 'bg-violet-900/10' : ''}`}>
-                  <td className="py-3 px-4">
+                <tr key={o.id}
+                  className={`border-t border-white/5 hover:bg-white/5 cursor-pointer ${selected.includes(o.id) ? 'bg-violet-900/10' : ''}`}
+                  onClick={() => setViewOrder(o)}>
+                  <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
                     <button onClick={() => toggleSelect(o.id)}>
-                      {selected.includes(o.id) ? <CheckSquare size={14} className="text-violet-400" /> : <Square size={14} className="text-gray-500" />}
+                      {selected.includes(o.id)
+                        ? <CheckSquare size={14} className="text-violet-400" />
+                        : <Square size={14} className="text-gray-500" />}
                     </button>
                   </td>
                   <td className="py-3 px-3">
                     <div className="font-mono text-violet-400 text-sm">{o.orderNumber}</div>
-                    {o.shipmentNumber && <div className="text-xs text-gray-500">{o.shipmentNumber}</div>}
+                    {o.shipmentNumber && <div className="text-xs text-gray-500 font-mono">{o.shipmentNumber}</div>}
                   </td>
                   <td className="py-3 px-3 text-white hidden md:table-cell">{o.customerName || '-'}</td>
                   <td className="py-3 px-3 text-center hidden md:table-cell">
@@ -370,15 +437,16 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                   </td>
                   <td className="py-3 px-3 text-center text-gray-400 text-xs">{o.date}</td>
                   <td className="py-3 px-3 text-center text-white">{o.items.length}</td>
-                  <td className="py-3 px-3 text-center">
+                  <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
                     {o.status === 'settled' ? (
-                      <span className={`text-xs px-2 py-1 rounded-lg border ${statusColor(o.status)}`}>🏦 {statusLabel(o.status)}</span>
+                      <span className={`text-xs px-2 py-1 rounded-lg border ${statusColor(o.status)}`}>
+                        🏦 {statusLabel(o.status)}
+                      </span>
                     ) : (
                       <select
                         value={o.status}
                         onChange={e => updateStatus(o.id, e.target.value as OrderStatus)}
-                        className={`text-xs rounded-lg border px-2 py-1 cursor-pointer bg-transparent ${statusColor(o.status)}`}
-                      >
+                        className={`text-xs rounded-lg border px-2 py-1 cursor-pointer bg-transparent ${statusColor(o.status)}`}>
                         <option value="pending">⏳ معلق</option>
                         <option value="shipped">📦 تم الشحن</option>
                         <option value="delivered">✅ تم التوصيل</option>
@@ -387,19 +455,24 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                     )}
                   </td>
                   <td className="py-3 px-3 text-center hidden lg:table-cell">
-                    {o.settledAmount != null ? <span className="text-blue-300 font-medium">{formatCurrency(o.settledAmount)}</span> : '-'}
+                    {o.settledAmount != null
+                      ? <span className="text-blue-300 font-medium">{formatCurrency(o.settledAmount)}</span>
+                      : '-'}
                   </td>
                   <td className="py-3 px-3 text-center hidden lg:table-cell">
                     {o.settlementProfit != null ? (
-                      <span className={`font-medium ${o.settlementProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(o.settlementProfit)}</span>
+                      <span className={`font-medium ${o.settlementProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {formatCurrency(o.settlementProfit)}
+                      </span>
                     ) : '-'}
                   </td>
-                  <td className="py-3 px-3">
-                    <div className="text-xs text-gray-500">
-                      {o.items.slice(0, 2).map((item, i) => (
-                        <div key={i}>{item.productName.substring(0, 20)}... {item.serial ? `(${item.serial.substring(0, 6)}...)` : ''}</div>
-                      ))}
-                    </div>
+                  <td className="py-3 px-3" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => openEditForm(o)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-900/20"
+                      title="تعديل">
+                      <Edit size={14} />
+                    </button>
                   </td>
                 </tr>
               );
@@ -408,13 +481,102 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
         </table>
       </div>
 
-      {/* New Order Modal */}
+      {/* ==================== View Order Modal ==================== */}
+      {viewOrder && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white">
+                {platformInfo(viewOrder.platform).emoji} {viewOrder.orderNumber}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => openEditForm(viewOrder)}
+                  className="btn-secondary flex items-center gap-1 text-sm">
+                  <Edit size={14} /> تعديل
+                </button>
+                <button onClick={() => setViewOrder(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div><div className="text-xs text-gray-500">المنصة</div>
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${platformInfo(viewOrder.platform).color}`}>
+                  {platformInfo(viewOrder.platform).emoji} {platformInfo(viewOrder.platform).label}
+                </span>
+              </div>
+              <div><div className="text-xs text-gray-500">التاريخ</div><div className="text-white">{viewOrder.date}</div></div>
+              {viewOrder.customerName && (
+                <div><div className="text-xs text-gray-500">العميل</div><div className="text-white">{viewOrder.customerName}</div></div>
+              )}
+              {viewOrder.shipmentNumber && (
+                <div><div className="text-xs text-gray-500">رقم الشحنة</div><div className="font-mono text-gray-300">{viewOrder.shipmentNumber}</div></div>
+              )}
+              <div><div className="text-xs text-gray-500">الحالة</div>
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor(viewOrder.status)}`}>
+                  {statusLabel(viewOrder.status)}
+                </span>
+              </div>
+              {viewOrder.settledAmount != null && (
+                <div><div className="text-xs text-gray-500">المبلغ المحول</div>
+                  <div className="text-blue-300 font-bold">{formatCurrency(viewOrder.settledAmount)}</div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 mb-4">
+              <div className="text-sm font-bold text-white mb-2">المنتجات ({viewOrder.items.length})</div>
+              {viewOrder.items.map((item, i) => (
+                <div key={i} className="bg-[#252545] rounded-xl p-3">
+                  <div className="font-medium text-white text-sm">{item.productName}</div>
+                  <div className="text-xs text-gray-500 mt-1 font-mono">
+                    {item.serial && <span>Serial: {item.serial} </span>}
+                    {item.imei1 && <span>| IMEI1: {item.imei1} </span>}
+                    {item.imei2 && <span>| IMEI2: {item.imei2}</span>}
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-xs text-gray-500">UPC: {item.upc || '-'}</span>
+                    <span className="text-sm text-green-400">{formatCurrency(item.price)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between font-bold border-t border-white/10 pt-3">
+              <span className="text-gray-400">إجمالي السعر</span>
+              <span className="text-white">{formatCurrency(viewOrder.items.reduce((s, i) => s + i.price, 0))}</span>
+            </div>
+            {viewOrder.settlementProfit != null && (
+              <div className="flex justify-between mt-1">
+                <span className="text-gray-400 text-sm">الربح</span>
+                <span className={`font-bold ${viewOrder.settlementProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {formatCurrency(viewOrder.settlementProfit)}
+                </span>
+              </div>
+            )}
+            {viewOrder.notes && (
+              <div className="mt-2 pt-2 border-t border-white/10">
+                <span className="text-gray-500 text-xs">ملاحظات: </span>
+                <span className="text-gray-300 text-xs">{viewOrder.notes}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== New/Edit Order Modal ==================== */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold text-white">🏪 إضافة أوردر جديد</h2>
-              <button onClick={() => { setShowForm(false); resetForm(); }} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              <h2 className="text-xl font-bold text-white">
+                🏪 {editingOrder ? `تعديل أوردر ${editingOrder.orderNumber}` : 'إضافة أوردر جديد'}
+              </h2>
+              <button onClick={() => { setShowForm(false); resetForm(); }} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">
+                <X size={18} />
+              </button>
             </div>
 
             {/* Platform */}
@@ -433,33 +595,37 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="form-label">رقم الأوردر *</label>
-                <input type="text" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} className="input-dark w-full" placeholder="NNN-20240115-001" />
+                <input type="text" value={orderNumber} onChange={e => setOrderNumber(e.target.value)}
+                  className="input-dark w-full" placeholder="NNN-20240115-001" />
               </div>
               <div>
                 <label className="form-label">رقم الشحنة</label>
-                <input type="text" value={shipmentNumber} onChange={e => setShipmentNumber(e.target.value)} className="input-dark w-full" placeholder="SHP-001" />
+                <input type="text" value={shipmentNumber} onChange={e => setShipmentNumber(e.target.value)}
+                  className="input-dark w-full" placeholder="SHP-001" />
               </div>
               <div>
                 <label className="form-label">التاريخ</label>
-                <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} className="input-dark w-full" />
+                <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
+                  className="input-dark w-full" />
               </div>
               <div>
                 <label className="form-label">اسم العميل</label>
-                <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} className="input-dark w-full" placeholder="اسم العميل" />
+                <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)}
+                  className="input-dark w-full" placeholder="اسم العميل" />
               </div>
               <div className="col-span-2">
                 <label className="form-label">ملاحظات</label>
-                <input type="text" value={orderNotes} onChange={e => setOrderNotes(e.target.value)} className="input-dark w-full" />
+                <input type="text" value={orderNotes} onChange={e => setOrderNotes(e.target.value)}
+                  className="input-dark w-full" />
               </div>
             </div>
 
-            {/* Products */}
+            {/* Products Search */}
             <div className="mb-4">
               <label className="form-label">اختر الأجهزة من المخزون</label>
               <div className="relative">
                 <input
-                  type="text"
-                  value={productSearch}
+                  type="text" value={productSearch}
                   onChange={e => { setProductSearch(e.target.value); setShowProductDrop(true); }}
                   onFocus={() => setShowProductDrop(true)}
                   placeholder="بحث بالمنتج أو UPC..."
@@ -473,14 +639,16 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                       <button key={p.id} onClick={() => addItemFromProduct(p)}
                         className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">
                         <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-gray-500">{p.sku} • مخزون: {p.stock} • {p.upc}</div>
+                        <div className="text-xs text-gray-500">{p.sku} • مخزون: {p.stock}</div>
                       </button>
                     ))}
-                    <button onClick={() => setShowProductDrop(false)} className="block w-full text-right px-3 py-2 text-xs text-gray-500 hover:bg-white/5 border-t border-white/10">إغلاق</button>
+                    <button onClick={() => setShowProductDrop(false)}
+                      className="block w-full text-right px-3 py-2 text-xs text-gray-500 hover:bg-white/5 border-t border-white/10">
+                      إغلاق
+                    </button>
                   </div>
                 )}
               </div>
-              <p className="text-xs text-gray-500 mt-1">⚠️ يمكن فقط اختيار منتجات متوفرة في المخزون</p>
             </div>
 
             {/* Order Items */}
@@ -489,46 +657,68 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                 <div key={idx} className="bg-[#252545] border border-violet-900/20 rounded-xl p-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="font-medium text-white text-sm">{item.productName}</div>
-                    <button onClick={() => setOrderItems(prev => prev.filter((_, i) => i !== idx))} className="p-1 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
+                    <button onClick={() => setOrderItems(prev => prev.filter((_, i) => i !== idx))}
+                      className="p-1 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <input type="text" value={item.tempSerial} onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempSerial: e.target.value } : it))} className="input-dark w-full text-xs" placeholder="Serial Number" />
-                    <input type="text" value={item.tempImei1} onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei1: e.target.value } : it))} className="input-dark w-full text-xs" placeholder="IMEI 1" />
-                    <input type="text" value={item.tempImei2} onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei2: e.target.value } : it))} className="input-dark w-full text-xs" placeholder="IMEI 2" />
+                    <input type="text" value={item.tempSerial}
+                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempSerial: e.target.value } : it))}
+                      className="input-dark w-full text-xs font-mono" placeholder="Serial Number" />
+                    <input type="text" value={item.tempImei1}
+                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei1: e.target.value } : it))}
+                      className="input-dark w-full text-xs" placeholder="IMEI 1" />
+                    <input type="text" value={item.tempImei2}
+                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei2: e.target.value } : it))}
+                      className="input-dark w-full text-xs" placeholder="IMEI 2" />
                   </div>
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mt-2 flex items-center gap-3">
                     <span className="text-xs text-gray-500">UPC: {item.upc || '-'}</span>
-                    <span className="text-xs text-gray-500">السعر: {formatCurrency(item.price)}</span>
+                    <input
+                      type="number"
+                      value={item.price}
+                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, price: parseFloat(e.target.value) || 0 } : it))}
+                      className="input-dark text-xs w-28"
+                      placeholder="السعر"
+                    />
                   </div>
                 </div>
               ))}
               {orderItems.length === 0 && (
-                <div className="text-center text-gray-500 py-4 border border-dashed border-white/10 rounded-xl text-sm">أضف منتجات من قائمة المخزون أعلاه</div>
+                <div className="text-center text-gray-500 py-4 border border-dashed border-white/10 rounded-xl text-sm">
+                  أضف منتجات من قائمة المخزون أعلاه
+                </div>
               )}
             </div>
 
             <div className="flex gap-3">
-              <button onClick={handleSaveOrder} className="btn-primary flex-1">💾 حفظ الأوردر</button>
+              <button onClick={handleSaveOrder} className="btn-primary flex-1">
+                💾 {editingOrder ? 'حفظ التعديلات' : 'حفظ الأوردر'}
+              </button>
               <button onClick={() => { setShowForm(false); resetForm(); }} className="btn-secondary px-4">إلغاء</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bulk Settlement Modal - تسوية تحويل بنكي جماعي */}
+      {/* ==================== Bulk Settlement Modal ==================== */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-xl font-bold text-white">🏦 تسوية تحويل بنكي جماعي</h2>
-              <button onClick={() => setShowSettleModal(false)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              <button onClick={() => setShowSettleModal(false)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">
+                <X size={18} />
+              </button>
             </div>
 
-            <p className="text-gray-400 text-sm mb-4">أدخل المبلغ الصافي المحول فعليًا لكل أوردر (بعد خصم عمولة المنصة والضريبة). النظام سيحسب الربح تلقائيًا = المبلغ المحول − تكلفة المنتجات.</p>
+            <p className="text-gray-400 text-sm mb-4">
+              أدخل المبلغ الصافي المحول فعليًا لكل أوردر. النظام سيحسب الربح = المبلغ المحول − تكلفة المنتجات.
+            </p>
 
             <div className="mb-4">
               <label className="form-label">تاريخ التحويل</label>
-              <input type="date" value={settleDate} onChange={e => setSettleDate(e.target.value)} className="input-dark w-full md:w-48" />
+              <input type="date" value={settleDate} onChange={e => setSettleDate(e.target.value)}
+                className="input-dark w-full md:w-48" />
             </div>
 
             <div className="space-y-2 mb-4 max-h-80 overflow-y-auto">
@@ -565,17 +755,21 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-gray-500">إجمالي المبالغ المحولة</div>
+                <div className="text-xs text-gray-500">إجمالي المبالغ</div>
                 <div className="font-bold text-blue-300 text-lg">{formatCurrency(totalSettlementAmount)}</div>
               </div>
               <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-gray-500">إجمالي الربح المتوقع</div>
-                <div className={`font-bold text-lg ${totalSettlementProfit >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatCurrency(totalSettlementProfit)}</div>
+                <div className="text-xs text-gray-500">إجمالي الربح</div>
+                <div className={`font-bold text-lg ${totalSettlementProfit >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                  {formatCurrency(totalSettlementProfit)}
+                </div>
               </div>
             </div>
 
             <div className="flex gap-3">
-              <button onClick={handleConfirmSettlement} className="btn-primary flex-1">✅ تأكيد التسوية وتحويل الحالة</button>
+              <button onClick={handleConfirmSettlement} className="btn-primary flex-1">
+                ✅ تأكيد التسوية
+              </button>
               <button onClick={() => setShowSettleModal(false)} className="btn-secondary px-4">إلغاء</button>
             </div>
           </div>

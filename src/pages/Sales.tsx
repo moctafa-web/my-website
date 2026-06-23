@@ -155,15 +155,15 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
   };
 
   // هل السيريال موجود فعليًا في المخزون وحالته "متاح" (أو هو نفسه كان مباعًا في هذه الفاتورة عند التعديل)؟
-  const isValidAvailableSerial = (serial: string, productId: string): boolean => {
-    const normalized = serial.trim().toLowerCase();
-    if (!normalized) return true;
-    const record = serials.find(s => s.serial.trim().toLowerCase() === normalized && s.productId === productId);
-    if (!record) return false;
-    if (record.status === 'available') return true;
-    if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
-    return false;
-  };
+const isValidAvailableSerial = (serial: string, productId: string): boolean => {
+  const normalized = serial.trim().toLowerCase();
+  if (!normalized) return true;
+  const record = serials.find(s => s.serial.trim().toLowerCase() === normalized);
+  if (!record) return false;
+  if (record.status === 'available') return true;
+  if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
+  return false;
+};
 
   const updateSerialField = (itemId: string, index: number, field: 'serial' | 'imei1' | 'imei2', value: string) => {
     setSaleItems(prev => prev.map(item => {

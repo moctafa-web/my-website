@@ -17,10 +17,8 @@ import Settings from './pages/Settings';
 import { useStore } from './store/useStore';
 
 export default function App() {
-  // 🔐 Authentication hook (شغلنا)
   const { user, loading } = useAuth();
-  
-  // 📄 كل الـ Hooks في الأول (مهم جداً - قواعد React)
+
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
@@ -28,7 +26,6 @@ export default function App() {
   const store = useStore();
   const { state } = store;
 
-  // 🔐 شاشة تحميل (شغلنا)
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0f0f1a]">
@@ -40,7 +37,6 @@ export default function App() {
     );
   }
 
-  // 🔐 لو مش مسجل دخول، اعرض صفحة Login (شغلنا)
   if (!user) {
     return <Login />;
   }
@@ -63,6 +59,7 @@ export default function App() {
             adjustTreasury={store.adjustTreasury}
           />
         );
+
       case 'customers':
         return (
           <Customers
@@ -75,9 +72,14 @@ export default function App() {
             onUpdateCustomer={store.updateCustomer}
             onDeleteCustomer={store.deleteCustomer}
             onAddPayment={store.addPayment}
-            onNavigateToSales={(customerId) => { setPendingCustomerId(customerId); setCurrentPage('sales'); }}
+            onUpdateSaleInvoice={store.updateSaleInvoice}
+            onNavigateToSales={(customerId) => {
+              setPendingCustomerId(customerId);
+              setCurrentPage('sales');
+            }}
           />
         );
+
       case 'sales':
         return (
           <Sales
@@ -90,10 +92,12 @@ export default function App() {
             onAddSaleInvoice={store.addSaleInvoice}
             onAddCustomer={store.addCustomer}
             onUpdateSaleInvoice={store.updateSaleInvoice}
+            onDeleteSaleInvoice={store.deleteSaleInvoice}
             preselectedCustomerId={pendingCustomerId}
             onPreselectedHandled={() => setPendingCustomerId(null)}
           />
         );
+
       case 'purchases':
         return (
           <Purchases
@@ -108,17 +112,23 @@ export default function App() {
             onAddProduct={store.addProduct}
             onAddSerials={store.addSerials}
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
+            onDeletePurchaseInvoice={store.deletePurchaseInvoice}
             preselectedSupplierId={pendingSupplierId}
             onPreselectedHandled={() => setPendingSupplierId(null)}
           />
         );
+
       case 'inventory':
         return (
           <Inventory
             products={state.products}
             serials={state.serials}
+            saleInvoices={state.saleInvoices}
+            purchaseInvoices={state.purchaseInvoices}
+            noonOrders={state.noonOrders}
           />
         );
+
       case 'suppliers':
         return (
           <Suppliers
@@ -129,9 +139,14 @@ export default function App() {
             onUpdateSupplier={store.updateSupplier}
             onDeleteSupplier={store.deleteSupplier}
             onAddPayment={store.addPayment}
-            onNavigateToPurchases={(supplierId) => { setPendingSupplierId(supplierId); setCurrentPage('purchases'); }}
+            onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
+            onNavigateToPurchases={(supplierId) => {
+              setPendingSupplierId(supplierId);
+              setCurrentPage('purchases');
+            }}
           />
         );
+
       case 'noon':
         return (
           <NoonOrders
@@ -144,6 +159,7 @@ export default function App() {
             onSettleNoonOrders={store.settleNoonOrders}
           />
         );
+
       case 'finance':
         return (
           <Finance
@@ -154,8 +170,10 @@ export default function App() {
             adjustTreasury={store.adjustTreasury}
           />
         );
+
       case 'reports':
         return <Reports state={state} />;
+
       case 'expenses':
         return (
           <Expenses
@@ -163,6 +181,7 @@ export default function App() {
             onAddExpense={store.addExpense}
           />
         );
+
       case 'products':
         return (
           <Products
@@ -175,6 +194,7 @@ export default function App() {
             onAddBrand={store.addBrand}
           />
         );
+
       case 'settings':
         return (
           <Settings
@@ -185,8 +205,11 @@ export default function App() {
             onResetData={handleResetData}
           />
         );
+
       default:
-        return <div className="p-8 text-center text-gray-500">الصفحة قيد التطوير...</div>;
+        return (
+          <div className="p-8 text-center text-gray-500">الصفحة قيد التطوير...</div>
+        );
     }
   };
 
