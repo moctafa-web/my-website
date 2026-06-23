@@ -16,6 +16,10 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
   const [filterCat, setFilterCat] = useState('all');
   const [showSerials, setShowSerials] = useState<string | null>(null);
 
+  // ==================== جرد المخزون ====================
+  const [showJrard, setShowJrard] = useState(false);
+  const [jrardData, setJrardData] = useState<Record<string, string>>({});
+
   // ==================== تتبع المنتجات ====================
   const [trackTab, setTrackTab] = useState<'serial' | 'product'>('serial');
   const [serialSearch, setSerialSearch] = useState('');
@@ -23,12 +27,10 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
   const [productTrackSearch, setProductTrackSearch] = useState('');
   const [showProductSuggestions, setShowProductSuggestions] = useState(false);
 
-  // ✅ فتح الفاتورة في modal
   const [viewSaleInvoice, setViewSaleInvoice] = useState<SaleInvoice | null>(null);
   const [viewPurchaseInvoice, setViewPurchaseInvoice] = useState<PurchaseInvoice | null>(null);
   const [viewNoonOrder, setViewNoonOrder] = useState<NoonOrder | null>(null);
 
-  // ✅ بحث جزئي بالسيريال (مش لازم يكتب كامل)
   const serialSuggestions = serialSearch.trim().length > 0
     ? serials.filter(s =>
         s.serial.toLowerCase().includes(serialSearch.trim().toLowerCase()) ||
@@ -59,7 +61,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
     return { purchase, sale, noonOrder };
   };
 
-  // بحث بالمنتج
   const productSuggestions = productTrackSearch.trim().length > 0
     ? products.filter(p =>
         p.name.toLowerCase().includes(productTrackSearch.toLowerCase()) ||
@@ -99,12 +100,37 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
   const getTransferredSerials = (productId: string) =>
     serials.filter(s => s.productId === productId && s.status === 'transferred');
 
-  // ✅ حساب المخزون الحقيقي من السيريالات
   const getRealStock = (p: Product) => {
     if (p.productType === 'serial') {
       return getAvailableSerials(p.id).length;
     }
     return p.stock;
+  };
+
+  // ✅ حساب المباع للمنتجات العادية من فواتير البيع
+  const getSoldCount = (p: Product) => {
+    if (p.productType === 'serial') {
+      return getSoldSerials(p.id).length;
+    }
+    // المنتجات العادية: نحسب من فواتير البيع
+    return saleInvoices.reduce((sum, inv) => {
+      return sum + inv.items
+        .filter(item => item.productId === p.id)
+        .reduce((s, item) => s + item.quantity, 0);
+    }, 0);
+  };
+
+  // ✅ حساب المحول للمنتجات العادية من أوردرات نون
+  const getTransferredCount = (p: Product) => {
+    if (p.productType === 'serial') {
+      return getTransferredSerials(p.id).length;
+    }
+    // المنتجات العادية: نحسب من أوردرات نون
+    return noonOrders
+      .filter(o => o.status !== 'canceled')
+      .reduce((sum, o) => {
+        return sum + o.items.filter(item => item.productId === p.id).length;
+      }, 0);
   };
 
   const totalValue = products.reduce((s, p) => s + p.costPrice * getRealStock(p), 0);
@@ -181,7 +207,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         {/* ===== بحث بالسيريال ===== */}
         {trackTab === 'serial' && (
           <div className="space-y-3">
-            {/* ✅ بحث جزئي مع اقتراحات */}
             <div className="relative">
               <input
                 type="text"
@@ -195,7 +220,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                 placeholder="اكتب جزء من السيريال أو IMEI..."
                 className="input-dark w-full font-mono"
               />
-              {/* اقتراحات السيريال */}
               {showSerialSuggestions && serialSearch.trim() && serialSuggestions.length > 1 && (
                 <div className="absolute top-full right-0 left-0 z-50 bg-[#1a1a35] border border-violet-700/40 rounded-xl mt-1 shadow-xl overflow-hidden max-h-48 overflow-y-auto">
                   {serialSuggestions.map(s => (
@@ -224,7 +248,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
               )}
             </div>
 
-            {/* نتيجة البحث */}
             {serialSearch.trim() && (
               <div>
                 {trackedSerial ? (() => {
@@ -262,7 +285,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                       )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {/* بطاقة الشراء */}
                         <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 space-y-1.5">
                           <div className="flex items-center justify-between mb-2">
                             <div className="text-blue-400 font-bold text-sm">📦 الشراء</div>
@@ -298,7 +320,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                           )}
                         </div>
 
-                        {/* بطاقة البيع */}
                         <div className={`border rounded-xl p-3 space-y-1.5 ${
                           noonOrder ? 'bg-orange-900/20 border-orange-700/30' : 'bg-green-900/20 border-green-700/30'
                         }`}>
@@ -405,7 +426,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                     </div>
                   );
                 })() : (
-                  /* لو فيه اقتراحات أكتر من واحد، اعرض رسالة للاختيار */
                   serialSuggestions.length > 1 ? (
                     <div className="bg-[#12122a] border border-violet-900/30 rounded-xl p-3 text-center text-violet-400 text-sm">
                       وجدنا {serialSuggestions.length} نتيجة - اختر من القائمة أعلاه
@@ -486,7 +506,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                     </div>
                   </div>
 
-                  {/* فواتير الشراء */}
                   {purchases.length > 0 && (
                     <div className="bg-[#12122a] border border-blue-900/30 rounded-xl p-3">
                       <div className="text-blue-400 font-bold text-sm mb-2">📦 فواتير الشراء ({purchases.length})</div>
@@ -503,11 +522,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className="text-blue-300 text-sm">×{item.quantity} @ {formatCurrency(item.unitPrice)}</span>
-                                  {/* ✅ زرار فتح الفاتورة */}
-                                  <button
-                                    onClick={() => setViewPurchaseInvoice(inv)}
-                                    className="p-1 rounded-lg text-blue-400 hover:bg-blue-900/30 hover:text-blue-300"
-                                    title="فتح الفاتورة">
+                                  <button onClick={() => setViewPurchaseInvoice(inv)}
+                                    className="p-1 rounded-lg text-blue-400 hover:bg-blue-900/30">
                                     <Eye size={13} />
                                   </button>
                                 </div>
@@ -519,7 +535,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                     </div>
                   )}
 
-                  {/* فواتير البيع */}
                   {sales.length > 0 && (
                     <div className="bg-[#12122a] border border-green-900/30 rounded-xl p-3">
                       <div className="text-green-400 font-bold text-sm mb-2">🛒 فواتير البيع ({sales.length})</div>
@@ -536,11 +551,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className="text-green-300 text-sm">×{item.quantity} @ {formatCurrency(item.unitPrice)}</span>
-                                  {/* ✅ زرار فتح الفاتورة */}
-                                  <button
-                                    onClick={() => setViewSaleInvoice(inv)}
-                                    className="p-1 rounded-lg text-green-400 hover:bg-green-900/30 hover:text-green-300"
-                                    title="فتح الفاتورة">
+                                  <button onClick={() => setViewSaleInvoice(inv)}
+                                    className="p-1 rounded-lg text-green-400 hover:bg-green-900/30">
                                     <Eye size={13} />
                                   </button>
                                 </div>
@@ -552,7 +564,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                     </div>
                   )}
 
-                  {/* أوردرات نون */}
                   {noon.length > 0 && (
                     <div className="bg-[#12122a] border border-orange-900/30 rounded-xl p-3">
                       <div className="text-orange-400 font-bold text-sm mb-2">🛍️ أوردرات نون/أمازون ({noon.length})</div>
@@ -574,11 +585,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                                   {order.status === 'settled' ? 'محول' :
                                    order.status === 'delivered' ? 'مسلّم' : 'قيد التنفيذ'}
                                 </span>
-                                {/* ✅ زرار فتح الأوردر */}
-                                <button
-                                  onClick={() => setViewNoonOrder(order)}
-                                  className="p-1 rounded-lg text-orange-400 hover:bg-orange-900/30 hover:text-orange-300"
-                                  title="فتح الأوردر">
+                                <button onClick={() => setViewNoonOrder(order)}
+                                  className="p-1 rounded-lg text-orange-400 hover:bg-orange-900/30">
                                   <Eye size={13} />
                                 </button>
                               </div>
@@ -599,18 +607,84 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         )}
       </div>
 
-      {/* ==================== قسم المخزون ==================== */}
+      {/* ==================== جرد المخزون ==================== */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold text-white">📦 المخزون</h2>
           <p className="text-gray-500 text-sm">{products.length} منتج</p>
         </div>
-        <button onClick={printInventory} className="btn-secondary flex items-center gap-2">
-          <Printer size={16} /> طباعة المخزون
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowJrard(!showJrard)}
+            className={`btn-secondary flex items-center gap-2 text-sm ${showJrard ? 'bg-yellow-700/20 border-yellow-700/40 text-yellow-300' : ''}`}
+          >
+            📋 {showJrard ? 'إخفاء الجرد' : 'جرد المخزون'}
+          </button>
+          <button onClick={printInventory} className="btn-secondary flex items-center gap-2">
+            <Printer size={16} /> طباعة
+          </button>
+        </div>
       </div>
 
-      {/* ✅ إجمالي القطع من السيريالات الحقيقية */}
+      {/* ✅ جرد المخزون */}
+      {showJrard && (
+        <div className="bg-[#1a1a35] border border-yellow-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-yellow-300">📋 جرد المخزون - مقارنة النظام بالواقع</h3>
+            <button onClick={() => window.print()} className="btn-secondary text-sm">🖨️ طباعة الجرد</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-white/10">
+                  <th className="text-right py-2 px-3">المنتج</th>
+                  <th className="text-center py-2 px-3">في النظام</th>
+                  <th className="text-center py-2 px-3">المتبقي الحقيقي</th>
+                  <th className="text-center py-2 px-3">الفرق</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(p => {
+                  const inSystem = getRealStock(p);
+                  const actual = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
+                  const diff = !isNaN(actual) ? actual - inSystem : NaN;
+                  return (
+                    <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-2 px-3">
+                        <div className="font-medium text-white">{p.name}</div>
+                        <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
+                      </td>
+                      <td className="py-2 px-3 text-center font-bold text-white">{inSystem}</td>
+                      <td className="py-2 px-3 text-center">
+                        <input
+                          type="number"
+                          value={jrardData[p.id] || ''}
+                          onChange={e => setJrardData(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          className="w-20 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
+                          placeholder="?"
+                        />
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {!isNaN(diff) ? (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            diff === 0 ? 'bg-green-900/40 text-green-400' :
+                            diff < 0 ? 'bg-red-900/40 text-red-400' :
+                            'bg-yellow-900/40 text-yellow-400'
+                          }`}>
+                            {diff === 0 ? '✓ تطابق' : diff < 0 ? `⚠️ عجز ${Math.abs(diff)}` : `📈 زيادة ${diff}`}
+                          </span>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* إجمالي المخزون */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-[#1a1a35] border border-violet-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-violet-400">{totalStock}</div>
@@ -646,6 +720,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         </div>
       </div>
 
+      {/* ==================== جدول المخزون ==================== */}
       <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-violet-900/20">
@@ -665,8 +740,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
               <tr><td colSpan={8} className="text-center py-12 text-gray-500">لا توجد منتجات</td></tr>
             ) : filtered.map(p => {
               const avail = getAvailableSerials(p.id).length;
-              const sold = getSoldSerials(p.id).length;
-              const transferred = getTransferredSerials(p.id).length;
+              const sold = getSoldCount(p);       // ✅ يشمل المنتجات العادية
+              const transferred = getTransferredCount(p); // ✅ يشمل المنتجات العادية
               const stock = getRealStock(p);
               return (
                 <React.Fragment key={p.id}>
@@ -681,13 +756,16 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                       }`}>{stock}</span>
                     </td>
                     <td className="py-3 px-3 text-center text-green-400 text-sm hidden md:table-cell">
+                      {/* ✅ متاح: للمنتجات بسيريالات نعرض عدد السيريالات، للعادية نعرض stock */}
                       {p.productType === 'serial' ? avail : p.stock}
                     </td>
                     <td className="py-3 px-3 text-center text-purple-400 text-sm hidden md:table-cell">
-                      {p.productType === 'serial' ? sold : '-'}
+                      {/* ✅ مباع: دايماً بيظهر رقم */}
+                      {sold}
                     </td>
                     <td className="py-3 px-3 text-center text-blue-400 text-sm hidden md:table-cell">
-                      {p.productType === 'serial' ? transferred : '-'}
+                      {/* ✅ محول: دايماً بيظهر رقم */}
+                      {transferred}
                     </td>
                     <td className="py-3 px-3 text-center text-gray-300 text-sm">{formatCurrency(p.costPrice)}</td>
                     <td className="py-3 px-3 text-center text-white font-medium text-sm">{formatCurrency(p.salePrice)}</td>
