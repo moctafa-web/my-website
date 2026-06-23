@@ -14,6 +14,7 @@ import Reports from './pages/Reports';
 import Expenses from './pages/Expenses';
 import NoonOrders from './pages/NoonOrders';
 import Settings from './pages/Settings';
+import DailyJournal from './pages/DailyJournal';
 import { useStore } from './store/useStore';
 
 export default function App() {
@@ -205,6 +206,10 @@ export default function App() {
             onResetData={handleResetData}
           />
         );
+
+      // ✅ صفحة دفتر اليومية الجديدة
+      case 'daily-journal':
+        return <DailyJournal />;
 
       default:
         return (

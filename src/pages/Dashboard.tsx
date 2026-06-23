@@ -117,17 +117,18 @@ export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase,
           <div className="text-blue-300 text-sm mt-1">استلام شحنة من مورد</div>
         </button>
 
-        <button
-          onClick={() => setShowClosing(true)}
-          className="bg-gradient-to-br from-slate-700 to-gray-900 hover:from-slate-600 hover:to-gray-800 border border-gray-600/40 rounded-2xl p-5 text-right transition-all hover:scale-105 hover:shadow-xl group"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">🔒</div>
-            <span className="text-gray-400 text-xs">يومي</span>
-          </div>
-          <div className="text-xl font-bold text-white">تقفيل اليومية</div>
-          <div className="text-gray-400 text-sm mt-1">مراجعة وتقفيل حسابات اليوم</div>
-        </button>
+// ✅ بعد - بيفتح صفحة DailyJournal
+<button
+  onClick={() => onNavigate('daily-journal')}
+  className="bg-gradient-to-br from-slate-700 to-gray-900 hover:from-slate-600 hover:to-gray-800 border border-gray-600/40 rounded-2xl p-5 text-right transition-all hover:scale-105 hover:shadow-xl group"
+>
+  <div className="flex items-center justify-between mb-3">
+    <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">📒</div>
+    <span className="text-gray-400 text-xs">يومي</span>
+  </div>
+  <div className="text-xl font-bold text-white">تقفيل اليومية</div>
+  <div className="text-gray-400 text-sm mt-1">مراجعة وتقفيل حسابات اليوم</div>
+</button>
       </div>
 
       {/* Stats Cards */}
