@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, ChevronDown, Trash2, Edit } from 'lucide-react';
@@ -58,13 +58,17 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // ✅ حساب المخزون الحقيقي من عدد السيريالات المتاحة
+  const getAvailableStock = useCallback((productId: string): number => {
+    return serials.filter(s => s.productId === productId && s.status === 'available').length;
+  }, [serials]);
+
   const makeEmptySaleItem = (): SaleItem => ({
     id: generateId(), productId: '', productName: '', sku: '', description: '',
     quantity: 1, unitPrice: 0, discount: 0, discountType: 'percent', taxRate: 0,
     serials: [], total: 0,
   });
 
-  // فتح فورم فاتورة جديدة: يبدأ بسطر منتج واحد جاهز للتعبئة فورًا
   const openNewForm = () => {
     resetForm();
     const firstItem = makeEmptySaleItem();
@@ -73,7 +77,6 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
     setShowForm(true);
   };
 
-  // فتح فورم تعديل فاتورة موجودة
   const openEditForm = (inv: SaleInvoice) => {
     setEditingInvoice(inv);
     setCustomerId(inv.customerId);
@@ -105,7 +108,6 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
     setShowForm(true);
   };
 
-  // عند القدوم من كشف حساب عميل بزرار "فاتورة جديدة": يفتح الفورم تلقائيًا مع تحديد العميل
   useEffect(() => {
     if (preselectedCustomerId) {
       const customer = customers.find(c => c.id === preselectedCustomerId);
@@ -141,7 +143,6 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
     setItemSearch(prev => ({ ...prev, [newItem.id]: '' }));
   };
 
-  // تحقق من تكرار سيريال داخل نفس الفاتورة (نفس السيريال لا يمكن بيعه مرتين في فاتورة واحدة)
   const isDuplicateSaleSerial = (serial: string, currentItemId: string, currentIndex: number): boolean => {
     const normalized = serial.trim().toLowerCase();
     if (!normalized) return false;
@@ -154,16 +155,15 @@ export default function Sales({ saleInvoices, customers, products, serials, sett
     return false;
   };
 
-  // هل السيريال موجود فعليًا في المخزون وحالته "متاح" (أو هو نفسه كان مباعًا في هذه الفاتورة عند التعديل)؟
-const isValidAvailableSerial = (serial: string, productId: string): boolean => {
-  const normalized = serial.trim().toLowerCase();
-  if (!normalized) return true;
-  const record = serials.find(s => s.serial.trim().toLowerCase() === normalized);
-  if (!record) return false;
-  if (record.status === 'available') return true;
-  if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
-  return false;
-};
+  const isValidAvailableSerial = (serial: string, productId: string): boolean => {
+    const normalized = serial.trim().toLowerCase();
+    if (!normalized) return true;
+    const record = serials.find(s => s.serial.trim().toLowerCase() === normalized);
+    if (!record) return false;
+    if (record.status === 'available') return true;
+    if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
+    return false;
+  };
 
   const updateSerialField = (itemId: string, index: number, field: 'serial' | 'imei1' | 'imei2', value: string) => {
     setSaleItems(prev => prev.map(item => {
@@ -179,7 +179,6 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
     }
   };
 
-  // إضافة خانة سيريال جديدة + رفع الكمية تلقائيًا لتطابق عدد السيريالات
   const addSerialSlot = (itemId: string, focusAfter = false) => {
     let newLength = 0;
     setSaleItems(prev => prev.map(item => {
@@ -194,7 +193,6 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
     }
   };
 
-  // إدخال متتابع بقارئ الباركود: كتابة السيريال + Enter ينتقل للخانة التالية أو يضيفها تلقائيًا
   const handleSerialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, itemId: string, index: number) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
@@ -213,7 +211,6 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
     }
   };
 
-  // مزامنة الكمية اليدوية مع عدد خانات السيريال (للمنتجات ذات السيريال فقط)
   const syncSerialsWithQuantity = (itemId: string, newQuantity: number) => {
     setSaleItems(prev => prev.map(item => {
       const product = products.find(p => p.id === item.productId);
@@ -274,7 +271,6 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
   const handleSave = () => {
     if (!customerId || saleItems.length === 0) return;
 
-    // تحقق نهائي قبل الحفظ: منع التكرار
     for (const item of saleItems) {
       for (let i = 0; i < item.serials.length; i++) {
         if (item.serials[i].serial && isDuplicateSaleSerial(item.serials[i].serial, item.id, i)) {
@@ -566,7 +562,7 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                               <button key={p.id} onClick={() => selectProduct(item.id, p)}
                                 className="block w-full text-right px-3 py-2 text-xs text-gray-300 hover:bg-violet-700/20">
                                 <div className="font-medium">{p.name}</div>
-                                <div className="text-gray-500">{p.sku} • {formatCurrency(p.salePrice)} • مخزون: {p.stock}</div>
+                                <div className="text-gray-500">{p.sku} • {formatCurrency(p.salePrice)} • مخزون متاح: {getAvailableStock(p.id)}</div>
                               </button>
                             ))}
                           </div>

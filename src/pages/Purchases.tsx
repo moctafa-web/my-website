@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit } from 'lucide-react';
@@ -64,6 +64,11 @@ export default function Purchases({
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // ✅ حساب المخزون الحقيقي من عدد السيريالات المتاحة
+  const getAvailableStock = useCallback((productId: string): number => {
+    return serials.filter(s => s.productId === productId && s.status === 'available').length;
+  }, [serials]);
 
   const makeEmptyItem = (): PurchItem => ({
     id: generateId(), productId: '', productName: '', sku: '',
@@ -389,7 +394,6 @@ export default function Purchases({
     setItemSearch({});
   };
 
-  // ✅ إصلاح: زرار الحذف شغال + يغلق نافذة العرض لو مفتوحة
   const handleDeleteInvoice = () => {
     if (!confirmDeleteInvoice) return;
     onDeletePurchaseInvoice(confirmDeleteInvoice.id);
@@ -627,7 +631,7 @@ export default function Purchases({
                                 <button key={p.id} onClick={() => selectProduct(item.id, p)}
                                   className="block w-full text-right px-3 py-2 text-xs text-gray-300 hover:bg-violet-700/20">
                                   <div className="font-medium">{p.name}</div>
-                                  <div className="text-gray-500">{p.sku} • مخزون: {p.stock}</div>
+                                  <div className="text-gray-500">{p.sku} • مخزون متاح: {getAvailableStock(p.id)}</div>
                                 </button>
                               ))}
                               <button
