@@ -14,8 +14,8 @@ interface SavedJournal {
   inEntries: JournalEntry[];
   outEntries: JournalEntry[];
   actualBalance: number;
-  closingTime?: string;   // ✅ وقت التقفيل
-  closingNote?: string;   // ✅ ملاحظة التقفيل
+  closingTime?: string;
+  closingNote?: string;
   savedAt: string;
 }
 
@@ -45,11 +45,9 @@ export default function DailyJournal() {
     { id: '1', label: '', amount: 0 },
   ]);
 
-  // ✅ عرض الأيام المحفوظة
   const [showHistory, setShowHistory] = useState(false);
   const [journals, setJournals] = useState<Record<string, SavedJournal>>(loadJournals);
 
-  // ✅ لما التاريخ يتغير، نحمل البيانات المحفوظة
   useEffect(() => {
     const saved = journals[date];
     if (saved) {
@@ -60,7 +58,6 @@ export default function DailyJournal() {
       setClosingTime(saved.closingTime || null);
       setClosingNote(saved.closingNote || '');
     } else {
-      // يوم جديد - نمسح البيانات
       setOpeningBalance('');
       setInEntries([{ id: '1', label: '', amount: 0 }]);
       setOutEntries([{ id: '1', label: '', amount: 0 }]);
@@ -70,7 +67,6 @@ export default function DailyJournal() {
     }
   }, [date]);
 
-  // ✅ حفظ تلقائي عند أي تغيير
   useEffect(() => {
     const journal: SavedJournal = {
       date,
@@ -87,7 +83,6 @@ export default function DailyJournal() {
     saveJournals(updated);
   }, [date, openingBalance, inEntries, outEntries, actualBalance, closingTime, closingNote]);
 
-  // ✅ Enter ينزل للسطر الجديد
   const inRefs = useRef<(HTMLInputElement | null)[]>([]);
   const outRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -95,11 +90,8 @@ export default function DailyJournal() {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (idx === inEntries.length - 1) {
-        // آخر سطر - أضف سطر جديد
         addIn();
-        setTimeout(() => {
-          inRefs.current[idx + 1]?.focus();
-        }, 50);
+        setTimeout(() => { inRefs.current[idx + 1]?.focus(); }, 50);
       } else {
         inRefs.current[idx + 1]?.focus();
       }
@@ -111,16 +103,13 @@ export default function DailyJournal() {
       e.preventDefault();
       if (idx === outEntries.length - 1) {
         addOut();
-        setTimeout(() => {
-          outRefs.current[idx + 1]?.focus();
-        }, 50);
+        setTimeout(() => { outRefs.current[idx + 1]?.focus(); }, 50);
       } else {
         outRefs.current[idx + 1]?.focus();
       }
     }
   };
 
-  // إضافة / حذف / تعديل بنود
   const addIn = () => setInEntries(prev => [...prev, { id: Date.now().toString(), label: '', amount: 0 }]);
   const addOut = () => setOutEntries(prev => [...prev, { id: Date.now().toString(), label: '', amount: 0 }]);
   const removeIn = (id: string) => setInEntries(prev => prev.filter(e => e.id !== id));
@@ -139,7 +128,6 @@ export default function DailyJournal() {
     ));
   };
 
-  // الحسابات
   const opening = parseFloat(openingBalance) || 0;
   const totalIn = inEntries.reduce((s, e) => s + e.amount, 0);
   const totalOut = outEntries.reduce((s, e) => s + e.amount, 0);
@@ -147,7 +135,6 @@ export default function DailyJournal() {
   const actual = parseFloat(actualBalance) || 0;
   const diff = actual - expected;
 
-  // ✅ تقفيل مع الوقت
   const handleClosing = () => {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('ar-EG', {
@@ -158,7 +145,6 @@ export default function DailyJournal() {
     setClosingTime(timeStr);
   };
 
-  // إعادة تعيين
   const handleReset = () => {
     if (!window.confirm('هتمسح بيانات هذا اليوم؟')) return;
     setOpeningBalance('');
@@ -167,84 +153,55 @@ export default function DailyJournal() {
     setActualBalance('');
     setClosingTime(null);
     setClosingNote('');
-    // امسح من المحفوظ
     const updated = { ...journals };
     delete updated[date];
     setJournals(updated);
     saveJournals(updated);
   };
 
-  // طباعة
   const handlePrint = () => {
     const inRows = inEntries.filter(e => e.amount > 0).map(e =>
-      `<tr><td>${e.label || '—'}</td><td style="text-align:left;color:#16a34a">+${e.amount.toLocaleString('ar-EG')}</td></tr>`
+      '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#16a34a">+' + e.amount.toLocaleString('ar-EG') + '</td></tr>'
     ).join('');
     const outRows = outEntries.filter(e => e.amount > 0).map(e =>
-      `<tr><td>${e.label || '—'}</td><td style="text-align:left;color:#ef4444">-${e.amount.toLocaleString('ar-EG')}</td></tr>`
+      '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#ef4444">-' + e.amount.toLocaleString('ar-EG') + '</td></tr>'
     ).join('');
 
     const diffText = diff === 0 ? '✅ مظبوط'
-      : diff > 0 ? `📈 أوفر +${diff.toLocaleString('ar-EG')}`
-      : `🔴 عجز ${diff.toLocaleString('ar-EG')}`;
+      : diff > 0 ? ('📈 أوفر +' + diff.toLocaleString('ar-EG'))
+      : ('🔴 عجز ' + diff.toLocaleString('ar-EG'));
 
     const win = window.open('', '_blank');
     if (!win) return;
-    win.document.write(`
-      <html dir="rtl">
-      <head>
-        <meta charset="utf-8"/>
-        <title>تقفيل يوم ${date}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 20px; font-size: 14px; }
-          h2 { text-align: center; margin-bottom: 4px; }
-          p { text-align: center; color: #666; margin: 0 0 16px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-          th { background: #f3f4f6; padding: 8px; border: 1px solid #ddd; }
-          td { padding: 6px 8px; border: 1px solid #eee; }
-          .summary { background: #f9fafb; padding: 12px; border-radius: 8px; margin-top: 12px; }
-          .summary div { display: flex; justify-content: space-between; padding: 4px 0; }
-          .diff { font-size: 18px; font-weight: bold; text-align: center; margin-top: 12px; padding: 10px; border-radius: 8px; background: #f0fdf4; }
-        </style>
-      </head>
-      <body>
-        <h2>ONE - تقفيل اليومية</h2>
-        <p>يوم: ${date} ${closingTime ? `| وقت التقفيل: ${closingTime}` : ''}</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-          <div>
-            <h3 style="color:#16a34a">📥 الداخل</h3>
-            <table>
-              <thead><tr><th>البند</th><th>المبلغ</th></tr></thead>
-              <tbody>${inRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>'}</tbody>
-            </table>
-            <div style="text-align:left;font-weight:bold;color:#16a34a">الإجمالي: ${totalIn.toLocaleString('ar-EG')}</div>
-          </div>
-          <div>
-            <h3 style="color:#dc2626">📤 الخارج</h3>
-            <table>
-              <thead><tr><th>البند</th><th>المبلغ</th></tr></thead>
-              <tbody>${outRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>'}</tbody>
-            </table>
-            <div style="text-align:left;font-weight:bold;color:#dc2626">الإجمالي: ${totalOut.toLocaleString('ar-EG')}</div>
-          </div>
-        </div>
-        <div class="summary">
-          <div><span>رصيد أول اليوم</span><span>${opening.toLocaleString('ar-EG')}</span></div>
-          <div><span>+ إجمالي الداخل</span><span style="color:#16a34a">${totalIn.toLocaleString('ar-EG')}</span></div>
-          <div><span>- إجمالي الخارج</span><span style="color:#dc2626">${totalOut.toLocaleString('ar-EG')}</span></div>
-          <div style="font-weight:bold;border-top:1px solid #ddd;margin-top:8px;padding-top:8px">
-            <span>المفروض يتبقى</span><span>${expected.toLocaleString('ar-EG')}</span>
-          </div>
-          <div><span>رصيد الدرج الفعلي</span><span>${actual.toLocaleString('ar-EG')}</span></div>
-        </div>
-        <div class="diff">${diffText}</div>
-        <script>window.print(); window.close();</script>
-      </body>
-      </html>
-    `);
+    win.document.write(
+      '<html dir="rtl"><head><meta charset="utf-8"/><title>تقفيل يوم ' + date + '</title>' +
+      '<style>body{font-family:Arial,sans-serif;padding:20px;font-size:14px}h2{text-align:center;margin-bottom:4px}' +
+      'p{text-align:center;color:#666;margin:0 0 16px}table{width:100%;border-collapse:collapse;margin-bottom:12px}' +
+      'th{background:#f3f4f6;padding:8px;border:1px solid #ddd}td{padding:6px 8px;border:1px solid #eee}' +
+      '.summary{background:#f9fafb;padding:12px;border-radius:8px;margin-top:12px}' +
+      '.summary div{display:flex;justify-content:space-between;padding:4px 0}' +
+      '.diff{font-size:18px;font-weight:bold;text-align:center;margin-top:12px;padding:10px;border-radius:8px;background:#f0fdf4}</style></head><body>' +
+      '<h2>ONE - تقفيل اليومية</h2>' +
+      '<p>يوم: ' + date + (closingTime ? ' | وقت التقفيل: ' + closingTime : '') + '</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
+      '<div><h3 style="color:#16a34a">📥 الداخل</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
+      (inRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
+      '</tbody></table><div style="text-align:left;font-weight:bold;color:#16a34a">الإجمالي: ' + totalIn.toLocaleString('ar-EG') + '</div></div>' +
+      '<div><h3 style="color:#dc2626">📤 الخارج</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
+      (outRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
+      '</tbody></table><div style="text-align:left;font-weight:bold;color:#dc2626">الإجمالي: ' + totalOut.toLocaleString('ar-EG') + '</div></div></div>' +
+      '<div class="summary">' +
+      '<div><span>رصيد أول اليوم</span><span>' + opening.toLocaleString('ar-EG') + '</span></div>' +
+      '<div><span>+ إجمالي الداخل</span><span style="color:#16a34a">' + totalIn.toLocaleString('ar-EG') + '</span></div>' +
+      '<div><span>- إجمالي الخارج</span><span style="color:#dc2626">' + totalOut.toLocaleString('ar-EG') + '</span></div>' +
+      '<div style="font-weight:bold;border-top:1px solid #ddd;margin-top:8px;padding-top:8px"><span>المفروض يتبقى</span><span>' + expected.toLocaleString('ar-EG') + '</span></div>' +
+      '<div><span>رصيد الدرج الفعلي</span><span>' + actual.toLocaleString('ar-EG') + '</span></div></div>' +
+      '<div class="diff">' + diffText + '</div>' +
+      '<script>window.print();window.close();</script></body></html>'
+    );
     win.document.close();
   };
 
-  // الأيام المحفوظة مرتبة
   const savedDates = Object.keys(journals).sort((a, b) => b.localeCompare(a));
 
   return (
@@ -257,7 +214,6 @@ export default function DailyJournal() {
           <p className="text-gray-500 text-sm">تقفيل الدرج اليومي - يحفظ تلقائياً</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {/* ✅ زرار الأيام المحفوظة */}
           <button
             onClick={() => setShowHistory(!showHistory)}
             className={`btn-secondary flex items-center gap-2 text-sm ${showHistory ? 'bg-violet-700/20 border-violet-700/40 text-violet-300' : ''}`}
@@ -277,7 +233,7 @@ export default function DailyJournal() {
         </div>
       </div>
 
-      {/* ✅ الأيام المحفوظة */}
+      {/* الأيام المحفوظة */}
       {showHistory && (
         <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4">
           <h3 className="font-bold text-white mb-3">🗂️ الأيام المحفوظة</h3>
@@ -291,14 +247,14 @@ export default function DailyJournal() {
                 const jOut = j.outEntries.reduce((s, e) => s + e.amount, 0);
                 const jExpected = j.openingBalance + jIn - jOut;
                 const jDiff = j.actualBalance - jExpected;
-                const isToday = d === date;
+                const isSelected = d === date;
 
                 return (
                   <button
                     key={d}
                     onClick={() => { setDate(d); setShowHistory(false); }}
                     className={`text-right p-3 rounded-xl border transition-colors ${
-                      isToday
+                      isSelected
                         ? 'bg-violet-700/20 border-violet-500/40'
                         : 'bg-[#12122a] border-white/10 hover:border-violet-700/40'
                     }`}
@@ -314,16 +270,16 @@ export default function DailyJournal() {
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-green-400">+{jIn.toLocaleString('ar-EG')}</span>
                       <span className="text-red-400">-{jOut.toLocaleString('ar-EG')}</span>
-                      <span className={`font-bold px-1.5 py-0.5 rounded ${
+                      <span className={
                         j.actualBalance === 0 ? 'text-gray-500' :
-                        Math.abs(jDiff) < 1 ? 'bg-green-900/40 text-green-400' :
-                        jDiff > 0 ? 'bg-yellow-900/40 text-yellow-400' :
-                        'bg-red-900/40 text-red-400'
-                      }`}>
+                        Math.abs(jDiff) < 1 ? 'text-green-400 font-bold' :
+                        jDiff > 0 ? 'text-yellow-400 font-bold' :
+                        'text-red-400 font-bold'
+                      }>
                         {j.actualBalance === 0 ? '—' :
-                         Math.abs(jDiff) < 1 ? '✓' :
-                         jDiff > 0 ? `+${Math.abs(jDiff).toLocaleString('ar-EG')}` :
-                         `-${Math.abs(jDiff).toLocaleString('ar-EG')`}
+                         Math.abs(jDiff) < 1 ? '✓ مظبوط' :
+                         jDiff > 0 ? ('+' + Math.abs(jDiff).toLocaleString('ar-EG')) :
+                         ('-' + Math.abs(jDiff).toLocaleString('ar-EG'))}
                       </span>
                     </div>
                   </button>
@@ -357,7 +313,6 @@ export default function DailyJournal() {
             />
           </div>
         </div>
-        {/* ✅ وقت التقفيل لو موجود */}
         {closingTime && (
           <div className="mt-3 flex items-center gap-2 text-sm text-green-400 bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2">
             <Clock size={14} />
@@ -376,15 +331,13 @@ export default function DailyJournal() {
       {/* الداخل والخارج */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-        {/* 📥 الداخل */}
+        {/* الداخل */}
         <div className="bg-[#1a1a35] border border-green-900/30 rounded-2xl p-4 space-y-3">
           <h3 className="font-bold text-green-400">📥 الداخل</h3>
-
           <div className="space-y-2">
             {inEntries.map((entry, idx) => (
               <div key={entry.id} className="flex items-center gap-2">
                 <span className="text-gray-600 text-xs w-5 text-center flex-shrink-0">{idx + 1}</span>
-                {/* ✅ البند ⅔ */}
                 <input
                   type="text"
                   value={entry.label}
@@ -392,7 +345,6 @@ export default function DailyJournal() {
                   className="input-dark text-sm flex-[2]"
                   placeholder="البند..."
                 />
-                {/* ✅ الرقم ⅓ */}
                 <input
                   ref={el => { inRefs.current[idx] = el; }}
                   type="number"
@@ -413,29 +365,25 @@ export default function DailyJournal() {
               </div>
             ))}
           </div>
-
           <button
             onClick={addIn}
             className="w-full py-2 border border-dashed border-green-800/50 rounded-xl text-green-600 hover:text-green-400 hover:border-green-700/60 text-sm flex items-center justify-center gap-1 transition-colors"
           >
             <Plus size={14} /> إضافة بند
           </button>
-
           <div className="border-t border-green-900/30 pt-3 flex justify-between items-center">
             <span className="text-gray-400 text-sm">إجمالي الداخل</span>
             <span className="text-green-400 font-black text-xl">+{formatCurrency(totalIn)}</span>
           </div>
         </div>
 
-        {/* 📤 الخارج */}
+        {/* الخارج */}
         <div className="bg-[#1a1a35] border border-red-900/30 rounded-2xl p-4 space-y-3">
           <h3 className="font-bold text-red-400">📤 الخارج</h3>
-
           <div className="space-y-2">
             {outEntries.map((entry, idx) => (
               <div key={entry.id} className="flex items-center gap-2">
                 <span className="text-gray-600 text-xs w-5 text-center flex-shrink-0">{idx + 1}</span>
-                {/* ✅ البند ⅔ */}
                 <input
                   type="text"
                   value={entry.label}
@@ -443,7 +391,6 @@ export default function DailyJournal() {
                   className="input-dark text-sm flex-[2]"
                   placeholder="البند..."
                 />
-                {/* ✅ الرقم ⅓ */}
                 <input
                   ref={el => { outRefs.current[idx] = el; }}
                   type="number"
@@ -464,14 +411,12 @@ export default function DailyJournal() {
               </div>
             ))}
           </div>
-
           <button
             onClick={addOut}
             className="w-full py-2 border border-dashed border-red-800/50 rounded-xl text-red-600 hover:text-red-400 hover:border-red-700/60 text-sm flex items-center justify-center gap-1 transition-colors"
           >
             <Plus size={14} /> إضافة بند
           </button>
-
           <div className="border-t border-red-900/30 pt-3 flex justify-between items-center">
             <span className="text-gray-400 text-sm">إجمالي الخارج</span>
             <span className="text-red-400 font-black text-xl">-{formatCurrency(totalOut)}</span>
@@ -482,7 +427,6 @@ export default function DailyJournal() {
       {/* ملخص التقفيل */}
       <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 space-y-3">
         <h3 className="font-bold text-white">📊 ملخص التقفيل</h3>
-
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1">
             <span className="text-gray-400">رصيد أول اليوم</span>
@@ -502,7 +446,6 @@ export default function DailyJournal() {
           </div>
         </div>
 
-        {/* رصيد الدرج الفعلي */}
         <div className="bg-[#12122a] rounded-xl p-3">
           <label className="form-label">🪙 رصيد الدرج الفعلي (اللي عدّيته)</label>
           <input
@@ -514,28 +457,28 @@ export default function DailyJournal() {
           />
         </div>
 
-        {/* النتيجة */}
         {actualBalance !== '' && (
-          <div className={`rounded-xl p-4 border ${
-            diff === 0
+          <div className={
+            'rounded-xl p-4 border ' +
+            (diff === 0
               ? 'bg-green-900/20 border-green-700/40'
               : diff > 0
               ? 'bg-yellow-900/20 border-yellow-700/40'
-              : 'bg-red-900/20 border-red-700/40'
-          }`}>
+              : 'bg-red-900/20 border-red-700/40')
+          }>
             <div className="text-center mb-3">
               <div className="text-3xl font-black mb-1">
                 {diff === 0 ? '✅' : diff > 0 ? '📈' : '🔴'}
               </div>
-              <div className={`text-xl font-black ${
-                diff === 0 ? 'text-green-400' : diff > 0 ? 'text-yellow-400' : 'text-red-400'
-              }`}>
+              <div className={
+                'text-xl font-black ' +
+                (diff === 0 ? 'text-green-400' : diff > 0 ? 'text-yellow-400' : 'text-red-400')
+              }>
                 {diff === 0
                   ? 'مظبوط تماماً!'
                   : diff > 0
-                  ? `أوفر +${formatCurrency(diff)}`
-                  : `عجز ${formatCurrency(Math.abs(diff))}`
-                }
+                  ? ('أوفر +' + formatCurrency(diff))
+                  : ('عجز ' + formatCurrency(Math.abs(diff)))}
               </div>
               <div className="text-gray-500 text-sm mt-1">
                 {diff === 0 ? 'الدرج مظبوط 👍'
@@ -544,7 +487,6 @@ export default function DailyJournal() {
               </div>
             </div>
 
-            {/* ✅ زرار التقفيل مع الوقت */}
             {!closingTime ? (
               <div className="space-y-2">
                 <input
