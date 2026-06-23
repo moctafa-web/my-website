@@ -5,9 +5,7 @@ import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore'
 
 const STORAGE_KEY = 'one_erp_data';
 
-// ==================== Firebase Helper Functions ====================
-
-// ✅ تنظيف undefined قبل الحفظ في Firebase
+// ==================== Helper Functions ====================
 const cleanForFirebase = (obj: any): any => {
   if (obj === null || obj === undefined) return null;
   if (Array.isArray(obj)) return obj.map(cleanForFirebase);
@@ -40,6 +38,7 @@ const deleteFromFirebase = async (collectionName: string, id: string) => {
   }
 };
 
+// ==================== Default Data ====================
 const defaultSettings: AppSettings = {
   companyName: 'ONE',
   companyPhone: '',
@@ -67,14 +66,14 @@ const defaultBrands: Brand[] = [
 const generateDemoData = (): AppState => {
   const now = new Date().toISOString();
   const products: Product[] = [
-    { id: 'p1', name: 'iPhone 15 Pro Max 256GB Natural', sku: 'IP15PM-256-NT', upc: '195949035951', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: 45000, salePrice: 52000, quantity: 0, stock: 5, createdAt: now, updatedAt: now },
-    { id: 'p2', name: 'iPad Pro 11 M4 256GB WiFi', sku: 'IPADPRO11-256', upc: '195949078279', category: 'tablets', brand: 'Apple', productType: 'serial', costPrice: 35000, salePrice: 42000, quantity: 0, stock: 3, createdAt: now, updatedAt: now },
-    { id: 'p3', name: 'MacBook Air M3 13 256GB', sku: 'MBA-M3-256', upc: '195949056147', category: 'laptops', brand: 'Apple', productType: 'serial', costPrice: 55000, salePrice: 65000, quantity: 0, stock: 2, createdAt: now, updatedAt: now },
-    { id: 'p4', name: 'AirPods Pro 2nd Gen', sku: 'APP2-USB', upc: '195949077813', category: 'accessories', brand: 'Apple', productType: 'serial', costPrice: 8000, salePrice: 10500, quantity: 0, stock: 8, createdAt: now, updatedAt: now },
-    { id: 'p5', name: 'Samsung Galaxy S24 Ultra 256GB', sku: 'SGS24U-256', upc: '8806095194585', category: 'phones', brand: 'Samsung', productType: 'serial', costPrice: 38000, salePrice: 45000, quantity: 0, stock: 4, createdAt: now, updatedAt: now },
-    { id: 'p6', name: 'iPhone 15 128GB Black', sku: 'IP15-128-BK', upc: '195949034862', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: 32000, salePrice: 38000, quantity: 0, stock: 6, createdAt: now, updatedAt: now },
-    { id: 'p7', name: 'iPad Air M2 11 256GB', sku: 'IPADAIR-M2-256', upc: '195949052613', category: 'tablets', brand: 'Apple', productType: 'serial', costPrice: 28000, salePrice: 34000, quantity: 0, stock: 4, createdAt: now, updatedAt: now },
-    { id: 'p8', name: 'Apple Watch Series 9 45mm', sku: 'AWS9-45', upc: '194253921660', category: 'accessories', brand: 'Apple', productType: 'serial', costPrice: 12000, salePrice: 15000, quantity: 0, stock: 5, createdAt: now, updatedAt: now },
+    { id: 'p1', name: 'iPhone 15 Pro Max 256GB Natural', sku: 'IP15PM-256-NT', upc: '195949035951', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: 45000, salePrice: 52000, stock: 5, createdAt: now, updatedAt: now },
+    { id: 'p2', name: 'iPad Pro 11 M4 256GB WiFi', sku: 'IPADPRO11-256', upc: '195949078279', category: 'tablets', brand: 'Apple', productType: 'serial', costPrice: 35000, salePrice: 42000, stock: 3, createdAt: now, updatedAt: now },
+    { id: 'p3', name: 'MacBook Air M3 13 256GB', sku: 'MBA-M3-256', upc: '195949056147', category: 'laptops', brand: 'Apple', productType: 'serial', costPrice: 55000, salePrice: 65000, stock: 2, createdAt: now, updatedAt: now },
+    { id: 'p4', name: 'AirPods Pro 2nd Gen', sku: 'APP2-USB', upc: '195949077813', category: 'accessories', brand: 'Apple', productType: 'serial', costPrice: 8000, salePrice: 10500, stock: 8, createdAt: now, updatedAt: now },
+    { id: 'p5', name: 'Samsung Galaxy S24 Ultra 256GB', sku: 'SGS24U-256', upc: '8806095194585', category: 'phones', brand: 'Samsung', productType: 'serial', costPrice: 38000, salePrice: 45000, stock: 4, createdAt: now, updatedAt: now },
+    { id: 'p6', name: 'iPhone 15 128GB Black', sku: 'IP15-128-BK', upc: '195949034862', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: 32000, salePrice: 38000, stock: 6, createdAt: now, updatedAt: now },
+    { id: 'p7', name: 'iPad Air M2 11 256GB', sku: 'IPADAIR-M2-256', upc: '195949052613', category: 'tablets', brand: 'Apple', productType: 'serial', costPrice: 28000, salePrice: 34000, stock: 4, createdAt: now, updatedAt: now },
+    { id: 'p8', name: 'Apple Watch Series 9 45mm', sku: 'AWS9-45', upc: '194253921660', category: 'accessories', brand: 'Apple', productType: 'serial', costPrice: 12000, salePrice: 15000, stock: 5, createdAt: now, updatedAt: now },
   ];
 
   const serials: SerialItem[] = [
@@ -107,6 +106,7 @@ const generateDemoData = (): AppState => {
   };
 };
 
+// ==================== useStore Hook ====================
 export function useStore() {
   const [state, setState] = useState<AppState>(() => {
     try {
@@ -121,44 +121,7 @@ export function useStore() {
 
   const [isLoading, setIsLoading] = useState(true);
 
-  // ==================== SYNC PRODUCT QUANTITIES ====================
-  // مزامنة كمية كل منتج بعدد السيريالات المتاحة (غير المباعين)
-  const syncProductQuantities = useCallback(() => {
-    setState(prev => {
-      const updatedProducts = prev.products.map(product => {
-        // احسب عدد السيريالات المتاحة لهذا المنتج
-        const availableCount = prev.serials.filter(
-          s => s.productId === product.id && s.status !== 'sold'
-        ).length;
-        
-        // لو الكمية نفسها، متغيرش حاجة
-        if (product.quantity === availableCount) {
-          return product;
-        }
-        
-        return {
-          ...product,
-          quantity: availableCount
-        };
-      });
-      
-      // لو مفيش تغيير، ارجع نفس الـ prev
-      const hasChanges = updatedProducts.some((p, idx) => 
-        p.quantity !== prev.products[idx].quantity
-      );
-      
-      if (!hasChanges) {
-        return prev;
-      }
-      
-      return {
-        ...prev,
-        products: updatedProducts
-      };
-    });
-  }, []);
-
-  // 🔥 Load from Firebase on start
+  // 🔥 Load data from Firebase, merge with localStorage (keep the newest version)
   useEffect(() => {
     const loadDataFromFirebase = async () => {
       try {
@@ -181,62 +144,70 @@ export function useStore() {
         ]);
 
         if (productsSnap.empty && customersSnap.empty && saleInvoicesSnap.empty) {
-          console.log('Firebase is empty, using local data');
-          // زامن حتى لو محلي
-          syncProductQuantities();
+          console.log('Firebase is empty, keeping local data');
           setIsLoading(false);
           return;
         }
 
-        // ✅ حماية: خذ المنتجات بس خلي quantity = 0، الـ sync هيصلحه
-        const products = productsSnap.docs.map(d => {
-          const data = d.data() as any;
-          return {
-            ...data,
-            id: d.id,
-            quantity: 0 // هنصلحه تلقائيًا بالـ sync
-          } as Product;
-        });
-        
-        const serials = serialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as SerialItem));
-        const customers = customersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Customer));
-        const suppliers = suppliersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Supplier));
-        const saleInvoices = saleInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as SaleInvoice));
-        const purchaseInvoices = purchaseInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as PurchaseInvoice));
-        const payments = paymentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Payment));
-        const expenses = expensesSnap.docs.map(d => ({ ...d.data(), id: d.id } as Expense));
-        const noonOrders = noonOrdersSnap.docs.map(d => ({ ...d.data(), id: d.id } as NoonOrder));
-        const brands = brandsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Brand));
+        // Helper to merge array by id, keep the one with newer updatedAt (or createdAt if missing)
+        const mergeByNewest = <T extends { id: string; updatedAt?: string; createdAt?: string }>(
+          localArr: T[],
+          fbArr: T[]
+        ): T[] => {
+          const map = new Map<string, T>();
+          localArr.forEach(item => map.set(item.id, item));
+          fbArr.forEach(item => {
+            const existing = map.get(item.id);
+            if (!existing) {
+              map.set(item.id, item);
+            } else {
+              // Compare updatedAt if exists, else compare createdAt
+              const localTime = existing.updatedAt || existing.createdAt || '0';
+              const fbTime = item.updatedAt || item.createdAt || '0';
+              if (fbTime > localTime) {
+                map.set(item.id, item);
+              }
+              // else keep local
+            }
+          });
+          return Array.from(map.values());
+        };
+
+        const fbProducts = productsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Product));
+        const fbSerials = serialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as SerialItem));
+        const fbCustomers = customersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Customer));
+        const fbSuppliers = suppliersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Supplier));
+        const fbSaleInvs = saleInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as SaleInvoice));
+        const fbPurchaseInvs = purchaseInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as PurchaseInvoice));
+        const fbPayments = paymentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Payment));
+        const fbExpenses = expensesSnap.docs.map(d => ({ ...d.data(), id: d.id } as Expense));
+        const fbNoonOrders = noonOrdersSnap.docs.map(d => ({ ...d.data(), id: d.id } as NoonOrder));
+        const fbBrands = brandsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Brand));
 
         setState(prev => ({
           ...prev,
-          products: products.length ? products : prev.products,
-          serials: serials.length ? serials : prev.serials,
-          customers: customers.length ? customers : prev.customers,
-          suppliers: suppliers.length ? suppliers : prev.suppliers,
-          saleInvoices,
-          purchaseInvoices,
-          payments,
-          expenses,
-          noonOrders,
-          brands: brands.length ? brands : prev.brands,
+          products: mergeByNewest(prev.products, fbProducts),
+          serials: mergeByNewest(prev.serials, fbSerials),
+          customers: mergeByNewest(prev.customers, fbCustomers),
+          suppliers: mergeByNewest(prev.suppliers, fbSuppliers),
+          saleInvoices: mergeByNewest(prev.saleInvoices, fbSaleInvs),
+          purchaseInvoices: mergeByNewest(prev.purchaseInvoices, fbPurchaseInvs),
+          payments: mergeByNewest(prev.payments, fbPayments),
+          expenses: mergeByNewest(prev.expenses, fbExpenses),
+          noonOrders: mergeByNewest(prev.noonOrders, fbNoonOrders),
+          brands: mergeByNewest(prev.brands, fbBrands),
         }));
-        
-        // زامن الكميات فورًا بعد التحميل
-        syncProductQuantities();
-        console.log('✅ Data loaded from Firebase successfully!');
+        console.log('✅ Data loaded from Firebase and merged successfully');
       } catch (error) {
         console.error('Error loading from Firebase:', error);
-        // حتى لو فيه خطأ، زامن
-        syncProductQuantities();
       } finally {
         setIsLoading(false);
       }
     };
     loadDataFromFirebase();
-  }, [syncProductQuantities]);
+  }, []);
 
-  // Save to localStorage as backup
+  // Save to localStorage as backup (always up to date)
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -247,15 +218,20 @@ export function useStore() {
     setState(updater);
   }, []);
 
+  // Helper to set updatedAt on any object
+  const touch = (obj: any) => ({ ...obj, updatedAt: new Date().toISOString() });
+
   // ==================== PRODUCTS ====================
   const addProduct = useCallback((product: Product) => {
-    setState(prev => ({ ...prev, products: [...prev.products, product] }));
-    saveToFirebase('products', product.id, product);
+    const newProduct = touch(product);
+    setState(prev => ({ ...prev, products: [...prev.products, newProduct] }));
+    saveToFirebase('products', newProduct.id, newProduct);
   }, []);
 
   const updateProduct = useCallback((product: Product) => {
-    setState(prev => ({ ...prev, products: prev.products.map(p => p.id === product.id ? product : p) }));
-    saveToFirebase('products', product.id, product);
+    const updated = touch(product);
+    setState(prev => ({ ...prev, products: prev.products.map(p => p.id === product.id ? updated : p) }));
+    saveToFirebase('products', updated.id, updated);
   }, []);
 
   const deleteProduct = useCallback((id: string) => {
@@ -265,33 +241,34 @@ export function useStore() {
 
   // ==================== SERIALS ====================
   const addSerial = useCallback((serial: SerialItem) => {
-    setState(prev => ({ ...prev, serials: [...prev.serials, serial] }));
-    saveToFirebase('serials', serial.id, serial);
-    // زامن بعد إضافة سيريال
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+    const updated = touch(serial);
+    setState(prev => ({ ...prev, serials: [...prev.serials, updated] }));
+    saveToFirebase('serials', updated.id, updated);
+  }, []);
 
   const updateSerial = useCallback((serial: SerialItem) => {
-    setState(prev => ({ ...prev, serials: prev.serials.map(s => s.id === serial.id ? serial : s) }));
-    saveToFirebase('serials', serial.id, serial);
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+    const updated = touch(serial);
+    setState(prev => ({ ...prev, serials: prev.serials.map(s => s.id === serial.id ? updated : s) }));
+    saveToFirebase('serials', updated.id, updated);
+  }, []);
 
   const addSerials = useCallback((newSerials: SerialItem[]) => {
-    setState(prev => ({ ...prev, serials: [...prev.serials, ...newSerials] }));
-    newSerials.forEach(s => saveToFirebase('serials', s.id, s));
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+    const touched = newSerials.map(s => touch(s));
+    setState(prev => ({ ...prev, serials: [...prev.serials, ...touched] }));
+    touched.forEach(s => saveToFirebase('serials', s.id, s));
+  }, []);
 
   // ==================== CUSTOMERS ====================
   const addCustomer = useCallback((customer: Customer) => {
-    setState(prev => ({ ...prev, customers: [...prev.customers, customer] }));
-    saveToFirebase('customers', customer.id, customer);
+    const updated = touch(customer);
+    setState(prev => ({ ...prev, customers: [...prev.customers, updated] }));
+    saveToFirebase('customers', updated.id, updated);
   }, []);
 
   const updateCustomer = useCallback((customer: Customer) => {
-    setState(prev => ({ ...prev, customers: prev.customers.map(c => c.id === customer.id ? customer : c) }));
-    saveToFirebase('customers', customer.id, customer);
+    const updated = touch(customer);
+    setState(prev => ({ ...prev, customers: prev.customers.map(c => c.id === customer.id ? updated : c) }));
+    saveToFirebase('customers', updated.id, updated);
   }, []);
 
   const deleteCustomer = useCallback((id: string) => {
@@ -301,13 +278,15 @@ export function useStore() {
 
   // ==================== SUPPLIERS ====================
   const addSupplier = useCallback((supplier: Supplier) => {
-    setState(prev => ({ ...prev, suppliers: [...prev.suppliers, supplier] }));
-    saveToFirebase('suppliers', supplier.id, supplier);
+    const updated = touch(supplier);
+    setState(prev => ({ ...prev, suppliers: [...prev.suppliers, updated] }));
+    saveToFirebase('suppliers', updated.id, updated);
   }, []);
 
   const updateSupplier = useCallback((supplier: Supplier) => {
-    setState(prev => ({ ...prev, suppliers: prev.suppliers.map(s => s.id === supplier.id ? supplier : s) }));
-    saveToFirebase('suppliers', supplier.id, supplier);
+    const updated = touch(supplier);
+    setState(prev => ({ ...prev, suppliers: prev.suppliers.map(s => s.id === supplier.id ? updated : s) }));
+    saveToFirebase('suppliers', updated.id, updated);
   }, []);
 
   const deleteSupplier = useCallback((id: string) => {
@@ -317,8 +296,9 @@ export function useStore() {
 
   // ==================== SALE INVOICES ====================
   const addSaleInvoice = useCallback((invoice: SaleInvoice) => {
+    const touched = touch(invoice);
     setState(prev => {
-      const newState = { ...prev, saleInvoices: [...prev.saleInvoices, invoice] };
+      const newState = { ...prev, saleInvoices: [...prev.saleInvoices, touched] };
       let updatedCustomer: Customer | null = null;
       const updatedSerials: SerialItem[] = [];
 
@@ -365,21 +345,19 @@ export function useStore() {
 
       newState.settings = { ...newState.settings, lastSaleInvoiceNum: newState.settings.lastSaleInvoiceNum + 1 };
 
-      saveToFirebase('saleInvoices', invoice.id, invoice);
+      saveToFirebase('saleInvoices', touched.id, touched);
       if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
       updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
 
       return newState;
     });
-    // زامن بعد البيع
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+  }, []);
 
   const updateSaleInvoice = useCallback((invoice: SaleInvoice) => {
-    setState(prev => ({ ...prev, saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    saveToFirebase('saleInvoices', invoice.id, invoice);
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+    const touched = touch(invoice);
+    setState(prev => ({ ...prev, saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? touched : i) }));
+    saveToFirebase('saleInvoices', touched.id, touched);
+  }, []);
 
   const deleteSaleInvoice = useCallback((invoiceId: string) => {
     setState(prev => {
@@ -433,14 +411,13 @@ export function useStore() {
 
       return newState;
     });
-    // زامن بعد الحذف
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+  }, []);
 
   // ==================== PURCHASE INVOICES ====================
   const addPurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
+    const touched = touch(invoice);
     setState(prev => {
-      const newState = { ...prev, purchaseInvoices: [...prev.purchaseInvoices, invoice] };
+      const newState = { ...prev, purchaseInvoices: [...prev.purchaseInvoices, touched] };
       let updatedSupplier: Supplier | null = null;
       const updatedProducts: Product[] = [];
 
@@ -470,7 +447,7 @@ export function useStore() {
         }];
       }
 
-      // فقط المنتجات العادية
+      // ✅ فقط المنتجات العادية - المنتجات بسيريال مخزونها من عدد السيريالات
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product && product.productType === 'normal') {
@@ -490,20 +467,19 @@ export function useStore() {
         lastPurchaseInvoiceNum: newState.settings.lastPurchaseInvoiceNum + 1
       };
 
-      saveToFirebase('purchaseInvoices', invoice.id, invoice);
+      saveToFirebase('purchaseInvoices', touched.id, touched);
       if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
 
       return newState;
     });
-    // السيريالات بتتضاف من addSerials، فـ sync هناك
   }, []);
 
   const updatePurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
-    setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    saveToFirebase('purchaseInvoices', invoice.id, invoice);
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+    const touched = touch(invoice);
+    setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? touched : i) }));
+    saveToFirebase('purchaseInvoices', touched.id, touched);
+  }, []);
 
   const deletePurchaseInvoice = useCallback((invoiceId: string) => {
     setState(prev => {
@@ -512,8 +488,6 @@ export function useStore() {
       const newState = { ...prev, purchaseInvoices: prev.purchaseInvoices.filter(i => i.id !== invoiceId) };
 
       const updatedProducts: Product[] = [];
-
-      // فقط المنتجات العادية
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product && product.productType === 'normal') {
@@ -528,7 +502,6 @@ export function useStore() {
         }
       });
 
-      // حذف السيريالات المرتبطة
       const removedSerialIds: string[] = [];
       newState.serials = newState.serials.filter(s => {
         if (s.purchaseInvoiceId === invoiceId && s.status === 'available') {
@@ -569,65 +542,348 @@ export function useStore() {
 
       return newState;
     });
-    // زامن بعد الحذف
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+  }, []);
 
   // ==================== PAYMENTS (FIFO) ====================
   const addPayment = useCallback((payment: Payment) => {
+    const touched = touch(payment);
     setState(prev => {
-      const newState = { ...prev, payments: [...prev.payments, payment] };
-      // ... باقي الكود زي ما هو
+      const newState = { ...prev, payments: [...prev.payments, touched] };
+      const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
+      let changedCustomer: Customer | null = null;
+      let changedSupplier: Supplier | null = null;
+      const changedSaleInvoices: SaleInvoice[] = [];
+      const changedPurchaseInvoices: PurchaseInvoice[] = [];
+
+      if (payment.direction === 'in') {
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance + payment.amount : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance + payment.amount : newState.bankBalance;
+        if (payment.type === 'sale') {
+          newState.customers = newState.customers.map(c => {
+            if (c.id === payment.referenceId) {
+              changedCustomer = { ...c, totalPaid: (c.totalPaid || 0) + payment.amount };
+              return changedCustomer;
+            }
+            return c;
+          });
+          let remaining = payment.amount;
+          const sortedInvoices = [...newState.saleInvoices]
+            .filter(inv => inv.customerId === payment.referenceId && inv.remaining > 0)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const updates = new Map<string, { paid: number; remaining: number; status: SaleInvoice['status'] }>();
+          for (const inv of sortedInvoices) {
+            if (remaining <= 0) break;
+            const applied = Math.min(remaining, inv.remaining);
+            const newPaid = inv.paid + applied;
+            const newRemaining = inv.total - newPaid;
+            updates.set(inv.id, { paid: newPaid, remaining: newRemaining, status: newRemaining <= 0 ? 'paid' : 'partial' });
+            remaining -= applied;
+          }
+          if (updates.size > 0) {
+            newState.saleInvoices = newState.saleInvoices.map(inv => {
+              if (updates.has(inv.id)) {
+                const updated = { ...inv, ...updates.get(inv.id)! };
+                changedSaleInvoices.push(updated);
+                return updated;
+              }
+              return inv;
+            });
+          }
+        }
+      } else {
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance - payment.amount : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance - payment.amount : newState.bankBalance;
+        if (payment.type === 'purchase') {
+          newState.suppliers = newState.suppliers.map(s => {
+            if (s.id === payment.referenceId) {
+              changedSupplier = { ...s, totalPaid: (s.totalPaid || 0) + payment.amount };
+              return changedSupplier;
+            }
+            return s;
+          });
+          let remaining = payment.amount;
+          const sortedInvoices = [...newState.purchaseInvoices]
+            .filter(inv => inv.supplierId === payment.referenceId && inv.remaining > 0)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const updates = new Map<string, { paid: number; remaining: number; status: PurchaseInvoice['status'] }>();
+          for (const inv of sortedInvoices) {
+            if (remaining <= 0) break;
+            const applied = Math.min(remaining, inv.remaining);
+            const newPaid = inv.paid + applied;
+            const newRemaining = inv.total - newPaid;
+            updates.set(inv.id, { paid: newPaid, remaining: newRemaining, status: newRemaining <= 0 ? 'paid' : 'partial' });
+            remaining -= applied;
+          }
+          if (updates.size > 0) {
+            newState.purchaseInvoices = newState.purchaseInvoices.map(inv => {
+              if (updates.has(inv.id)) {
+                const updated = { ...inv, ...updates.get(inv.id)! };
+                changedPurchaseInvoices.push(updated);
+                return updated;
+              }
+              return inv;
+            });
+          }
+        }
+      }
+
+      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+        id: `tr_${Date.now()}`,
+        type: payment.direction === 'in' ? 'payment_in' : 'payment_out',
+        description: payment.notes || `دفعة - ${payment.referenceName}`,
+        amount: payment.amount,
+        treasury,
+        direction: payment.direction,
+        referenceId: payment.referenceId,
+        date: payment.date,
+        createdAt: new Date().toISOString(),
+      }];
+
+      saveToFirebase('payments', touched.id, touched);
+      if (changedCustomer !== null) {
+        const c = changedCustomer as Customer;
+        saveToFirebase('customers', c.id, c);
+      }
+      if (changedSupplier !== null) {
+        const s = changedSupplier as Supplier;
+        saveToFirebase('suppliers', s.id, s);
+      }
+      changedSaleInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
+      changedPurchaseInvoices.forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
+
       return newState;
     });
   }, []);
 
   // ==================== EXPENSES ====================
   const addExpense = useCallback((expense: Expense) => {
+    const touched = touch(expense);
     setState(prev => {
-      const newState = { ...prev, expenses: [...prev.expenses, expense] };
-      // ... باقي الكود
+      const newState = { ...prev, expenses: [...prev.expenses, touched] };
+      const treasury = expense.paymentMethod === 'cash' ? 'cash' : 'bank';
+      newState.cashBalance = treasury === 'cash' ? newState.cashBalance - expense.amount : newState.cashBalance;
+      newState.bankBalance = treasury === 'bank' ? newState.bankBalance - expense.amount : newState.bankBalance;
+      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+        id: `tr_${Date.now()}`,
+        type: 'expense',
+        description: expense.description,
+        amount: expense.amount,
+        treasury,
+        direction: 'out',
+        referenceId: expense.id,
+        date: expense.date,
+        createdAt: new Date().toISOString(),
+      }];
       return newState;
     });
-    saveToFirebase('expenses', expense.id, expense);
+    saveToFirebase('expenses', touched.id, touched);
   }, []);
 
   // ==================== NOON ORDERS ====================
   const addNoonOrder = useCallback((order: NoonOrder) => {
+    const itemsWithCost: NoonOrder['items'] = order.items.map(item => {
+      const product = state.products.find(p => p.id === item.productId);
+      return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+    });
+    const finalOrder = touch({ ...order, items: itemsWithCost });
     setState(prev => {
-      // ... باقي الكود
+      const newState = { ...prev, noonOrders: [...prev.noonOrders, finalOrder] };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+
+      finalOrder.items.forEach(item => {
+        const serialRecord = item.serial ? newState.serials.find(s => s.serial === item.serial) : undefined;
+        const alreadyTransferred = serialRecord && serialRecord.status !== 'available';
+        if (!alreadyTransferred) {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
+        }
+        if (item.serial) {
+          newState.serials = newState.serials.map(s => {
+            if (s.serial === item.serial) {
+              const updated = { ...s, status: 'transferred' as const, noonOrderId: finalOrder.id };
+              updatedSerials.push(updated);
+              return updated;
+            }
+            return s;
+          });
+        }
+      });
+
+      saveToFirebase('noonOrders', finalOrder.id, finalOrder);
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
       return newState;
     });
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+  }, [state.products]);
 
   const updateNoonOrder = useCallback((order: NoonOrder) => {
+    const touched = touch(order);
     setState(prev => {
-      // ... باقي الكود
+      const oldOrder = prev.noonOrders.find(o => o.id === order.id);
+      const newState = { ...prev, noonOrders: prev.noonOrders.map(o => o.id === order.id ? touched : o) };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+
+      const justCanceled = oldOrder && oldOrder.status !== 'canceled' && order.status === 'canceled';
+      const justReactivated = oldOrder && oldOrder.status === 'canceled' && order.status !== 'canceled';
+
+      if (justCanceled) {
+        order.items.forEach(item => {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: p.stock + 1 };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
+          if (item.serial) {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === item.serial) {
+                const updated = { ...s, status: 'available' as const, noonOrderId: undefined };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
+        });
+      } else if (justReactivated) {
+        order.items.forEach(item => {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
+          if (item.serial) {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === item.serial) {
+                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
+        });
+      }
+
+      saveToFirebase('noonOrders', touched.id, touched);
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
       return newState;
     });
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+  }, []);
 
   const addNoonOrders = useCallback((orders: NoonOrder[]) => {
+    const ordersWithCost = orders.map(order => ({
+      ...order,
+      items: order.items.map(item => {
+        const product = state.products.find(p => p.id === item.productId);
+        return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+      }),
+    }));
+    const touchedOrders = ordersWithCost.map(o => touch(o));
     setState(prev => {
-      // ... باقي الكود
+      const newState = { ...prev, noonOrders: [...prev.noonOrders, ...touchedOrders] };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+
+      touchedOrders.forEach(order => {
+        order.items.forEach(item => {
+          const serialRecord = item.serial ? newState.serials.find(s => s.serial === item.serial) : undefined;
+          const alreadyTransferred = serialRecord && serialRecord.status !== 'available';
+          if (!alreadyTransferred) {
+            newState.products = newState.products.map(p => {
+              if (p.id === item.productId) {
+                const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+                updatedProducts.push(updated);
+                return updated;
+              }
+              return p;
+            });
+          }
+          if (item.serial) {
+            newState.serials = newState.serials.map(s => {
+              if (s.serial === item.serial) {
+                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
+        });
+      });
+
+      touchedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
       return newState;
     });
-    syncProductQuantities();
-  }, [syncProductQuantities]);
+  }, [state.products]);
 
   const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => {
     setState(prev => {
-      // ... باقي الكود
+      const newState = { ...prev };
+      let totalSettled = 0;
+      const today = new Date().toISOString().split('T')[0];
+      const updatedOrders: NoonOrder[] = [];
+
+      newState.noonOrders = newState.noonOrders.map(order => {
+        const settlement = settlements.find(s => s.orderId === order.id);
+        if (!settlement) return order;
+        const totalCost = order.items.reduce((sum, it) => sum + (it.costPrice || 0), 0);
+        const profit = settlement.settledAmount - totalCost;
+        totalSettled += settlement.settledAmount;
+        const updated = touch({
+          ...order,
+          status: 'settled' as const,
+          settledAmount: settlement.settledAmount,
+          settledDate: settlement.settledDate || today,
+          settlementProfit: profit,
+        });
+        updatedOrders.push(updated);
+        return updated;
+      });
+
+      if (totalSettled > 0) {
+        newState.bankBalance = newState.bankBalance + totalSettled;
+        newState.treasuryTransactions = [...newState.treasuryTransactions, {
+          id: `tr_${Date.now()}`,
+          type: 'sale' as const,
+          description: `تسوية تحويل بنكي جماعي - ${settlements.length} أوردر`,
+          amount: totalSettled,
+          treasury: 'bank' as const,
+          direction: 'in' as const,
+          date: today,
+          createdAt: new Date().toISOString(),
+        }];
+      }
+
+      updatedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
       return newState;
     });
   }, []);
 
   // ==================== BRANDS ====================
   const addBrand = useCallback((brand: Brand) => {
-    setState(prev => ({ ...prev, brands: [...prev.brands, brand] }));
-    saveToFirebase('brands', brand.id, brand);
+    const touched = touch(brand);
+    setState(prev => ({ ...prev, brands: [...prev.brands, touched] }));
+    saveToFirebase('brands', touched.id, touched);
   }, []);
 
   // ==================== DAILY CLOSING ====================
@@ -643,7 +899,22 @@ export function useStore() {
   // ==================== TREASURY ====================
   const adjustTreasury = useCallback((type: 'cash' | 'bank', amount: number, direction: 'in' | 'out', description: string) => {
     setState(prev => {
-      // ... باقي الكود
+      const newState = { ...prev };
+      if (type === 'cash') {
+        newState.cashBalance = direction === 'in' ? newState.cashBalance + amount : newState.cashBalance - amount;
+      } else {
+        newState.bankBalance = direction === 'in' ? newState.bankBalance + amount : newState.bankBalance - amount;
+      }
+      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+        id: `tr_${Date.now()}`,
+        type: 'adjustment',
+        description,
+        amount,
+        treasury: type,
+        direction,
+        date: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toISOString(),
+      }];
       return newState;
     });
   }, []);
