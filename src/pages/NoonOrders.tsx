@@ -53,30 +53,58 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     return matchSearch && matchStatus;
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
+  // ✅ حساب المخزون الحقيقي لأي منتج
+  const getAvailableStock = (product: Product): number => {
+    if (product.productType === 'serial') {
+      // المنتجات بسيريالات: نعد السيريالات المتاحة فعلاً
+      return serials.filter(
+        s => s.productId === product.id && s.status === 'available'
+      ).length;
+    }
+    // المنتجات العادية: نستخدم stock
+    return product.stock || 0;
+  };
+
+  // ✅ قائمة المنتجات المتاحة مع دعم السيريالات
   const availableProducts = products.filter(p => {
-    if (!productSearch) return p.stock > 0;
+    const stock = getAvailableStock(p);
+    if (!productSearch) return stock > 0;
     const q = productSearch.toLowerCase();
-    return p.stock > 0 && (
+    return stock > 0 && (
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
       (p.upc || '').includes(q)
     );
   }).slice(0, 10);
 
+  // ✅ لما نضيف منتج، لو بسيريالات نختار أول سيريال متاح تلقائياً
   const addItemFromProduct = (product: Product) => {
-    const availSerial = serials.find(s => s.productId === product.id && s.status === 'available');
+    let autoSerial = '';
+    let autoImei1 = '';
+    let autoImei2 = '';
+
+    if (product.productType === 'serial') {
+      // نجيب أول سيريال متاح
+      const availSerial = serials.find(
+        s => s.productId === product.id && s.status === 'available'
+      );
+      autoSerial = availSerial?.serial || '';
+      autoImei1 = availSerial?.imei1 || '';
+      autoImei2 = availSerial?.imei2 || '';
+    }
+
     setOrderItems(prev => [...prev, {
       productId: product.id,
       productName: product.name,
       upc: product.upc,
       serial: '',
-      imei1: availSerial?.imei1 || '',
-      imei2: availSerial?.imei2 || '',
+      imei1: autoImei1,
+      imei2: autoImei2,
       price: product.salePrice,
       costPrice: product.costPrice,
-      tempSerial: availSerial?.serial || '',
-      tempImei1: availSerial?.imei1 || '',
-      tempImei2: availSerial?.imei2 || '',
+      tempSerial: autoSerial,
+      tempImei1: autoImei1,
+      tempImei2: autoImei2,
     }]);
     setProductSearch('');
     setShowProductDrop(false);
@@ -116,7 +144,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     }));
 
     if (editingOrder) {
-      // ✅ تعديل أوردر موجود
       const updatedOrder: NoonOrder = {
         ...editingOrder,
         platform,
@@ -129,7 +156,6 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       };
       onUpdateNoonOrder(updatedOrder);
     } else {
-      // إضافة أوردر جديد
       const order: NoonOrder = {
         id: generateId(),
         orderNumber,
@@ -635,13 +661,20 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                   <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
                     {availableProducts.length === 0 ? (
                       <div className="px-3 py-4 text-center text-gray-500 text-sm">لا توجد منتجات في المخزون</div>
-                    ) : availableProducts.map(p => (
-                      <button key={p.id} onClick={() => addItemFromProduct(p)}
-                        className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-gray-500">{p.sku} • مخزون: {p.stock}</div>
-                      </button>
-                    ))}
+                    ) : availableProducts.map(p => {
+                      // ✅ نعرض المخزون الحقيقي لكل منتج
+                      const availStock = getAvailableStock(p);
+                      return (
+                        <button key={p.id} onClick={() => addItemFromProduct(p)}
+                          className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">
+                          <div className="font-medium">{p.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {p.sku} • متاح: {availStock} قطعة
+                            {p.productType === 'serial' && ' 🔑'}
+                          </div>
+                        </button>
+                      );
+                    })}
                     <button onClick={() => setShowProductDrop(false)}
                       className="block w-full text-right px-3 py-2 text-xs text-gray-500 hover:bg-white/5 border-t border-white/10">
                       إغلاق
@@ -653,36 +686,92 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
             {/* Order Items */}
             <div className="space-y-3 mb-4">
-              {orderItems.map((item, idx) => (
-                <div key={idx} className="bg-[#252545] border border-violet-900/20 rounded-xl p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-medium text-white text-sm">{item.productName}</div>
-                    <button onClick={() => setOrderItems(prev => prev.filter((_, i) => i !== idx))}
-                      className="p-1 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
+              {orderItems.map((item, idx) => {
+                // ✅ نجيب السيريالات المتاحة لهذا المنتج
+                const availableSerials = serials.filter(
+                  s => s.productId === item.productId && s.status === 'available'
+                );
+                const isSerialProduct = products.find(p => p.id === item.productId)?.productType === 'serial';
+
+                return (
+                  <div key={idx} className="bg-[#252545] border border-violet-900/20 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-medium text-white text-sm">{item.productName}</div>
+                      <button onClick={() => setOrderItems(prev => prev.filter((_, i) => i !== idx))}
+                        className="p-1 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
+                    </div>
+
+                    {/* ✅ لو المنتج بسيريالات، اعرض dropdown للسيريالات */}
+                    {isSerialProduct && availableSerials.length > 0 ? (
+                      <div className="mb-2">
+                        <label className="text-xs text-gray-500 mb-1 block">اختر السيريال:</label>
+                        <select
+                          value={item.tempSerial}
+                          onChange={e => {
+                            const chosen = availableSerials.find(s => s.serial === e.target.value);
+                            setOrderItems(prev => prev.map((it, i) => i === idx ? {
+                              ...it,
+                              tempSerial: e.target.value,
+                              tempImei1: chosen?.imei1 || '',
+                              tempImei2: chosen?.imei2 || '',
+                            } : it));
+                          }}
+                          className="input-dark w-full text-xs font-mono"
+                        >
+                          <option value="">-- اختر السيريال --</option>
+                          {availableSerials.map(s => (
+                            <option key={s.id} value={s.serial}>
+                              {s.serial} {s.imei1 ? `| IMEI: ${s.imei1}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      // منتج عادي - إدخال يدوي
+                      <div className="grid grid-cols-3 gap-2 mb-2">
+                        <input type="text" value={item.tempSerial}
+                          onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempSerial: e.target.value } : it))}
+                          className="input-dark w-full text-xs font-mono" placeholder="Serial Number" />
+                        <input type="text" value={item.tempImei1}
+                          onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei1: e.target.value } : it))}
+                          className="input-dark w-full text-xs" placeholder="IMEI 1" />
+                        <input type="text" value={item.tempImei2}
+                          onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei2: e.target.value } : it))}
+                          className="input-dark w-full text-xs" placeholder="IMEI 2" />
+                      </div>
+                    )}
+
+                    {/* IMEI fields بعد اختيار السيريال (للمنتجات بسيريالات) */}
+                    {isSerialProduct && item.tempSerial && (
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                          <label className="text-xs text-gray-500">IMEI 1</label>
+                          <input type="text" value={item.tempImei1}
+                            onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei1: e.target.value } : it))}
+                            className="input-dark w-full text-xs" placeholder="IMEI 1" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500">IMEI 2</label>
+                          <input type="text" value={item.tempImei2}
+                            onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei2: e.target.value } : it))}
+                            className="input-dark w-full text-xs" placeholder="IMEI 2" />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-xs text-gray-500">UPC: {item.upc || '-'}</span>
+                      <input
+                        type="number"
+                        value={item.price}
+                        onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, price: parseFloat(e.target.value) || 0 } : it))}
+                        className="input-dark text-xs w-28"
+                        placeholder="السعر"
+                      />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <input type="text" value={item.tempSerial}
-                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempSerial: e.target.value } : it))}
-                      className="input-dark w-full text-xs font-mono" placeholder="Serial Number" />
-                    <input type="text" value={item.tempImei1}
-                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei1: e.target.value } : it))}
-                      className="input-dark w-full text-xs" placeholder="IMEI 1" />
-                    <input type="text" value={item.tempImei2}
-                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempImei2: e.target.value } : it))}
-                      className="input-dark w-full text-xs" placeholder="IMEI 2" />
-                  </div>
-                  <div className="mt-2 flex items-center gap-3">
-                    <span className="text-xs text-gray-500">UPC: {item.upc || '-'}</span>
-                    <input
-                      type="number"
-                      value={item.price}
-                      onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, price: parseFloat(e.target.value) || 0 } : it))}
-                      className="input-dark text-xs w-28"
-                      placeholder="السعر"
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {orderItems.length === 0 && (
                 <div className="text-center text-gray-500 py-4 border border-dashed border-white/10 rounded-xl text-sm">
                   أضف منتجات من قائمة المخزون أعلاه
