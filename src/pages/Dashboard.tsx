@@ -117,7 +117,6 @@ export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase,
           <div className="text-blue-300 text-sm mt-1">استلام شحنة من مورد</div>
         </button>
 
-// ✅ بعد - بيفتح صفحة DailyJournal
 <button
   onClick={() => onNavigate('daily-journal')}
   className="bg-gradient-to-br from-slate-700 to-gray-900 hover:from-slate-600 hover:to-gray-800 border border-gray-600/40 rounded-2xl p-5 text-right transition-all hover:scale-105 hover:shadow-xl group"
