@@ -679,34 +679,31 @@ export function useStore() {
     saveToFirebase('expenses', touched.id, touched);
   }, []);
 
-  // ==================== NOON ORDERS ====================
-  const addNoonOrder = useCallback((order: NoonOrder) => {
-    const itemsWithCost: NoonOrder['items'] = order.items.map(item => {
-      const product = state.products.find(p => p.id === item.productId);
-      return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
-    });
-    const finalOrder = touch({ ...order, items: itemsWithCost });
-    setState(prev => {
-      const newState = { ...prev, noonOrders: [...prev.noonOrders, finalOrder] };
-      const updatedProducts: Product[] = [];
-      const updatedSerials: SerialItem[] = [];
+// ==================== NOON ORDERS ====================
+const addNoonOrder = useCallback((order: NoonOrder) => {
+  const itemsWithCost: NoonOrder['items'] = order.items.map(item => {
+    const product = state.products.find(p => p.id === item.productId);
+    return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+  });
+  const finalOrder = touch({ ...order, items: itemsWithCost });
+  setState(prev => {
+    const newState = { ...prev, noonOrders: [...prev.noonOrders, finalOrder] };
+    const updatedProducts: Product[] = [];
+    const updatedSerials: SerialItem[] = [];
 
-      finalOrder.items.forEach(item => {
-        const serialRecord = item.serial ? newState.serials.find(s => s.serial === item.serial) : undefined;
-        const alreadyTransferred = serialRecord && serialRecord.status !== 'available';
-        if (!alreadyTransferred) {
-          newState.products = newState.products.map(p => {
-            if (p.id === item.productId) {
-              const updated = { ...p, stock: Math.max(0, p.stock - 1) };
-              updatedProducts.push(updated);
-              return updated;
-            }
-            return p;
-          });
-        }
-        if (item.serial) {
+    finalOrder.items.forEach(item => {
+      const product = newState.products.find(p => p.id === item.productId);
+      
+      if (product?.productType === 'serial') {
+        // ✅ منتج بسيريالات: نغير status السيريال لـ transferred
+        // نبحث بالـ serial number أو بالـ productId لو مفيش serial محدد
+        const serialToTransfer = item.serial
+          ? newState.serials.find(s => s.serial === item.serial && s.status === 'available')
+          : newState.serials.find(s => s.productId === item.productId && s.status === 'available');
+        
+        if (serialToTransfer) {
           newState.serials = newState.serials.map(s => {
-            if (s.serial === item.serial) {
+            if (s.id === serialToTransfer.id) {
               const updated = { ...s, status: 'transferred' as const, noonOrderId: finalOrder.id };
               updatedSerials.push(updated);
               return updated;
@@ -714,29 +711,61 @@ export function useStore() {
             return s;
           });
         }
-      });
-
-      saveToFirebase('noonOrders', finalOrder.id, finalOrder);
-      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
-      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
-
-      return newState;
+      } else {
+        // ✅ منتج عادي: نخصم من stock
+        newState.products = newState.products.map(p => {
+          if (p.id === item.productId) {
+            const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+            updatedProducts.push(updated);
+            return updated;
+          }
+          return p;
+        });
+      }
     });
-  }, [state.products]);
 
-  const updateNoonOrder = useCallback((order: NoonOrder) => {
-    const touched = touch(order);
-    setState(prev => {
-      const oldOrder = prev.noonOrders.find(o => o.id === order.id);
-      const newState = { ...prev, noonOrders: prev.noonOrders.map(o => o.id === order.id ? touched : o) };
-      const updatedProducts: Product[] = [];
-      const updatedSerials: SerialItem[] = [];
+    saveToFirebase('noonOrders', finalOrder.id, finalOrder);
+    updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+    updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
 
-      const justCanceled = oldOrder && oldOrder.status !== 'canceled' && order.status === 'canceled';
-      const justReactivated = oldOrder && oldOrder.status === 'canceled' && order.status !== 'canceled';
+    return newState;
+  });
+}, [state.products]);
 
-      if (justCanceled) {
-        order.items.forEach(item => {
+const updateNoonOrder = useCallback((order: NoonOrder) => {
+  const touched = touch(order);
+  setState(prev => {
+    const oldOrder = prev.noonOrders.find(o => o.id === order.id);
+    const newState = { ...prev, noonOrders: prev.noonOrders.map(o => o.id === order.id ? touched : o) };
+    const updatedProducts: Product[] = [];
+    const updatedSerials: SerialItem[] = [];
+
+    const justCanceled = oldOrder && oldOrder.status !== 'canceled' && order.status === 'canceled';
+    const justReactivated = oldOrder && oldOrder.status === 'canceled' && order.status !== 'canceled';
+
+    if (justCanceled) {
+      // ✅ لما الأوردر يتلغي: نرجع المخزون
+      order.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+        
+        if (product?.productType === 'serial') {
+          // نرجع السيريال لـ available
+          const serialRecord = item.serial
+            ? newState.serials.find(s => s.serial === item.serial)
+            : newState.serials.find(s => s.productId === item.productId && s.status === 'transferred' && s.noonOrderId === order.id);
+          
+          if (serialRecord) {
+            newState.serials = newState.serials.map(s => {
+              if (s.id === serialRecord.id) {
+                const updated = { ...s, status: 'available' as const, noonOrderId: undefined };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
+        } else {
+          // نرجع stock للمنتج العادي
           newState.products = newState.products.map(p => {
             if (p.id === item.productId) {
               const updated = { ...p, stock: p.stock + 1 };
@@ -745,19 +774,29 @@ export function useStore() {
             }
             return p;
           });
-          if (item.serial) {
+        }
+      });
+    } else if (justReactivated) {
+      // ✅ لما الأوردر يترجع من ملغي: نخصم تاني
+      order.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+        
+        if (product?.productType === 'serial') {
+          const serialToTransfer = item.serial
+            ? newState.serials.find(s => s.serial === item.serial && s.status === 'available')
+            : newState.serials.find(s => s.productId === item.productId && s.status === 'available');
+          
+          if (serialToTransfer) {
             newState.serials = newState.serials.map(s => {
-              if (s.serial === item.serial) {
-                const updated = { ...s, status: 'available' as const, noonOrderId: undefined };
+              if (s.id === serialToTransfer.id) {
+                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
                 updatedSerials.push(updated);
                 return updated;
               }
               return s;
             });
           }
-        });
-      } else if (justReactivated) {
-        order.items.forEach(item => {
+        } else {
           newState.products = newState.products.map(p => {
             if (p.id === item.productId) {
               const updated = { ...p, stock: Math.max(0, p.stock - 1) };
@@ -766,75 +805,73 @@ export function useStore() {
             }
             return p;
           });
-          if (item.serial) {
-            newState.serials = newState.serials.map(s => {
-              if (s.serial === item.serial) {
-                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
-                updatedSerials.push(updated);
-                return updated;
-              }
-              return s;
-            });
-          }
-        });
-      }
-
-      saveToFirebase('noonOrders', touched.id, touched);
-      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
-      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
-
-      return newState;
-    });
-  }, []);
-
-  const addNoonOrders = useCallback((orders: NoonOrder[]) => {
-    const ordersWithCost = orders.map(order => ({
-      ...order,
-      items: order.items.map(item => {
-        const product = state.products.find(p => p.id === item.productId);
-        return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
-      }),
-    }));
-    const touchedOrders = ordersWithCost.map(o => touch(o));
-    setState(prev => {
-      const newState = { ...prev, noonOrders: [...prev.noonOrders, ...touchedOrders] };
-      const updatedProducts: Product[] = [];
-      const updatedSerials: SerialItem[] = [];
-
-      touchedOrders.forEach(order => {
-        order.items.forEach(item => {
-          const serialRecord = item.serial ? newState.serials.find(s => s.serial === item.serial) : undefined;
-          const alreadyTransferred = serialRecord && serialRecord.status !== 'available';
-          if (!alreadyTransferred) {
-            newState.products = newState.products.map(p => {
-              if (p.id === item.productId) {
-                const updated = { ...p, stock: Math.max(0, p.stock - 1) };
-                updatedProducts.push(updated);
-                return updated;
-              }
-              return p;
-            });
-          }
-          if (item.serial) {
-            newState.serials = newState.serials.map(s => {
-              if (s.serial === item.serial) {
-                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
-                updatedSerials.push(updated);
-                return updated;
-              }
-              return s;
-            });
-          }
-        });
+        }
       });
+    }
 
-      touchedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
-      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
-      updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+    saveToFirebase('noonOrders', touched.id, touched);
+    updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+    updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
 
-      return newState;
+    return newState;
+  });
+}, []);
+
+const addNoonOrders = useCallback((orders: NoonOrder[]) => {
+  const ordersWithCost = orders.map(order => ({
+    ...order,
+    items: order.items.map(item => {
+      const product = state.products.find(p => p.id === item.productId);
+      return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+    }),
+  }));
+  const touchedOrders = ordersWithCost.map(o => touch(o));
+  setState(prev => {
+    const newState = { ...prev, noonOrders: [...prev.noonOrders, ...touchedOrders] };
+    const updatedProducts: Product[] = [];
+    const updatedSerials: SerialItem[] = [];
+
+    touchedOrders.forEach(order => {
+      order.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+        
+        if (product?.productType === 'serial') {
+          // ✅ منتج بسيريالات
+          const serialToTransfer = item.serial
+            ? newState.serials.find(s => s.serial === item.serial && s.status === 'available')
+            : newState.serials.find(s => s.productId === item.productId && s.status === 'available');
+          
+          if (serialToTransfer) {
+            newState.serials = newState.serials.map(s => {
+              if (s.id === serialToTransfer.id) {
+                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
+                updatedSerials.push(updated);
+                return updated;
+              }
+              return s;
+            });
+          }
+        } else {
+          // ✅ منتج عادي
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: Math.max(0, p.stock - 1) };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
+          });
+        }
+      });
     });
-  }, [state.products]);
+
+    touchedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
+    updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+    updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
+    return newState;
+  });
+}, [state.products]);
 
   const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => {
     setState(prev => {
