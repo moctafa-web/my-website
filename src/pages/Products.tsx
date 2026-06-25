@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Product, Brand, SerialItem, ViewMode, ProductCategory } from '../types';
 import { formatCurrency, generateId, categoryLabel, getTodayStr } from '../utils/helpers';
-import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, ChevronRight, QrCode } from 'lucide-react';
+import ProductQRModal from '../components/ProductQRModal';
 
 const CATEGORIES = ['phones', 'tablets', 'laptops', 'accessories', 'other'];
 const CAT_SUB: Record<string, string[]> = {
@@ -36,6 +37,9 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [form, setForm] = useState({ ...BLANK_PRODUCT });
   const [newBrand, setNewBrand] = useState('');
+  const [showJrard, setShowJrard] = useState(false);
+  const [jrardData, setJrardData] = useState<Record<string, string>>({});
+  const [qrProduct, setQrProduct] = useState<Product | null>(null);
 
   const setView = (v: ViewMode) => { setViewMode(v); localStorage.setItem('products_view', v); };
 
@@ -53,24 +57,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
   }, [products, filterCat, filterSub, search]);
 
   const openAdd = () => { setEditProduct(null); setForm({ ...BLANK_PRODUCT }); setShowForm(true); };
-  const openEdit = (p: Product) => {
-    setEditProduct(p);
-    setForm({
-      name: p.name,
-      description: p.description || '',
-      sku: p.sku,
-      upc: p.upc || '',
-      barcode: p.barcode || '',
-      category: p.category,
-      brand: p.brand,
-      productType: p.productType,
-      costPrice: p.costPrice,
-      salePrice: p.salePrice,
-      stock: p.stock,
-      minStock: p.minStock || 2
-    });
-    setShowForm(true);
-  };
+  const openEdit = (p: Product) => { setEditProduct(p); setForm({ name: p.name, description: p.description || '', sku: p.sku, upc: p.upc || '', barcode: p.barcode || '', category: p.category, brand: p.brand, productType: p.productType, costPrice: p.costPrice, salePrice: p.salePrice, stock: p.stock, minStock: p.minStock || 2 }); setShowForm(true); };
 
   const handleSave = () => {
     if (!form.name || !form.sku) return;
@@ -78,16 +65,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
     if (editProduct) {
       onUpdateProduct({ ...editProduct, ...form, updatedAt: now });
     } else {
-      onAddProduct({
-        id: generateId(),
-        ...form,
-        stock: Number(form.stock),
-        costPrice: Number(form.costPrice),
-        salePrice: Number(form.salePrice),
-        minStock: Number(form.minStock),
-        createdAt: now,
-        updatedAt: now
-      });
+      onAddProduct({ id: generateId(), ...form, stock: Number(form.stock), costPrice: Number(form.costPrice), salePrice: Number(form.salePrice), minStock: Number(form.minStock), createdAt: now, updatedAt: now });
     }
     setShowForm(false);
   };
@@ -99,13 +77,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
     setNewBrand('');
   };
 
-  // حساب المخزون الحقيقي حسب نوع المنتج
-  const getRealStock = (product: Product) => {
-    if (product.productType === 'serial') {
-      return serials.filter(s => s.productId === product.id && s.status === 'available').length;
-    }
-    return product.stock || 0;
-  };
+  const availableSerials = (productId: string) => serials.filter(s => s.productId === productId && s.status === 'available').length;
 
   const catBtnClass = (id: string) =>
     `px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${filterCat === id && !filterSub ? 'bg-violet-700/40 border-violet-500/50 text-violet-300' : 'border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20'}`;
@@ -119,9 +91,8 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
           <p className="text-gray-500 text-sm">{products.length} منتج</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={openAdd} className="btn-primary flex items-center gap-2">
-            <Plus size={16} /> منتج جديد
-          </button>
+          <button onClick={() => setShowJrard(!showJrard)} className="btn-secondary text-sm">📋 جرد المخزون</button>
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> منتج جديد</button>
         </div>
       </div>
 
@@ -131,7 +102,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
           <button onClick={() => { setFilterCat('all'); setFilterSub(''); setOpenCat(null); }} className={catBtnClass('all')}>🌐 الكل</button>
           <button onClick={() => { setFilterCat('phones'); setFilterSub(''); setOpenCat(null); }} className={catBtnClass('phones')}>📱 موبايلات</button>
 
-          {/* Tablets */}
+          {/* Tablets with sub */}
           <div className="relative">
             <button
               onClick={() => setOpenCat(openCat === 'tablets' ? null : 'tablets')}
@@ -151,7 +122,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
             )}
           </div>
 
-          {/* Laptops */}
+          {/* Laptops with sub */}
           <div className="relative">
             <button
               onClick={() => setOpenCat(openCat === 'laptops' ? null : 'laptops')}
@@ -171,7 +142,7 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
             )}
           </div>
 
-          {/* Accessories */}
+          {/* Accessories with sub */}
           <div className="relative">
             <button
               onClick={() => setOpenCat(openCat === 'accessories' ? null : 'accessories')}
@@ -215,37 +186,76 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
         </div>
       </div>
 
-      {/* Products Grid */}
+      {/* Jrard Mode */}
+      {showJrard && (
+        <div className="bg-[#1a1a35] border border-yellow-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-yellow-300">📋 جرد المخزون</h3>
+            <button onClick={() => window.print()} className="btn-secondary text-sm">🖨️ طباعة</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-white/10">
+                  <th className="text-right py-2 px-3">المنتج</th>
+                  <th className="text-center py-2 px-3">في النظام</th>
+                  <th className="text-center py-2 px-3">المتبقي الحقيقي</th>
+                  <th className="text-center py-2 px-3">الفرق</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(p => {
+                  const actual = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
+                  const diff = !isNaN(actual) ? actual - p.stock : NaN;
+                  return (
+                    <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-2 px-3">
+                        <div className="font-medium text-white">{p.name}</div>
+                        <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
+                      </td>
+                      <td className="py-2 px-3 text-center font-bold text-white">{p.stock}</td>
+                      <td className="py-2 px-3 text-center">
+                        <input
+                          type="number"
+                          value={jrardData[p.id] || ''}
+                          onChange={e => setJrardData(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          className="w-20 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
+                          placeholder="?"
+                        />
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {!isNaN(diff) ? (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${diff === 0 ? 'bg-green-900/40 text-green-400' : diff < 0 ? 'bg-red-900/40 text-red-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
+                            {diff === 0 ? '✓ تطابق' : diff < 0 ? `⚠️ عجز ${Math.abs(diff)}` : `📈 زيادة ${diff}`}
+                          </span>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Products Grid/List/Compact */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map(p => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              realStock={getRealStock(p)}
-              onEdit={() => openEdit(p)}
-              onDelete={() => onDeleteProduct(p.id)}
-            />
+            <ProductCard key={p.id} product={p} availableSerials={availableSerials(p.id)} onEdit={() => openEdit(p)} onDelete={() => onDeleteProduct(p.id)} onShowQR={() => setQrProduct(p)} />
           ))}
         </div>
       )}
 
-      {/* Products List */}
       {viewMode === 'list' && (
         <div className="space-y-2">
           {filtered.map(p => (
-            <ProductListRow
-              key={p.id}
-              product={p}
-              realStock={getRealStock(p)}
-              onEdit={() => openEdit(p)}
-              onDelete={() => onDeleteProduct(p.id)}
-            />
+            <ProductListRow key={p.id} product={p} availableSerials={availableSerials(p.id)} onEdit={() => openEdit(p)} onDelete={() => onDeleteProduct(p.id)} onShowQR={() => setQrProduct(p)} />
           ))}
         </div>
       )}
 
-      {/* Products Compact */}
       {viewMode === 'compact' && (
         <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
@@ -260,87 +270,61 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
               </tr>
             </thead>
             <tbody>
-              {filtered.map(p => {
-                const realStock = getRealStock(p);
-                return (
-                  <tr key={p.id} className="border-t border-white/5 hover:bg-white/5">
-                    <td className="py-2.5 px-4">
-                      <div className="font-medium text-white text-sm">{p.name}</div>
-                      <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                        realStock === 0 ? 'bg-red-900/40 text-red-400' :
-                        realStock <= 2 ? 'bg-yellow-900/40 text-yellow-400' :
-                        'bg-green-900/40 text-green-400'
-                      }`}>
-                        {realStock}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-center text-gray-300 text-xs">{p.costPrice.toLocaleString('ar-EG')}</td>
-                    <td className="py-2.5 px-3 text-center text-white text-xs font-medium">{p.salePrice.toLocaleString('ar-EG')}</td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        p.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'
-                      }`}>
-                        {p.productType === 'serial' ? 'سيريال' : 'عادي'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20">
-                          <Edit size={13} />
-                        </button>
-                        <button onClick={() => onDeleteProduct(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filtered.map(p => (
+                <tr key={p.id} className="border-t border-white/5 hover:bg-white/5">
+                  <td className="py-2.5 px-4">
+                    <div className="font-medium text-white text-sm">{p.name}</div>
+                    <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
+                  </td>
+                  <td className="py-2.5 px-3 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${p.stock === 0 ? 'bg-red-900/40 text-red-400' : p.stock <= 2 ? 'bg-yellow-900/40 text-yellow-400' : 'bg-green-900/40 text-green-400'}`}>
+                      {p.stock}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-gray-300 text-xs">{p.costPrice.toLocaleString('ar-EG')}</td>
+                  <td className="py-2.5 px-3 text-center text-white text-xs font-medium">{p.salePrice.toLocaleString('ar-EG')}</td>
+                  <td className="py-2.5 px-3 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${p.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
+                      {p.productType === 'serial' ? 'سيريال' : 'عادي'}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-1 justify-end">
+                      <button onClick={() => setQrProduct(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-900/20" title="ملصق QR"><QrCode size={13} /></button>
+                      <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20"><Edit size={13} /></button>
+                      <button onClick={() => onDeleteProduct(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20"><Trash2 size={13} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {filtered.length === 0 && (
-        <div className="text-center text-gray-500 py-16">لا توجد منتجات</div>
-      )}
+      {filtered.length === 0 && <div className="text-center text-gray-500 py-16">لا توجد منتجات</div>}
 
       {/* Add/Edit Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto"
-          onClick={() => setShowForm(false)}>
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4"
-            onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-bold text-white mb-5">
-              {editProduct ? '✏️ تعديل منتج' : '➕ إضافة منتج جديد'}
-            </h2>
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto" onClick={() => setShowForm(false)}>
+          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-white mb-5">{editProduct ? '✏️ تعديل منتج' : '➕ إضافة منتج جديد'}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="form-label">اسم المنتج *</label>
-                <input type="text" value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                  className="input-dark w-full" placeholder="مثال: iPhone 15 Pro Max 256GB" />
+                <input type="text" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="input-dark w-full" placeholder="مثال: iPhone 15 Pro Max 256GB" />
               </div>
               <div>
                 <label className="form-label">كود المنتج (SKU) *</label>
-                <input type="text" value={form.sku}
-                  onChange={e => setForm(p => ({ ...p, sku: e.target.value }))}
-                  className="input-dark w-full" placeholder="IP15PM-256" />
+                <input type="text" value={form.sku} onChange={e => setForm(p => ({ ...p, sku: e.target.value }))} className="input-dark w-full" placeholder="IP15PM-256" />
               </div>
               <div>
                 <label className="form-label">UPC / Barcode</label>
-                <input type="text" value={form.upc}
-                  onChange={e => setForm(p => ({ ...p, upc: e.target.value }))}
-                  className="input-dark w-full" placeholder="195949035951" />
+                <input type="text" value={form.upc} onChange={e => setForm(p => ({ ...p, upc: e.target.value }))} className="input-dark w-full" placeholder="195949035951" />
               </div>
               <div>
                 <label className="form-label">الفئة *</label>
-                <select value={form.category}
-                  onChange={e => setForm(p => ({ ...p, category: e.target.value as ProductCategory }))}
-                  className="input-dark w-full">
+                <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value as ProductCategory }))} className="input-dark w-full">
                   <option value="phones">📱 موبايلات</option>
                   <option value="tablets">📲 تابلت</option>
                   <option value="laptops">💻 لابتوب</option>
@@ -351,16 +335,12 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
               <div>
                 <label className="form-label">العلامة التجارية</label>
                 <div className="flex gap-2">
-                  <select value={form.brand}
-                    onChange={e => setForm(p => ({ ...p, brand: e.target.value }))}
-                    className="input-dark flex-1">
+                  <select value={form.brand} onChange={e => setForm(p => ({ ...p, brand: e.target.value }))} className="input-dark flex-1">
                     {brands.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                   </select>
                 </div>
                 <div className="flex gap-2 mt-2">
-                  <input type="text" value={newBrand}
-                    onChange={e => setNewBrand(e.target.value)}
-                    className="input-dark flex-1" placeholder="إضافة براند جديد..." />
+                  <input type="text" value={newBrand} onChange={e => setNewBrand(e.target.value)} className="input-dark flex-1" placeholder="إضافة براند جديد..." />
                   <button onClick={handleAddBrand} className="btn-secondary text-xs px-3">إضافة</button>
                 </div>
               </div>
@@ -369,54 +349,37 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => setForm(p => ({ ...p, productType: 'normal' }))}
-                    className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${
-                      form.productType === 'normal'
-                        ? 'bg-green-700/30 border-green-500/50 text-green-300'
-                        : 'border-white/10 text-gray-400'
-                    }`}>
-                    📦 عادي
+                    className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${form.productType === 'normal' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}
+                  >
+                    📦 عادي (بدون سيريال)
                   </button>
                   <button
                     onClick={() => setForm(p => ({ ...p, productType: 'serial' }))}
-                    className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${
-                      form.productType === 'serial'
-                        ? 'bg-blue-700/30 border-blue-500/50 text-blue-300'
-                        : 'border-white/10 text-gray-400'
-                    }`}>
-                    🔢 بسيريال
+                    className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${form.productType === 'serial' ? 'bg-blue-700/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}
+                  >
+                    🔢 بسيريال (IMEI)
                   </button>
                 </div>
               </div>
               <div>
                 <label className="form-label">سعر الشراء</label>
-                <input type="number" value={form.costPrice}
-                  onChange={e => setForm(p => ({ ...p, costPrice: parseFloat(e.target.value) || 0 }))}
-                  className="input-dark w-full" />
+                <input type="number" value={form.costPrice} onChange={e => setForm(p => ({ ...p, costPrice: parseFloat(e.target.value) || 0 }))} className="input-dark w-full" />
               </div>
               <div>
                 <label className="form-label">سعر البيع</label>
-                <input type="number" value={form.salePrice}
-                  onChange={e => setForm(p => ({ ...p, salePrice: parseFloat(e.target.value) || 0 }))}
-                  className="input-dark w-full" />
+                <input type="number" value={form.salePrice} onChange={e => setForm(p => ({ ...p, salePrice: parseFloat(e.target.value) || 0 }))} className="input-dark w-full" />
               </div>
               <div>
                 <label className="form-label">المخزون الحالي</label>
-                <input type="number" value={form.stock}
-                  onChange={e => setForm(p => ({ ...p, stock: parseInt(e.target.value) || 0 }))}
-                  className="input-dark w-full" />
+                <input type="number" value={form.stock} onChange={e => setForm(p => ({ ...p, stock: parseInt(e.target.value) || 0 }))} className="input-dark w-full" />
               </div>
               <div>
                 <label className="form-label">حد التنبيه</label>
-                <input type="number" value={form.minStock}
-                  onChange={e => setForm(p => ({ ...p, minStock: parseInt(e.target.value) || 0 }))}
-                  className="input-dark w-full" />
+                <input type="number" value={form.minStock} onChange={e => setForm(p => ({ ...p, minStock: parseInt(e.target.value) || 0 }))} className="input-dark w-full" />
               </div>
               <div className="md:col-span-2">
                 <label className="form-label">الوصف</label>
-                <textarea value={form.description}
-                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-                  className="input-dark w-full h-20 resize-none"
-                  placeholder="وصف المنتج..." />
+                <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} className="input-dark w-full h-20 resize-none" placeholder="وصف المنتج..." />
               </div>
             </div>
             <div className="flex gap-3 mt-5">
@@ -426,34 +389,25 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
           </div>
         </div>
       )}
+
+      {/* مودال طباعة ملصق QR للمنتج */}
+      {qrProduct && <ProductQRModal product={qrProduct} onClose={() => setQrProduct(null)} />}
     </div>
   );
 }
 
-// ======= Card Component =======
-function ProductCard({ product, realStock, onEdit, onDelete }: {
-  product: Product;
-  realStock: number;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const stockColor = realStock === 0 ? 'text-red-400' : realStock <= 2 ? 'text-yellow-400' : 'text-green-400';
+function ProductCard({ product, availableSerials, onEdit, onDelete, onShowQR }: { product: Product; availableSerials: number; onEdit: () => void; onDelete: () => void; onShowQR: () => void }) {
+  const stockColor = product.stock === 0 ? 'text-red-400' : product.stock <= 2 ? 'text-yellow-400' : 'text-green-400';
   return (
     <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
       <div className="flex items-start justify-between mb-3">
         <div className="w-10 h-10 rounded-xl bg-violet-900/30 flex items-center justify-center text-xl">
-          {product.category === 'phones' ? '📱' :
-           product.category === 'tablets' ? '📲' :
-           product.category === 'laptops' ? '💻' :
-           product.category === 'accessories' ? '🎧' : '📦'}
+          {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' : product.category === 'laptops' ? '💻' : product.category === 'accessories' ? '🎧' : '📦'}
         </div>
         <div className="flex gap-1">
-          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400 hover:bg-violet-900/20">
-            <Edit size={14} />
-          </button>
-          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20">
-            <Trash2 size={14} />
-          </button>
+          <button onClick={onShowQR} className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-900/20" title="ملصق QR"><QrCode size={14} /></button>
+          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400 hover:bg-violet-900/20"><Edit size={14} /></button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20"><Trash2 size={14} /></button>
         </div>
       </div>
       <h3 className="font-semibold text-white text-sm mb-1 line-clamp-2">{product.name}</h3>
@@ -465,38 +419,28 @@ function ProductCard({ product, realStock, onEdit, onDelete }: {
         </div>
         <div className="text-right">
           <div className="text-xs text-gray-500">المخزون</div>
-          <div className={`text-lg font-black ${stockColor}`}>{realStock}</div>
+          <div className={`text-lg font-black ${stockColor}`}>
+            {product.productType === 'serial' ? availableSerials : product.stock}
+          </div>
         </div>
       </div>
       <div className="mt-2 flex gap-2">
-        <span className={`text-xs px-2 py-0.5 rounded-full ${
-          product.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'
-        }`}>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${product.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
           {product.productType === 'serial' ? 'سيريال' : 'عادي'}
         </span>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-violet-900/30 text-violet-400">
-          {categoryLabel(product.category)}
-        </span>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-violet-900/30 text-violet-400">{categoryLabel(product.category)}</span>
       </div>
     </div>
   );
 }
 
-// ======= List Row Component =======
-function ProductListRow({ product, realStock, onEdit, onDelete }: {
-  product: Product;
-  realStock: number;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const stockColor = realStock === 0 ? 'text-red-400' : realStock <= 2 ? 'text-yellow-400' : 'text-green-400';
+function ProductListRow({ product, availableSerials, onEdit, onDelete, onShowQR }: { product: Product; availableSerials: number; onEdit: () => void; onDelete: () => void; onShowQR: () => void }) {
+  const stockColor = product.stock === 0 ? 'text-red-400' : product.stock <= 2 ? 'text-yellow-400' : 'text-green-400';
   return (
     <div className="bg-[#1a1a35] border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all">
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-violet-900/30 flex items-center justify-center text-lg">
-          {product.category === 'phones' ? '📱' :
-           product.category === 'tablets' ? '📲' :
-           product.category === 'laptops' ? '💻' : '🎧'}
+          {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' : product.category === 'laptops' ? '💻' : '🎧'}
         </div>
         <div>
           <div className="font-medium text-white text-sm">{product.name}</div>
@@ -513,16 +457,13 @@ function ProductListRow({ product, realStock, onEdit, onDelete }: {
           <div className="text-sm font-bold text-white">{product.salePrice.toLocaleString('ar-EG')}</div>
         </div>
         <div className="text-center">
-          <div className={`text-xl font-black ${stockColor}`}>{realStock}</div>
+          <div className={`text-xl font-black ${stockColor}`}>{product.productType === 'serial' ? availableSerials : product.stock}</div>
           <div className="text-xs text-gray-500">مخزون</div>
         </div>
         <div className="flex gap-1">
-          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400">
-            <Edit size={14} />
-          </button>
-          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400">
-            <Trash2 size={14} />
-          </button>
+          <button onClick={onShowQR} className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400" title="ملصق QR"><QrCode size={14} /></button>
+          <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400"><Edit size={14} /></button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400"><Trash2 size={14} /></button>
         </div>
       </div>
     </div>

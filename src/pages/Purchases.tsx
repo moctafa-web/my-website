@@ -65,7 +65,7 @@ export default function Purchases({
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // ✅ حساب المخزون الحقيقي من عدد السيريالات المتاحة
+  // ✅ حساب المخزون الحقيقي من عدد السيريالات المتاحة (أدق من p.stock لمنتجات السيريال)
   const getAvailableStock = useCallback((productId: string): number => {
     return serials.filter(s => s.productId === productId && s.status === 'available').length;
   }, [serials]);
@@ -394,6 +394,7 @@ export default function Purchases({
     setItemSearch({});
   };
 
+  // ✅ إصلاح: زرار الحذف شغال + يغلق نافذة العرض لو مفتوحة
   const handleDeleteInvoice = () => {
     if (!confirmDeleteInvoice) return;
     onDeletePurchaseInvoice(confirmDeleteInvoice.id);

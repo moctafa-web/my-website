@@ -226,6 +226,25 @@ export interface DailyClosing {
   createdAt: string;
 }
 
+// ==================== DAILY JOURNAL (تقفيل اليومية) ====================
+export interface JournalEntry {
+  id: string;
+  label: string;
+  amount: number;
+}
+
+export interface DailyJournal {
+  id: string; // نفس التاريخ يُستخدم كمعرف (يوم واحد = مستند واحد في Firebase)
+  date: string;
+  openingBalance: number;
+  inEntries: JournalEntry[];
+  outEntries: JournalEntry[];
+  actualBalance: number;
+  closingTime?: string;
+  closingNote?: string;
+  updatedAt: string;
+}
+
 // ==================== BRAND ====================
 export interface Brand {
   id: string;
@@ -246,6 +265,7 @@ export interface AppState {
   treasuryTransactions: TreasuryTransaction[];
   noonOrders: NoonOrder[];
   dailyClosings: DailyClosing[];
+  dailyJournals: DailyJournal[];
   brands: Brand[];
   cashBalance: number;
   bankBalance: number;

@@ -53,19 +53,14 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     return matchSearch && matchStatus;
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  // ✅ حساب المخزون الحقيقي لأي منتج
+  // ✅ حساب المخزون الحقيقي لأي منتج (سيريالات متاحة فعليًا للمنتجات بسيريالات، أو stock للمنتجات العادية)
   const getAvailableStock = (product: Product): number => {
     if (product.productType === 'serial') {
-      // المنتجات بسيريالات: نعد السيريالات المتاحة فعلاً
-      return serials.filter(
-        s => s.productId === product.id && s.status === 'available'
-      ).length;
+      return serials.filter(s => s.productId === product.id && s.status === 'available').length;
     }
-    // المنتجات العادية: نستخدم stock
     return product.stock || 0;
   };
 
-  // ✅ قائمة المنتجات المتاحة مع دعم السيريالات
   const availableProducts = products.filter(p => {
     const stock = getAvailableStock(p);
     if (!productSearch) return stock > 0;
@@ -77,22 +72,15 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     );
   }).slice(0, 10);
 
-  // ✅ لما نضيف منتج، لو بسيريالات نختار أول سيريال متاح تلقائياً
+  // ✅ لما نضيف منتج، لو بسيريالات نختار أول سيريال متاح تلقائيًا (يقدر المستخدم يغيّره من dropdown بعدين)
   const addItemFromProduct = (product: Product) => {
-    let autoSerial = '';
-    let autoImei1 = '';
-    let autoImei2 = '';
-
+    let autoSerial = '', autoImei1 = '', autoImei2 = '';
     if (product.productType === 'serial') {
-      // نجيب أول سيريال متاح
-      const availSerial = serials.find(
-        s => s.productId === product.id && s.status === 'available'
-      );
+      const availSerial = serials.find(s => s.productId === product.id && s.status === 'available');
       autoSerial = availSerial?.serial || '';
       autoImei1 = availSerial?.imei1 || '';
       autoImei2 = availSerial?.imei2 || '';
     }
-
     setOrderItems(prev => [...prev, {
       productId: product.id,
       productName: product.name,
@@ -144,6 +132,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     }));
 
     if (editingOrder) {
+      // ✅ تعديل أوردر موجود
       const updatedOrder: NoonOrder = {
         ...editingOrder,
         platform,
@@ -156,6 +145,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       };
       onUpdateNoonOrder(updatedOrder);
     } else {
+      // إضافة أوردر جديد
       const order: NoonOrder = {
         id: generateId(),
         orderNumber,
@@ -701,7 +691,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                         className="p-1 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
                     </div>
 
-                    {/* ✅ لو المنتج بسيريالات، اعرض dropdown للسيريالات */}
+                    {/* ✅ لو المنتج بسيريالات، اعرض dropdown للسيريالات المتاحة فعليًا */}
                     {isSerialProduct && availableSerials.length > 0 ? (
                       <div className="mb-2">
                         <label className="text-xs text-gray-500 mb-1 block">اختر السيريال:</label>
@@ -727,7 +717,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                         </select>
                       </div>
                     ) : (
-                      // منتج عادي - إدخال يدوي
+                      // منتج عادي (بدون سيريالات) - إدخال يدوي اختياري
                       <div className="grid grid-cols-3 gap-2 mb-2">
                         <input type="text" value={item.tempSerial}
                           onChange={e => setOrderItems(prev => prev.map((it, i) => i === idx ? { ...it, tempSerial: e.target.value } : it))}
@@ -741,7 +731,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                       </div>
                     )}
 
-                    {/* IMEI fields بعد اختيار السيريال (للمنتجات بسيريالات) */}
+                    {/* IMEI fields بعد اختيار السيريال (للمنتجات بسيريالات، للمراجعة/التعديل) */}
                     {isSerialProduct && item.tempSerial && (
                       <div className="grid grid-cols-2 gap-2 mb-2">
                         <div>

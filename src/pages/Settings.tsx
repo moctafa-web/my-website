@@ -1,23 +1,50 @@
 import React, { useState } from 'react';
-import { AppSettings } from '../types';
+import { AppSettings, AppState } from '../types';
+import PasswordConfirmModal from '../components/PasswordConfirmModal';
 
 interface Props {
   settings: AppSettings;
   onUpdateSettings: (s: AppSettings) => void;
   cashBalance: number;
   bankBalance: number;
-  onResetData: () => void;
+  onResetData: () => Promise<void>;
+  onDeleteAllNoonOrders: () => Promise<void>;
+  noonOrdersCount: number;
+  fullState: AppState;
 }
 
-export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData }: Props) {
+export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState }: Props) {
   const [form, setForm] = useState({ ...settings });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [showReset, setShowReset] = useState(false);
+  const [showDeleteNoon, setShowDeleteNoon] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+  const [noonDeleteDone, setNoonDeleteDone] = useState(false);
 
-  const handleSave = () => {
-    onUpdateSettings(form);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onUpdateSettings(form);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleConfirmReset = async () => {
+    await onResetData();
+    setShowReset(false);
+    setResetDone(true);
+    setTimeout(() => { window.location.reload(); }, 1200);
+  };
+
+  const handleConfirmDeleteNoon = async () => {
+    await onDeleteAllNoonOrders();
+    setShowDeleteNoon(false);
+    setNoonDeleteDone(true);
+    setTimeout(() => setNoonDeleteDone(false), 2500);
   };
 
   return (
@@ -80,65 +107,76 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
           <div className="space-y-3">
             <div className="bg-violet-900/20 border border-violet-700/30 rounded-xl p-4">
               <div className="text-sm text-violet-300 font-medium mb-2">ONE ERP System v1.0</div>
-              <div className="text-xs text-gray-500">النظام يعمل بالكامل على المتصفح (Offline)</div>
-              <div className="text-xs text-gray-500 mt-1">البيانات محفوظة في LocalStorage</div>
+              <div className="text-xs text-gray-500">جميع البيانات محفوظة ومتزامنة مباشرة مع Firebase (Cloud)</div>
             </div>
 
             <div>
-              <div className="text-sm text-gray-400 mb-2">تصدير البيانات</div>
+              <div className="text-sm text-gray-400 mb-2">نسخة احتياطية</div>
               <button onClick={() => {
-                const data = localStorage.getItem('one_erp_data');
-                if (data) {
-                  const blob = new Blob([data], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = `one_erp_backup_${new Date().toISOString().split('T')[0]}.json`;
-                  a.click(); URL.revokeObjectURL(url);
-                }
-              }} className="btn-secondary text-sm w-full">📥 تصدير نسخة احتياطية (JSON)</button>
+                const blob = new Blob([JSON.stringify(fullState, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `one_erp_backup_${new Date().toISOString().split('T')[0]}.json`;
+                a.click(); URL.revokeObjectURL(url);
+              }} className="btn-secondary text-sm w-full">📥 تصدير نسخة احتياطية كاملة (JSON)</button>
+              <p className="text-xs text-gray-500 mt-1">يصدّر كل البيانات الحالية من قاعدة البيانات السحابية كملف يمكن حفظه على جهازك</p>
             </div>
 
-            <div>
-              <div className="text-sm text-gray-400 mb-2">استيراد البيانات</div>
-              <label className="btn-secondary text-sm w-full block text-center cursor-pointer">
-                📤 استيراد من نسخة احتياطية
-                <input type="file" accept=".json" className="hidden" onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = (ev) => {
-                    try {
-                      const data = JSON.parse(ev.target?.result as string);
-                      localStorage.setItem('one_erp_data', JSON.stringify(data));
-                      window.location.reload();
-                    } catch { alert('خطأ في ملف البيانات'); }
-                  };
-                  reader.readAsText(file);
-                }} />
-              </label>
+            {/* حذف أوردرات نون/أمازون فقط - مفيد أثناء مرحلة التجربة */}
+            <div className="bg-orange-900/10 border border-orange-700/30 rounded-xl p-4">
+              <div className="text-sm text-orange-300 font-medium mb-1">🏪 أوردرات نون/أمازون</div>
+              <div className="text-xs text-gray-500 mb-3">يوجد حاليًا {noonOrdersCount} أوردر مسجل في النظام</div>
+              {noonDeleteDone ? (
+                <div className="text-center text-green-400 text-sm py-2">✅ تم حذف جميع أوردرات نون/أمازون بنجاح</div>
+              ) : (
+                <button onClick={() => setShowDeleteNoon(true)} disabled={noonOrdersCount === 0}
+                  className="w-full py-2 text-sm border border-orange-700/40 text-orange-400 rounded-xl hover:bg-orange-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  🗑️ حذف جميع أوردرات نون/أمازون (مرحلة التجربة)
+                </button>
+              )}
             </div>
 
             <button onClick={() => setShowReset(true)} className="w-full py-2 text-sm border border-red-700/40 text-red-400 rounded-xl hover:bg-red-900/20 transition-colors">
-              ⚠️ إعادة تعيين النظام
+              ⚠️ إعادة تعيين النظام (حذف كل البيانات)
             </button>
           </div>
         </div>
       </div>
 
-      <button onClick={handleSave} className={`btn-primary px-8 ${saved ? 'opacity-50' : ''}`}>
-        {saved ? '✅ تم الحفظ!' : '💾 حفظ الإعدادات'}
-      </button>
+      <div className="flex items-center gap-3">
+        <button onClick={handleSave} disabled={saving} className={`btn-primary px-8 ${saved ? 'opacity-50' : ''} disabled:opacity-50`}>
+          {saving ? '⏳ جاري الحفظ...' : saved ? '✅ تم الحفظ بنجاح!' : '💾 حفظ الإعدادات'}
+        </button>
+        {saved && <span className="text-xs text-gray-500">تم الحفظ في قاعدة البيانات وسيظهر على كل الأجهزة</span>}
+      </div>
 
+      {/* تأكيد حذف أوردرات نون/أمازون بكلمة سر */}
+      {showDeleteNoon && (
+        <PasswordConfirmModal
+          title="حذف جميع أوردرات نون/أمازون"
+          message={`سيتم حذف جميع أوردرات نون/أمازون (${noonOrdersCount} أوردر) نهائيًا من قاعدة البيانات على كل الأجهزة. لا تتأثر باقي بيانات النظام (المنتجات، الفواتير، العملاء...). لا يمكن التراجع عن هذا الإجراء.`}
+          confirmLabel="حذف الأوردرات"
+          onConfirm={handleConfirmDeleteNoon}
+          onCancel={() => setShowDeleteNoon(false)}
+        />
+      )}
+
+      {/* تأكيد إعادة تعيين النظام بكلمة سر */}
       {showReset && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm text-center">
-            <div className="text-4xl mb-4">⚠️</div>
-            <h3 className="font-bold text-white mb-2">تحذير!</h3>
-            <p className="text-gray-400 text-sm mb-4">سيتم حذف جميع البيانات وإعادة تعيين النظام. هل أنت متأكد؟</p>
-            <div className="flex gap-2">
-              <button onClick={() => { onResetData(); setShowReset(false); }} className="flex-1 py-2 bg-red-700/30 border border-red-500/40 rounded-xl text-red-300 text-sm">نعم، إعادة التعيين</button>
-              <button onClick={() => setShowReset(false)} className="flex-1 py-2 btn-secondary text-sm">إلغاء</button>
-            </div>
+        <PasswordConfirmModal
+          title="إعادة تعيين النظام بالكامل"
+          message="سيتم حذف جميع البيانات نهائيًا من قاعدة البيانات (منتجات، فواتير، عملاء، موردين، أوردرات نون، مصروفات...) على كل الأجهزة المتصلة بالنظام. هذا الإجراء نهائي ولا يمكن التراجع عنه."
+          confirmLabel="إعادة تعيين كل شيء"
+          onConfirm={handleConfirmReset}
+          onCancel={() => setShowReset(false)}
+        />
+      )}
+
+      {resetDone && (
+        <div className="fixed inset-0 bg-black/90 z-[80] flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-4xl mb-3">✅</div>
+            <p className="text-white">تم إعادة تعيين النظام، جاري إعادة تحميل الصفحة...</p>
           </div>
         </div>
       )}

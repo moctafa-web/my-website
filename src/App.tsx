@@ -42,11 +42,6 @@ export default function App() {
     return <Login />;
   }
 
-  const handleResetData = () => {
-    localStorage.removeItem('one_erp_data');
-    window.location.reload();
-  };
-
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
@@ -56,7 +51,6 @@ export default function App() {
             onNavigate={setCurrentPage}
             onNewSale={() => setCurrentPage('sales')}
             onNewPurchase={() => setCurrentPage('purchases')}
-            onAddDailyClosing={store.addDailyClosing}
             adjustTreasury={store.adjustTreasury}
           />
         );
@@ -81,28 +75,28 @@ export default function App() {
           />
         );
 
-case 'sales':
-  return (
-    <Sales
-      saleInvoices={state.saleInvoices}
-      customers={state.customers}
-      products={state.products}
-      serials={state.serials}
-      brands={state.brands}
-      settings={state.settings}
-      suppliers={state.suppliers}
-      onAddSaleInvoice={store.addSaleInvoice}
-      onAddCustomer={store.addCustomer}
-      onUpdateSaleInvoice={store.updateSaleInvoice}
-      onDeleteSaleInvoice={store.deleteSaleInvoice}
-      preselectedCustomerId={pendingCustomerId}
-      onPreselectedHandled={() => setPendingCustomerId(null)}
-      onAddProduct={store.addProduct}
-      onAddSupplier={store.addSupplier}
-      onAddPurchaseInvoice={store.addPurchaseInvoice}
-      onAddSerials={store.addSerials}
-    />
-  );
+      case 'sales':
+        return (
+          <Sales
+            saleInvoices={state.saleInvoices}
+            customers={state.customers}
+            products={state.products}
+            serials={state.serials}
+            brands={state.brands}
+            settings={state.settings}
+            suppliers={state.suppliers}
+            onAddSaleInvoice={store.addSaleInvoice}
+            onAddCustomer={store.addCustomer}
+            onUpdateSaleInvoice={store.updateSaleInvoice}
+            onDeleteSaleInvoice={store.deleteSaleInvoice}
+            preselectedCustomerId={pendingCustomerId}
+            onPreselectedHandled={() => setPendingCustomerId(null)}
+            onAddProduct={store.addProduct}
+            onAddSupplier={store.addSupplier}
+            onAddPurchaseInvoice={store.addPurchaseInvoice}
+            onAddSerials={store.addSerials}
+          />
+        );
 
       case 'purchases':
         return (
@@ -208,13 +202,20 @@ case 'sales':
             onUpdateSettings={store.updateSettings}
             cashBalance={state.cashBalance}
             bankBalance={state.bankBalance}
-            onResetData={handleResetData}
+            onResetData={store.resetAllData}
+            onDeleteAllNoonOrders={store.deleteAllNoonOrders}
+            noonOrdersCount={state.noonOrders.length}
+            fullState={state}
           />
         );
 
-      // ✅ صفحة دفتر اليومية الجديدة
-      case 'daily-journal':
-        return <DailyJournal />;
+      case 'journal':
+        return (
+          <DailyJournal
+            journals={state.dailyJournals}
+            onSaveJournal={store.saveDailyJournal}
+          />
+        );
 
       default:
         return (

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { AppState, DailyClosing, TreasuryTransaction } from '../types';
-import { formatCurrency, generateId, getTodayStr } from '../utils/helpers';
-import { CheckCircle, AlertTriangle } from 'lucide-react';
+import { AppState } from '../types';
+import { formatCurrency, getTodayStr } from '../utils/helpers';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 
 interface Props {
@@ -9,17 +8,10 @@ interface Props {
   onNavigate: (page: string) => void;
   onNewSale: () => void;
   onNewPurchase: () => void;
-  onAddDailyClosing: (c: DailyClosing) => void;
   adjustTreasury: (type: 'cash' | 'bank', amount: number, dir: 'in' | 'out', desc: string) => void;
 }
 
-export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase, onAddDailyClosing, adjustTreasury }: Props) {
-  const [showClosing, setShowClosing] = useState(false);
-  const [closingData, setClosingData] = useState({
-    closingCash: '',
-    closingBank: '',
-    notes: '',
-  });
+export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase, adjustTreasury }: Props) {
   const [showTreasury, setShowTreasury] = useState(false);
   const [treasuryForm, setTreasuryForm] = useState({
     type: 'cash' as 'cash' | 'bank',
@@ -59,35 +51,12 @@ export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase,
     };
   });
 
-  const handleDailyClosing = () => {
-    const closing: DailyClosing = {
-      id: generateId(),
-      date: today,
-      openingCash: state.cashBalance,
-      closingCash: parseFloat(closingData.closingCash) || 0,
-      openingBank: state.bankBalance,
-      closingBank: parseFloat(closingData.closingBank) || 0,
-      totalSales: todaySalesTotal,
-      totalPurchases: todayPurchasesTotal,
-      totalExpenses: todayExpensesTotal,
-      cashDifference: (parseFloat(closingData.closingCash) || 0) - state.cashBalance,
-      bankDifference: (parseFloat(closingData.closingBank) || 0) - state.bankBalance,
-      notes: closingData.notes,
-      createdAt: new Date().toISOString(),
-    };
-    onAddDailyClosing(closing);
-    setShowClosing(false);
-    setClosingData({ closingCash: '', closingBank: '', notes: '' });
-  };
-
   const handleTreasuryAdjust = () => {
     if (!treasuryForm.amount || !treasuryForm.description) return;
     adjustTreasury(treasuryForm.type, parseFloat(treasuryForm.amount), treasuryForm.direction, treasuryForm.description);
     setTreasuryForm({ type: 'cash', amount: '', direction: 'in', description: '' });
     setShowTreasury(false);
   };
-
-  const cashDiff = closingData.closingCash ? parseFloat(closingData.closingCash) - state.cashBalance : null;
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -117,32 +86,27 @@ export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase,
           <div className="text-blue-300 text-sm mt-1">استلام شحنة من مورد</div>
         </button>
 
-<button
-  onClick={() => onNavigate('daily-journal')}
-  className="bg-gradient-to-br from-slate-700 to-gray-900 hover:from-slate-600 hover:to-gray-800 border border-gray-600/40 rounded-2xl p-5 text-right transition-all hover:scale-105 hover:shadow-xl group"
->
-  <div className="flex items-center justify-between mb-3">
-    <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">📒</div>
-    <span className="text-gray-400 text-xs">يومي</span>
-  </div>
-  <div className="text-xl font-bold text-white">تقفيل اليومية</div>
-  <div className="text-gray-400 text-sm mt-1">مراجعة وتقفيل حسابات اليوم</div>
-</button>
+        <button
+          onClick={() => onNavigate('journal')}
+          className="bg-gradient-to-br from-slate-700 to-gray-900 hover:from-slate-600 hover:to-gray-800 border border-gray-600/40 rounded-2xl p-5 text-right transition-all hover:scale-105 hover:shadow-xl group"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">🔒</div>
+            <span className="text-gray-400 text-xs">يومي</span>
+          </div>
+          <div className="text-xl font-bold text-white">تقفيل اليومية</div>
+          <div className="text-gray-400 text-sm mt-1">مراجعة وتقفيل حسابات اليوم</div>
+        </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Cards - أهم 3 مؤشرات فقط: مبيعات اليوم، مشتريات اليوم، الخزينة (كاش وبنك) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard title="مبيعات اليوم" value={formatCurrency(todaySalesTotal)} sub={`${todaySales.length} فاتورة`} icon="💰" color="green" />
         <StatCard title="مشتريات اليوم" value={formatCurrency(todayPurchasesTotal)} sub={`${todayPurchases.length} فاتورة`} icon="📦" color="blue" />
-        <StatCard title="الكاش" value={formatCurrency(state.cashBalance)} sub="الرصيد الحالي" icon="💵" color="violet" onClick={() => setShowTreasury(true)} />
-        <StatCard title="البنك" value={formatCurrency(state.bankBalance)} sub="الرصيد الحالي" icon="🏦" color="cyan" onClick={() => setShowTreasury(true)} />
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="إجمالي المنتجات" value={totalProducts.toString()} sub={`${outOfStock.length} نفد من المخزون`} icon="📱" color="orange" onClick={() => onNavigate('inventory')} />
-        <StatCard title="العملاء" value={totalCustomers.toString()} sub="إجمالي العملاء" icon="👥" color="teal" onClick={() => onNavigate('customers')} />
-        <StatCard title="أوردرات نون" value={pendingOrders.length.toString()} sub="في انتظار الشحن" icon="🏪" color="yellow" onClick={() => onNavigate('noon')} />
-        <StatCard title="مصروفات اليوم" value={formatCurrency(todayExpensesTotal)} sub={`${todayExpenses.length} عملية`} icon="💸" color="red" onClick={() => onNavigate('expenses')} />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard title="الكاش" value={formatCurrency(state.cashBalance)} sub="الرصيد الحالي" icon="💵" color="violet" onClick={() => setShowTreasury(true)} />
+          <StatCard title="البنك" value={formatCurrency(state.bankBalance)} sub="الرصيد الحالي" icon="🏦" color="cyan" onClick={() => setShowTreasury(true)} />
+        </div>
       </div>
 
       {/* Chart */}
@@ -257,90 +221,6 @@ export default function Dashboard({ state, onNavigate, onNewSale, onNewPurchase,
       </div>
 
       {/* Daily Closing Modal */}
-      {showClosing && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setShowClosing(false)}>
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-lg" onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-bold text-white mb-5">🔒 تقفيل اليومية - {today}</h2>
-
-            {/* Summary */}
-            <div className="grid grid-cols-3 gap-3 mb-5">
-              <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-green-400 mb-1">مبيعات اليوم</div>
-                <div className="text-sm font-bold text-green-300">{formatCurrency(todaySalesTotal)}</div>
-              </div>
-              <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-blue-400 mb-1">مشتريات</div>
-                <div className="text-sm font-bold text-blue-300">{formatCurrency(todayPurchasesTotal)}</div>
-              </div>
-              <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-red-400 mb-1">مصروفات</div>
-                <div className="text-sm font-bold text-red-300">{formatCurrency(todayExpensesTotal)}</div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">رصيد الكاش النظام</div>
-                  <div className="text-lg font-bold text-white">{formatCurrency(state.cashBalance)}</div>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">رصيد الكاش الفعلي (الدرج)</label>
-                  <input
-                    type="number"
-                    value={closingData.closingCash}
-                    onChange={e => setClosingData(p => ({ ...p, closingCash: e.target.value }))}
-                    className="input-dark w-full"
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-
-              {cashDiff !== null && (
-                <div className={`flex items-center gap-2 rounded-xl px-4 py-3 ${Math.abs(cashDiff) < 1 ? 'bg-green-900/30 border border-green-700/30' : 'bg-red-900/30 border border-red-700/30'}`}>
-                  {Math.abs(cashDiff) < 1 ? <CheckCircle size={16} className="text-green-400" /> : <AlertTriangle size={16} className="text-red-400" />}
-                  <span className={Math.abs(cashDiff) < 1 ? 'text-green-400' : 'text-red-400'}>
-                    {Math.abs(cashDiff) < 1 ? '✅ الكاش مضبوط' : `${cashDiff > 0 ? '📈 زيادة' : '⚠️ عجز'} ${Math.abs(cashDiff).toLocaleString('ar-EG')} ج.م`}
-                  </span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">رصيد البنك النظام</div>
-                  <div className="text-lg font-bold text-white">{formatCurrency(state.bankBalance)}</div>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">رصيد البنك الفعلي</label>
-                  <input
-                    type="number"
-                    value={closingData.closingBank}
-                    onChange={e => setClosingData(p => ({ ...p, closingBank: e.target.value }))}
-                    className="input-dark w-full"
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">ملاحظات</label>
-                <textarea
-                  value={closingData.notes}
-                  onChange={e => setClosingData(p => ({ ...p, notes: e.target.value }))}
-                  className="input-dark w-full h-20 resize-none"
-                  placeholder="أي ملاحظات..."
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-5">
-              <button onClick={handleDailyClosing} className="btn-primary flex-1">🔒 تأكيد التقفيل</button>
-              <button onClick={() => setShowClosing(false)} className="btn-secondary flex-1">إلغاء</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Treasury Adjust Modal */}
       {showTreasury && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setShowTreasury(false)}>
