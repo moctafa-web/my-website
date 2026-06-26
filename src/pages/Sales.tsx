@@ -12,13 +12,13 @@ interface Props {
   settings: { lastSaleInvoiceNum: number; invoicePrefix: string; companyName: string; lastPurchaseInvoiceNum: number; purchasePrefix: string };
   suppliers?: Supplier[];
   onAddSaleInvoice: (inv: SaleInvoice) => void;
-  onAddCustomer: (c: Customer) => void;
+  onAddCustomer: (c: Customer) => { success: boolean; message?: string } | void;
   onUpdateSaleInvoice: (inv: SaleInvoice) => void;
   onDeleteSaleInvoice: (invoiceId: string) => void;
   preselectedCustomerId?: string | null;
   onPreselectedHandled?: () => void;
-  onAddProduct?: (p: Product) => void;
-  onAddSupplier?: (s: Supplier) => void;
+  onAddProduct?: (p: Product) => { success: boolean; message?: string } | void;
+  onAddSupplier?: (s: Supplier) => { success: boolean; message?: string } | void;
   onAddPurchaseInvoice?: (inv: PurchaseInvoice) => void;
   onAddSerials?: (serials: SerialItem[]) => void;
 }
@@ -423,6 +423,8 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
     setConfirmDeleteInvoice(null);
   };
 
+  const [customerDupError, setCustomerDupError] = useState<string | null>(null);
+
   const handleAddCustomer = () => {
     if (!newCustomer.name) return;
     const c: Customer = {
@@ -430,10 +432,15 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
       type: newCustomer.type as Customer['type'], openingBalance: 0,
       totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString(),
     };
-    onAddCustomer(c);
+    const result = onAddCustomer(c);
+    if (result && result.success === false) {
+      setCustomerDupError(result.message || 'هذا العميل موجود بالفعل');
+      return;
+    }
     setCustomerId(c.id);
     setCustomerSearch(c.name);
     setAddCustomerModal(false);
+    setCustomerDupError(null);
     setNewCustomer({ name: '', phone: '', type: 'individual' });
   };
 
@@ -543,6 +550,8 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
   const qpRemaining = qpSubtotal - qpPaidAmount;
   const selectedQpSupplier = suppliers.find(s => s.id === qpSupplierId);
 
+  const [qpQuickAddError, setQpQuickAddError] = useState<string | null>(null);
+
   const handleAddSupplier = () => {
     if (!newSupplier.name || !onAddSupplier) return;
     const s: Supplier = {
@@ -550,9 +559,14 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
       type: newSupplier.type, openingBalance: 0, totalInvoices: 0, totalPaid: 0,
       createdAt: new Date().toISOString(),
     };
-    onAddSupplier(s);
+    const result = onAddSupplier(s);
+    if (result && result.success === false) {
+      setQpQuickAddError(result.message || 'هذا المورد موجود بالفعل');
+      return;
+    }
     setQpSupplierId(s.id); setQpSupplierSearch(s.name);
     setAddSupplierModal(false);
+    setQpQuickAddError(null);
     setNewSupplier({ name: '', phone: '', type: 'supplier' });
   };
 
@@ -568,9 +582,14 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
       salePrice: parseFloat(newProductForm.salePrice) || 0,
       stock: 0, createdAt: now, updatedAt: now,
     };
-    onAddProduct(product);
+    const result = onAddProduct(product);
+    if (result && result.success === false) {
+      setQpQuickAddError(result.message || 'هذا المنتج موجود بالفعل');
+      return;
+    }
     selectQpProduct(itemId, product);
     setShowNewProductModal(null);
+    setQpQuickAddError(null);
     setNewProductForm({ name: '', sku: '', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: '', salePrice: '' });
   };
 
@@ -782,7 +801,7 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                             {c.name} {c.phone && <span className="text-gray-500 text-xs">({c.phone})</span>}
                           </button>
                         ))}
-                        <button onClick={() => { setAddCustomerModal(true); setShowCustDrop(false); }}
+                        <button onClick={() => { setAddCustomerModal(true); setShowCustDrop(false); setCustomerDupError(null); }}
                           className="block w-full text-right px-3 py-2 text-sm text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                           + إضافة عميل جديد
                         </button>
@@ -1068,9 +1087,14 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                 <option value="trader">تاجر</option>
               </select>
             </div>
+            {customerDupError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {customerDupError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={handleAddCustomer} className="btn-primary flex-1">إضافة</button>
-              <button onClick={() => setAddCustomerModal(false)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setAddCustomerModal(false); setCustomerDupError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>
@@ -1121,7 +1145,7 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                       <button key={s.id} onClick={() => { setQpSupplierId(s.id); setQpSupplierSearch(s.name); setQpShowSupDrop(false); }}
                         className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">{s.name}</button>
                     ))}
-                    <button onClick={() => { setAddSupplierModal(true); setQpShowSupDrop(false); }}
+                    <button onClick={() => { setAddSupplierModal(true); setQpShowSupDrop(false); setQpQuickAddError(null); }}
                       className="block w-full text-right px-3 py-2 text-sm text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                       + إضافة مورد جديد
                     </button>
@@ -1169,7 +1193,7 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                                   <div className="text-gray-500">{p.sku}</div>
                                 </button>
                               ))}
-                              <button onClick={() => { setShowNewProductModal(item.id); setQpShowItemDrop(prev => ({ ...prev, [item.id]: false })); }}
+                              <button onClick={() => { setShowNewProductModal(item.id); setQpShowItemDrop(prev => ({ ...prev, [item.id]: false })); setQpQuickAddError(null); }}
                                 className="block w-full text-right px-3 py-2 text-xs text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                                 + إضافة منتج جديد للنظام
                               </button>
@@ -1341,9 +1365,14 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                   className="input-dark w-full" placeholder="سعر البيع" />
               </div>
             </div>
+            {qpQuickAddError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {qpQuickAddError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={() => handleAddNewProduct(showNewProductModal)} className="btn-primary flex-1">إضافة وتحديد</button>
-              <button onClick={() => setShowNewProductModal(null)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setShowNewProductModal(null); setQpQuickAddError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>
@@ -1369,9 +1398,14 @@ const isValidAvailableSerial = (serial: string, productId: string): boolean => {
                 <option value="both">مورد وتاجر</option>
               </select>
             </div>
+            {qpQuickAddError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {qpQuickAddError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={handleAddSupplier} className="btn-primary flex-1">إضافة</button>
-              <button onClick={() => setAddSupplierModal(false)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setAddSupplierModal(false); setQpQuickAddError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

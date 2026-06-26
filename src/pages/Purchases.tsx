@@ -11,8 +11,8 @@ interface Props {
   brands: Brand[];
   settings: { lastPurchaseInvoiceNum: number; purchasePrefix: string; companyName: string };
   onAddPurchaseInvoice: (inv: PurchaseInvoice) => void;
-  onAddSupplier: (s: Supplier) => void;
-  onAddProduct: (p: Product) => void;
+  onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
+  onAddProduct: (p: Product) => { success: boolean; message?: string } | void;
   onAddSerials: (serials: SerialItem[]) => void;
   onUpdatePurchaseInvoice: (inv: PurchaseInvoice) => void;
   onDeletePurchaseInvoice: (invoiceId: string) => void;
@@ -402,6 +402,8 @@ export default function Purchases({
     setViewInvoice(null);
   };
 
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
+
   const handleAddSupplier = () => {
     if (!newSupplier.name) return;
     const s: Supplier = {
@@ -409,10 +411,15 @@ export default function Purchases({
       type: newSupplier.type, openingBalance: 0, totalInvoices: 0, totalPaid: 0,
       createdAt: new Date().toISOString()
     };
-    onAddSupplier(s);
+    const result = onAddSupplier(s);
+    if (result && result.success === false) {
+      setQuickAddError(result.message || 'هذا المورد موجود بالفعل');
+      return;
+    }
     setSupplierId(s.id);
     setSupplierSearch(s.name);
     setAddSupplierModal(false);
+    setQuickAddError(null);
     setNewSupplier({ name: '', phone: '', type: 'supplier' });
   };
 
@@ -431,9 +438,14 @@ export default function Purchases({
       stock: 0,
       createdAt: now, updatedAt: now,
     };
-    onAddProduct(product);
+    const result = onAddProduct(product);
+    if (result && result.success === false) {
+      setQuickAddError(result.message || 'هذا المنتج موجود بالفعل');
+      return;
+    }
     selectProduct(itemId, product);
     setShowNewProductModal(null);
+    setQuickAddError(null);
     setNewProductForm({ name: '', sku: '', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: '', salePrice: '' });
   };
 
@@ -583,7 +595,7 @@ export default function Purchases({
                         {s.name}
                       </button>
                     ))}
-                    <button onClick={() => { setAddSupplierModal(true); setShowSupDrop(false); }}
+                    <button onClick={() => { setAddSupplierModal(true); setShowSupDrop(false); setQuickAddError(null); }}
                       className="block w-full text-right px-3 py-2 text-sm text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                       + إضافة مورد جديد
                     </button>
@@ -636,7 +648,7 @@ export default function Purchases({
                                 </button>
                               ))}
                               <button
-                                onClick={() => { setShowNewProductModal(item.id); setShowItemDrop(prev => ({ ...prev, [item.id]: false })); }}
+                                onClick={() => { setShowNewProductModal(item.id); setShowItemDrop(prev => ({ ...prev, [item.id]: false })); setQuickAddError(null); }}
                                 className="block w-full text-right px-3 py-2 text-xs text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                                 + إضافة منتج جديد
                               </button>
@@ -824,9 +836,14 @@ export default function Purchases({
                   className="input-dark w-full" placeholder="سعر البيع" />
               </div>
             </div>
+            {quickAddError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {quickAddError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={() => handleAddNewProduct(showNewProductModal)} className="btn-primary flex-1">إضافة وتحديد</button>
-              <button onClick={() => setShowNewProductModal(null)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setShowNewProductModal(null); setQuickAddError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>
@@ -938,9 +955,14 @@ export default function Purchases({
                 <option value="both">مورد وتاجر</option>
               </select>
             </div>
+            {quickAddError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {quickAddError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={handleAddSupplier} className="btn-primary flex-1">إضافة</button>
-              <button onClick={() => setAddSupplierModal(false)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setAddSupplierModal(false); setQuickAddError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

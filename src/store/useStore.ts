@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppState, Product, Customer, Supplier, SaleInvoice, PurchaseInvoice, Payment, Expense, TreasuryTransaction, NoonOrder, DailyClosing, DailyJournal, SerialItem, Brand, AppSettings } from '../types';
 import { db } from '../firebase';
 import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
+import { normalizeForCompare } from '../utils/helpers';
 
 // ==================== Firebase Helper Functions ====================
 
@@ -187,9 +188,18 @@ export function useStore() {
   }, []);
 
   // ==================== PRODUCTS ====================
-  const addProduct = useCallback((product: Product) => {
-    setState(prev => ({ ...prev, products: [...prev.products, product] }));
+  // ترجع true لو تمت الإضافة، أو false مع رسالة تكرار لو المنتج موجود بالفعل بنفس SKU
+  const addProduct = useCallback((product: Product): { success: boolean; message?: string } => {
+    const normalizedSku = normalizeForCompare(product.sku);
+    let isDuplicate = false;
+    setState(prev => {
+      const exists = prev.products.some(p => normalizeForCompare(p.sku) === normalizedSku);
+      if (exists) { isDuplicate = true; return prev; }
+      return { ...prev, products: [...prev.products, product] };
+    });
+    if (isDuplicate) return { success: false, message: `يوجد منتج بنفس الكود (SKU): ${product.sku}` };
     saveToFirebase('products', product.id, product);
+    return { success: true };
   }, []);
 
   const updateProduct = useCallback((product: Product) => {
@@ -219,9 +229,22 @@ export function useStore() {
   }, []);
 
   // ==================== CUSTOMERS ====================
-  const addCustomer = useCallback((customer: Customer) => {
-    setState(prev => ({ ...prev, customers: [...prev.customers, customer] }));
+  // ترجع true لو تمت الإضافة، أو false مع رسالة تكرار لو عميل بنفس الاسم والتليفون موجود بالفعل
+  const addCustomer = useCallback((customer: Customer): { success: boolean; message?: string } => {
+    const normalizedName = normalizeForCompare(customer.name);
+    const normalizedPhone = normalizeForCompare(customer.phone || '');
+    let isDuplicate = false;
+    setState(prev => {
+      const exists = prev.customers.some(c =>
+        normalizeForCompare(c.name) === normalizedName &&
+        normalizeForCompare(c.phone || '') === normalizedPhone
+      );
+      if (exists) { isDuplicate = true; return prev; }
+      return { ...prev, customers: [...prev.customers, customer] };
+    });
+    if (isDuplicate) return { success: false, message: `يوجد عميل بنفس الاسم ورقم الهاتف: ${customer.name}` };
     saveToFirebase('customers', customer.id, customer);
+    return { success: true };
   }, []);
 
   const updateCustomer = useCallback((customer: Customer) => {
@@ -235,9 +258,18 @@ export function useStore() {
   }, []);
 
   // ==================== SUPPLIERS ====================
-  const addSupplier = useCallback((supplier: Supplier) => {
-    setState(prev => ({ ...prev, suppliers: [...prev.suppliers, supplier] }));
+  // ترجع true لو تمت الإضافة، أو false مع رسالة تكرار لو مورد بنفس الاسم موجود بالفعل
+  const addSupplier = useCallback((supplier: Supplier): { success: boolean; message?: string } => {
+    const normalizedName = normalizeForCompare(supplier.name);
+    let isDuplicate = false;
+    setState(prev => {
+      const exists = prev.suppliers.some(s => normalizeForCompare(s.name) === normalizedName);
+      if (exists) { isDuplicate = true; return prev; }
+      return { ...prev, suppliers: [...prev.suppliers, supplier] };
+    });
+    if (isDuplicate) return { success: false, message: `يوجد مورد/تاجر بنفس الاسم بالفعل: ${supplier.name}` };
     saveToFirebase('suppliers', supplier.id, supplier);
+    return { success: true };
   }, []);
 
   const updateSupplier = useCallback((supplier: Supplier) => {
@@ -633,18 +665,38 @@ export function useStore() {
   }, []);
 
   // ==================== NOON ORDERS ====================
-  const addNoonOrder = useCallback((order: NoonOrder) => {
+  // لو رقم الأوردر موجود بالفعل، نضيف المنتجات الجديدة لنفس الأوردر الموجود (دمج) بدل إنشاء أوردر مكرر منفصل
+  const addNoonOrder = useCallback((order: NoonOrder): { success: boolean; message?: string; merged?: boolean } => {
+    let result: { success: boolean; message?: string; merged?: boolean } = { success: true };
     setState(prev => {
+      const normalizedOrderNum = normalizeForCompare(order.orderNumber);
+      const existingOrder = prev.noonOrders.find(o => normalizeForCompare(o.orderNumber) === normalizedOrderNum);
+
       const itemsWithCost: NoonOrder['items'] = order.items.map(item => {
         const product = prev.products.find(p => p.id === item.productId);
         return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
       });
-      const finalOrder = { ...order, items: itemsWithCost };
-      const newState = { ...prev, noonOrders: [...prev.noonOrders, finalOrder] };
+
+      // الأوردر النهائي: لو موجود، نفس الأوردر القديم + المنتجات الجديدة مضافة لقايمته. لو جديد، يتسجل عادي.
+      const finalOrder: NoonOrder = existingOrder
+        ? { ...existingOrder, items: [...existingOrder.items, ...itemsWithCost] }
+        : { ...order, items: itemsWithCost };
+
+      result = existingOrder
+        ? { success: true, merged: true, message: `الأوردر ${order.orderNumber} موجود بالفعل، تم إضافة المنتج له` }
+        : { success: true };
+
+      const newState = {
+        ...prev,
+        noonOrders: existingOrder
+          ? prev.noonOrders.map(o => o.id === existingOrder.id ? finalOrder : o)
+          : [...prev.noonOrders, finalOrder],
+      };
       const updatedProducts: Product[] = [];
       const updatedSerials: SerialItem[] = [];
 
-      finalOrder.items.forEach(item => {
+      // خصم المخزون فقط للمنتجات الجديدة المضافة الآن (لا نكرر الخصم على عناصر الأوردر القديمة)
+      itemsWithCost.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product?.productType === 'serial') {
           // منتج بسيريالات: المخزون الحقيقي محسوب من عدد السيريالات المتاحة فقط (لا نخصم stock مباشرة لتجنب عدّ مزدوج)
@@ -680,6 +732,7 @@ export function useStore() {
 
       return newState;
     });
+    return result;
   }, []);
 
   const updateNoonOrder = useCallback((order: NoonOrder) => {
@@ -758,21 +811,38 @@ export function useStore() {
     });
   }, []);
 
-  const addNoonOrders = useCallback((orders: NoonOrder[]) => {
+  // استيراد جماعي (من Excel): يدمج الأوردرات اللي عندها نفس رقم الأوردر (مع الموجود بالفعل، أو مع بعضها داخل نفس الاستيراد)
+  const addNoonOrders = useCallback((orders: NoonOrder[]): { addedCount: number; mergedCount: number } => {
+    let addedCount = 0;
+    let mergedCount = 0;
     setState(prev => {
-      const ordersWithCost = orders.map(order => ({
-        ...order,
-        items: order.items.map(item => {
-          const product = prev.products.find(p => p.id === item.productId);
-          return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
-        }),
-      }));
-      const newState = { ...prev, noonOrders: [...prev.noonOrders, ...ordersWithCost] };
+      const newState = { ...prev };
       const updatedProducts: Product[] = [];
       const updatedSerials: SerialItem[] = [];
+      // نبني قائمة الأوردرات تدريجيًا، فلو صفين في نفس ملف الاستيراد بنفس رقم الأوردر، يندمجوا مع بعض بدل تكرار
+      let workingOrders = [...prev.noonOrders];
 
-      ordersWithCost.forEach(order => {
-        order.items.forEach(item => {
+      orders.forEach(order => {
+        const itemsWithCost = order.items.map(item => {
+          const product = prev.products.find(p => p.id === item.productId);
+          return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+        });
+        const normalizedOrderNum = normalizeForCompare(order.orderNumber);
+        const existingIdx = workingOrders.findIndex(o => normalizeForCompare(o.orderNumber) === normalizedOrderNum);
+
+        let finalOrder: NoonOrder;
+        if (existingIdx >= 0) {
+          finalOrder = { ...workingOrders[existingIdx], items: [...workingOrders[existingIdx].items, ...itemsWithCost] };
+          workingOrders[existingIdx] = finalOrder;
+          mergedCount++;
+        } else {
+          finalOrder = { ...order, items: itemsWithCost };
+          workingOrders.push(finalOrder);
+          addedCount++;
+        }
+
+        // خصم المخزون فقط للعناصر الجديدة المضافة الآن في هذا الصف من الاستيراد
+        itemsWithCost.forEach(item => {
           const product = newState.products.find(p => p.id === item.productId);
           if (product?.productType === 'serial') {
             const serialToTransfer = item.serial
@@ -781,7 +851,7 @@ export function useStore() {
             if (serialToTransfer) {
               newState.serials = newState.serials.map(s => {
                 if (s.id === serialToTransfer.id) {
-                  const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
+                  const updated = { ...s, status: 'transferred' as const, noonOrderId: finalOrder.id };
                   updatedSerials.push(updated);
                   return updated;
                 }
@@ -798,25 +868,18 @@ export function useStore() {
               return p;
             });
           }
-          if (item.serial) {
-            newState.serials = newState.serials.map(s => {
-              if (s.serial === item.serial) {
-                const updated = { ...s, status: 'transferred' as const, noonOrderId: order.id };
-                updatedSerials.push(updated);
-                return updated;
-              }
-              return s;
-            });
-          }
         });
+
+        saveToFirebase('noonOrders', finalOrder.id, finalOrder);
       });
 
-      ordersWithCost.forEach(o => saveToFirebase('noonOrders', o.id, o));
+      newState.noonOrders = workingOrders;
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
       updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
 
       return newState;
     });
+    return { addedCount, mergedCount };
   }, []);
 
   const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => {

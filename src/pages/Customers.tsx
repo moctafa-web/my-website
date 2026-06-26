@@ -10,7 +10,7 @@ interface Props {
   payments: Payment[];
   cashBalance: number;
   bankBalance: number;
-  onAddCustomer: (c: Customer) => void;
+  onAddCustomer: (c: Customer) => { success: boolean; message?: string } | void;
   onUpdateCustomer: (c: Customer) => void;
   onDeleteCustomer: (id: string) => void;
   onAddPayment: (p: Payment) => void;
@@ -43,17 +43,24 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     (c.phone || '').includes(search)
   );
 
-  const openAdd = () => { setEditCustomer(null); setForm({ name: '', phone: '', email: '', address: '', type: 'individual', notes: '', openingBalance: 0 }); setShowForm(true); };
-  const openEdit = (c: Customer) => { setEditCustomer(c); setForm({ name: c.name, phone: c.phone || '', email: c.email || '', address: c.address || '', type: c.type, notes: c.notes || '', openingBalance: c.openingBalance }); setShowForm(true); };
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+
+  const openAdd = () => { setEditCustomer(null); setForm({ name: '', phone: '', email: '', address: '', type: 'individual', notes: '', openingBalance: 0 }); setDuplicateError(null); setShowForm(true); };
+  const openEdit = (c: Customer) => { setEditCustomer(c); setForm({ name: c.name, phone: c.phone || '', email: c.email || '', address: c.address || '', type: c.type, notes: c.notes || '', openingBalance: c.openingBalance }); setDuplicateError(null); setShowForm(true); };
 
   const handleSave = () => {
     if (!form.name) return;
     if (editCustomer) {
       onUpdateCustomer({ ...editCustomer, ...form });
+      setShowForm(false);
     } else {
-      onAddCustomer({ id: generateId(), ...form, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() });
+      const result = onAddCustomer({ id: generateId(), ...form, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() });
+      if (result && result.success === false) {
+        setDuplicateError(result.message || 'هذا العميل موجود بالفعل');
+        return;
+      }
+      setShowForm(false);
     }
-    setShowForm(false);
   };
 
   const handleDelete = () => {
@@ -514,9 +521,14 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
               <input type="number" value={form.openingBalance} onChange={e => setForm(p => ({ ...p, openingBalance: parseFloat(e.target.value) || 0 }))} className="input-dark w-full" placeholder="الرصيد الافتتاحي" />
               <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className="input-dark w-full h-16 resize-none" placeholder="ملاحظات" />
             </div>
+            {duplicateError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {duplicateError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={handleSave} className="btn-primary flex-1">💾 حفظ</button>
-              <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setShowForm(false); setDuplicateError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

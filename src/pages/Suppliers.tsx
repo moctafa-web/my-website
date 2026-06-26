@@ -8,7 +8,7 @@ interface Props {
   suppliers: Supplier[];
   purchaseInvoices: PurchaseInvoice[];
   payments: Payment[];
-  onAddSupplier: (s: Supplier) => void;
+  onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onUpdateSupplier: (s: Supplier) => void;
   onDeleteSupplier: (id: string) => void;
   onAddPayment: (p: Payment) => void;
@@ -68,17 +68,24 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
     return withRunning.filter(r => (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo));
   };
 
-  const openAdd = () => { setEditSupplier(null); setForm({ name: '', phone: '', email: '', address: '', type: 'supplier', notes: '', openingBalance: 0 }); setShowForm(true); };
+  const openAdd = () => { setEditSupplier(null); setForm({ name: '', phone: '', email: '', address: '', type: 'supplier', notes: '', openingBalance: 0 }); setDuplicateError(null); setShowForm(true); };
   const openEdit = (s: Supplier) => { setEditSupplier(s); setForm({ name: s.name, phone: s.phone || '', email: s.email || '', address: s.address || '', type: s.type, notes: s.notes || '', openingBalance: s.openingBalance }); setShowForm(true); };
+
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
 
   const handleSave = () => {
     if (!form.name) return;
     if (editSupplier) {
       onUpdateSupplier({ ...editSupplier, ...form });
+      setShowForm(false);
     } else {
-      onAddSupplier({ id: generateId(), ...form, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() });
+      const result = onAddSupplier({ id: generateId(), ...form, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() });
+      if (result && result.success === false) {
+        setDuplicateError(result.message || 'هذا المورد موجود بالفعل');
+        return;
+      }
+      setShowForm(false);
     }
-    setShowForm(false);
   };
 
   const handleDelete = () => {
@@ -496,9 +503,14 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
               <input type="number" value={form.openingBalance} onChange={e => setForm(p => ({ ...p, openingBalance: parseFloat(e.target.value) || 0 }))} className="input-dark w-full" placeholder="الرصيد الافتتاحي" />
               <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className="input-dark w-full h-16 resize-none" placeholder="ملاحظات" />
             </div>
+            {duplicateError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {duplicateError}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <button onClick={handleSave} className="btn-primary flex-1">💾 حفظ</button>
-              <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setShowForm(false); setDuplicateError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

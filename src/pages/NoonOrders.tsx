@@ -8,9 +8,9 @@ interface Props {
   noonOrders: NoonOrder[];
   products: Product[];
   serials: SerialItem[];
-  onAddNoonOrder: (o: NoonOrder) => void;
+  onAddNoonOrder: (o: NoonOrder) => { success: boolean; message?: string; merged?: boolean } | void;
   onUpdateNoonOrder: (o: NoonOrder) => void;
-  onAddNoonOrders: (os: NoonOrder[]) => void;
+  onAddNoonOrders: (os: NoonOrder[]) => { addedCount: number; mergedCount: number } | void;
   onSettleNoonOrders: (settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => void;
 }
 
@@ -22,6 +22,7 @@ const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: strin
 
 export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders }: Props) {
   const [showForm, setShowForm] = useState(false);
+  const [infoToast, setInfoToast] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<NoonOrder | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
@@ -158,7 +159,11 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
         notes: orderNotes,
         createdAt: new Date().toISOString(),
       };
-      onAddNoonOrder(order);
+      const result = onAddNoonOrder(order);
+      if (result && result.merged) {
+        setInfoToast(result.message || `الأوردر ${orderNumber} موجود بالفعل، تم إضافة المنتج له`);
+        setTimeout(() => setInfoToast(null), 4000);
+      }
     }
 
     resetForm();
@@ -247,7 +252,16 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           createdAt: new Date().toISOString(),
         };
       });
-      onAddNoonOrders(orders);
+      const result = onAddNoonOrders(orders);
+      if (result) {
+        const parts = [];
+        if (result.addedCount > 0) parts.push(`${result.addedCount} أوردر جديد`);
+        if (result.mergedCount > 0) parts.push(`${result.mergedCount} منتج تم دمجه في أوردرات موجودة بالفعل`);
+        if (parts.length > 0) {
+          setInfoToast(`✅ تم الاستيراد: ${parts.join(' + ')}`);
+          setTimeout(() => setInfoToast(null), 5000);
+        }
+      }
       if (fileRef.current) fileRef.current.value = '';
     };
     reader.readAsBinaryString(file);
@@ -335,6 +349,12 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
+      {infoToast && (
+        <div className="bg-blue-900/30 border border-blue-700/40 rounded-xl px-4 py-3 text-blue-300 text-sm flex items-center justify-between">
+          <span>ℹ️ {infoToast}</span>
+          <button onClick={() => setInfoToast(null)} className="text-blue-400 hover:text-blue-200">✕</button>
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold text-white">🏪 أوردرات نون / أمازون</h2>

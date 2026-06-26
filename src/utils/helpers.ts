@@ -20,6 +20,12 @@ export const formatDateTime = (dateStr: string): string => {
   }
 };
 
+// تطبيع النص للمقارنة عند فحص التكرار: إزالة الفراغات الزايدة في البداية/النهاية وتوحيد الفراغات الداخلية،
+// وتحويل لحروف صغيرة (يفيد مع الأسماء/الأكواد الإنجليزية، ولا يؤثر على العربي)
+export const normalizeForCompare = (text: string): string => {
+  return (text || '').trim().replace(/\s+/g, ' ').toLowerCase();
+};
+
 export const generateId = (): string => {
   return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };

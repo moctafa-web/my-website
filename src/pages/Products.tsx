@@ -15,7 +15,7 @@ interface Props {
   products: Product[];
   serials: SerialItem[];
   brands: Brand[];
-  onAddProduct: (p: Product) => void;
+  onAddProduct: (p: Product) => { success: boolean; message?: string } | void;
   onUpdateProduct: (p: Product) => void;
   onDeleteProduct: (id: string) => void;
   onAddBrand: (b: Brand) => void;
@@ -56,18 +56,25 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
     return list;
   }, [products, filterCat, filterSub, search]);
 
-  const openAdd = () => { setEditProduct(null); setForm({ ...BLANK_PRODUCT }); setShowForm(true); };
-  const openEdit = (p: Product) => { setEditProduct(p); setForm({ name: p.name, description: p.description || '', sku: p.sku, upc: p.upc || '', barcode: p.barcode || '', category: p.category, brand: p.brand, productType: p.productType, costPrice: p.costPrice, salePrice: p.salePrice, stock: p.stock, minStock: p.minStock || 2 }); setShowForm(true); };
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+
+  const openAdd = () => { setEditProduct(null); setForm({ ...BLANK_PRODUCT }); setDuplicateError(null); setShowForm(true); };
+  const openEdit = (p: Product) => { setEditProduct(p); setForm({ name: p.name, description: p.description || '', sku: p.sku, upc: p.upc || '', barcode: p.barcode || '', category: p.category, brand: p.brand, productType: p.productType, costPrice: p.costPrice, salePrice: p.salePrice, stock: p.stock, minStock: p.minStock || 2 }); setDuplicateError(null); setShowForm(true); };
 
   const handleSave = () => {
     if (!form.name || !form.sku) return;
     const now = new Date().toISOString();
     if (editProduct) {
       onUpdateProduct({ ...editProduct, ...form, updatedAt: now });
+      setShowForm(false);
     } else {
-      onAddProduct({ id: generateId(), ...form, stock: Number(form.stock), costPrice: Number(form.costPrice), salePrice: Number(form.salePrice), minStock: Number(form.minStock), createdAt: now, updatedAt: now });
+      const result = onAddProduct({ id: generateId(), ...form, stock: Number(form.stock), costPrice: Number(form.costPrice), salePrice: Number(form.salePrice), minStock: Number(form.minStock), createdAt: now, updatedAt: now });
+      if (result && result.success === false) {
+        setDuplicateError(result.message || 'هذا المنتج موجود بالفعل');
+        return;
+      }
+      setShowForm(false);
     }
-    setShowForm(false);
   };
 
   const handleAddBrand = () => {
@@ -382,9 +389,14 @@ export default function Products({ products, serials, brands, onAddProduct, onUp
                 <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} className="input-dark w-full h-20 resize-none" placeholder="وصف المنتج..." />
               </div>
             </div>
+            {duplicateError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {duplicateError}
+              </div>
+            )}
             <div className="flex gap-3 mt-5">
               <button onClick={handleSave} className="btn-primary flex-1">💾 حفظ</button>
-              <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setShowForm(false); setDuplicateError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>
