@@ -1,3 +1,5 @@
+// src/utils/helpers.ts
+
 export const formatCurrency = (amount: number, currency = 'EGP'): string => {
   return `${amount.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 };
@@ -20,8 +22,6 @@ export const formatDateTime = (dateStr: string): string => {
   }
 };
 
-// تطبيع النص للمقارنة عند فحص التكرار: إزالة الفراغات الزايدة في البداية/النهاية وتوحيد الفراغات الداخلية،
-// وتحويل لحروف صغيرة (يفيد مع الأسماء/الأكواد الإنجليزية، ولا يؤثر على العربي)
 export const normalizeForCompare = (text: string): string => {
   return (text || '').trim().replace(/\s+/g, ' ').toLowerCase();
 };
@@ -93,6 +93,42 @@ export const statusColor = (status: string): string => {
   return map[status] || 'bg-gray-500/20 text-gray-400';
 };
 
+// ==================== توليد SKU تلقائي ====================
+// مثال: ONE-1734567890123-A3X
+export const generateSKU = (productName?: string): string => {
+  const prefix = 'ONE';
+  const timestamp = Date.now().toString();
+  const random = Math.random().toString(36).substr(2, 3).toUpperCase();
+  // لو في اسم منتج، خد أول حرف من كل كلمة
+  if (productName && productName.trim()) {
+    const initials = productName
+      .trim()
+      .split(' ')
+      .filter(w => w.length > 0)
+      .map(w => w[0].toUpperCase())
+      .join('')
+      .substr(0, 4);
+    return `${initials}-${timestamp.substr(-6)}-${random}`;
+  }
+  return `${prefix}-${timestamp.substr(-8)}-${random}`;
+};
+
+// ==================== توليد UPC/Barcode تلقائي ====================
+// 12 رقم بدايتها 01 زي UPC-A
+export const generateUPC = (): string => {
+  const prefix = '01';
+  const middle = Date.now().toString().substr(-7);
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  const raw = `${prefix}${middle}${random}`;               // 12 رقم
+  // حساب check digit (خوارزمية UPC-A القياسية)
+  const digits = raw.split('').map(Number);
+  let sum = 0;
+  digits.forEach((d, i) => { sum += i % 2 === 0 ? d * 3 : d; });
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return `${raw}${checkDigit}`;                            // 13 رقم (EAN-13 compatible)
+};
+
+// ==================== printElement ====================
 export const printElement = (htmlContent: string, title = 'ONE - طباعة') => {
   const printWindow = window.open('', '_blank', 'width=800,height=600');
   if (!printWindow) return;
