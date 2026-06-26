@@ -25,7 +25,7 @@ export default function App() {
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
 
   const store = useStore();
-  const { state } = store;
+  const { state, isLoading } = store;
 
   if (loading) {
     return (
@@ -40,6 +40,20 @@ export default function App() {
 
   if (!user) {
     return <Login />;
+  }
+
+  // ✅ مهم: لا نعرض أي بيانات (حتى التجريبية المؤقتة) قبل أن تصل البيانات الحقيقية من Firebase فعليًا.
+  // بدون هذا الفحص، يظهر المستخدم بيانات تجريبية وهمية (أحمد محمد علي...) لحظة فتح الموقع
+  // على أي جهاز جديد، وقد يستمر ظهورها لثوانٍ إن كان الإنترنت بطيئًا، مما يسبب لخبطة وكأنها بيانات حقيقية قديمة.
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0f0f1a]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600 mx-auto"></div>
+          <p className="mt-4 text-gray-400">جاري تحميل بياناتك من قاعدة البيانات...</p>
+        </div>
+      </div>
+    );
   }
 
   const renderPage = () => {
