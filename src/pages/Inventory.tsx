@@ -16,11 +16,9 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
   const [filterCat, setFilterCat] = useState('all');
   const [showSerials, setShowSerials] = useState<string | null>(null);
 
-  // ==================== جرد المخزون ====================
   const [showJrard, setShowJrard] = useState(false);
   const [jrardData, setJrardData] = useState<Record<string, string>>({});
 
-  // ==================== تتبع المنتجات ====================
   const [trackTab, setTrackTab] = useState<'serial' | 'product'>('serial');
   const [serialSearch, setSerialSearch] = useState('');
   const [productTrackId, setProductTrackId] = useState('');
@@ -83,7 +81,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
     return { purchases, sales, noon };
   };
 
-  // ==================== المخزون ====================
   const filtered = products.filter(p => {
     const matchSearch =
       p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -101,42 +98,28 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
     serials.filter(s => s.productId === productId && s.status === 'transferred');
 
   const getRealStock = (p: Product) => {
-    if (p.productType === 'serial') {
-      return getAvailableSerials(p.id).length;
-    }
+    if (p.productType === 'serial') return getAvailableSerials(p.id).length;
     return p.stock;
   };
 
-  // ✅ حساب المباع للمنتجات العادية من فواتير البيع
   const getSoldCount = (p: Product) => {
-    if (p.productType === 'serial') {
-      return getSoldSerials(p.id).length;
-    }
-    // المنتجات العادية: نحسب من فواتير البيع
-    return saleInvoices.reduce((sum, inv) => {
-      return sum + inv.items
-        .filter(item => item.productId === p.id)
-        .reduce((s, item) => s + item.quantity, 0);
-    }, 0);
+    if (p.productType === 'serial') return getSoldSerials(p.id).length;
+    return saleInvoices.reduce((sum, inv) =>
+      sum + inv.items.filter(item => item.productId === p.id).reduce((s, item) => s + item.quantity, 0), 0);
   };
 
-  // ✅ حساب المحول للمنتجات العادية من أوردرات نون
   const getTransferredCount = (p: Product) => {
-    if (p.productType === 'serial') {
-      return getTransferredSerials(p.id).length;
-    }
-    // المنتجات العادية: نحسب من أوردرات نون
+    if (p.productType === 'serial') return getTransferredSerials(p.id).length;
     return noonOrders
       .filter(o => o.status !== 'canceled')
-      .reduce((sum, o) => {
-        return sum + o.items.filter(item => item.productId === p.id).length;
-      }, 0);
+      .reduce((sum, o) => sum + o.items.filter(item => item.productId === p.id).length, 0);
   };
 
   const totalValue = products.reduce((s, p) => s + p.costPrice * getRealStock(p), 0);
   const totalSaleValue = products.reduce((s, p) => s + p.salePrice * getRealStock(p), 0);
   const totalStock = products.reduce((s, p) => s + getRealStock(p), 0);
 
+  // ✅ طباعة المخزون العام
   const printInventory = () => {
     const rows = filtered.map(p => {
       const avail = getRealStock(p);
@@ -157,7 +140,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         </div>
       </div>
       <p style="margin-bottom:10px;font-size:12px">
-        إجمالي القيمة بالشراء: ${formatCurrency(totalValue)} | 
+        إجمالي القيمة بالشراء: ${formatCurrency(totalValue)} |
         إجمالي القيمة بالبيع: ${formatCurrency(totalSaleValue)}
       </p>
       <table>
@@ -170,6 +153,135 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         <tbody>${rows}</tbody>
       </table>
     `);
+  };
+
+  // ✅ طباعة الجرد - الحل الصحيح بدل window.print()
+  const printJrard = () => {
+    const today = getTodayStr();
+    const rows = filtered.map(p => {
+      const inSystem = getRealStock(p);
+      const actualVal = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
+      const diffVal = !isNaN(actualVal) ? actualVal - inSystem : NaN;
+
+      const diffCell = !isNaN(diffVal)
+        ? diffVal === 0
+          ? `<span style="color:#16a34a;font-weight:bold">✓ تطابق</span>`
+          : diffVal < 0
+          ? `<span style="color:#dc2626;font-weight:bold">⚠️ عجز ${Math.abs(diffVal)}</span>`
+          : `<span style="color:#d97706;font-weight:bold">📈 زيادة ${diffVal}</span>`
+        : '<span style="color:#9ca3af">—</span>';
+
+      return `<tr>
+        <td>
+          <div style="font-weight:600">${p.name}</div>
+          <div style="font-size:11px;color:#6b7280">${p.sku} • ${p.brand}</div>
+        </td>
+        <td style="text-align:center;font-weight:bold">${inSystem}</td>
+        <td style="text-align:center;color:#6b7280">${!isNaN(actualVal) ? actualVal : '—'}</td>
+        <td style="text-align:center">${diffCell}</td>
+      </tr>`;
+    }).join('');
+
+    // حساب ملخص الجرد
+    const filledCount = filtered.filter(p => jrardData[p.id] !== undefined && jrardData[p.id] !== '').length;
+    const matchCount  = filtered.filter(p => {
+      const actual = parseInt(jrardData[p.id]);
+      return !isNaN(actual) && actual === getRealStock(p);
+    }).length;
+    const deficitCount = filtered.filter(p => {
+      const actual = parseInt(jrardData[p.id]);
+      return !isNaN(actual) && actual < getRealStock(p);
+    }).length;
+    const surplusCount = filtered.filter(p => {
+      const actual = parseInt(jrardData[p.id]);
+      return !isNaN(actual) && actual > getRealStock(p);
+    }).length;
+
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return;
+    w.document.write(`
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8"/>
+        <title>جرد المخزون - ONE - ${today}</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; color: #111; font-size: 13px; }
+          .header { display: flex; justify-content: space-between; align-items: center;
+                    border-bottom: 3px solid #7c3aed; padding-bottom: 16px; margin-bottom: 20px; }
+          .company { font-size: 28px; font-weight: 900; color: #7c3aed; }
+          .title-box { text-align: left; }
+          .title-box h2 { font-size: 18px; font-weight: 700; }
+          .title-box p { font-size: 12px; color: #666; margin-top: 4px; }
+          .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+          .sum-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; text-align: center; }
+          .sum-card .num { font-size: 22px; font-weight: 900; }
+          .sum-card .lbl { font-size: 11px; color: #6b7280; margin-top: 2px; }
+          .green { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; }
+          .red   { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+          .yellow{ color: #d97706; border-color: #fde68a; background: #fffbeb; }
+          .blue  { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+          th { background: #1a1a2e; color: white; padding: 10px 12px; text-align: right; font-size: 13px; }
+          td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+          tr:nth-child(even) td { background: #f9fafb; }
+          .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e5e7eb;
+                    font-size: 11px; color: #9ca3af; text-align: center; }
+          @media print { body { padding: 12px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="company">ONE</div>
+            <div style="font-size:12px;color:#666;margin-top:2px">نظام الإدارة المتكامل</div>
+          </div>
+          <div class="title-box">
+            <h2>📋 جرد المخزون</h2>
+            <p>تاريخ الجرد: ${today}</p>
+          </div>
+        </div>
+
+        <div class="summary">
+          <div class="sum-card blue">
+            <div class="num">${filtered.length}</div>
+            <div class="lbl">إجمالي المنتجات</div>
+          </div>
+          <div class="sum-card green">
+            <div class="num">${matchCount}</div>
+            <div class="lbl">✓ تطابق</div>
+          </div>
+          <div class="sum-card red">
+            <div class="num">${deficitCount}</div>
+            <div class="lbl">⚠️ عجز</div>
+          </div>
+          <div class="sum-card yellow">
+            <div class="num">${surplusCount}</div>
+            <div class="lbl">📈 زيادة</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>المنتج</th>
+              <th style="text-align:center">في النظام</th>
+              <th style="text-align:center">المتبقي الحقيقي</th>
+              <th style="text-align:center">الفرق</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <div class="footer">
+          ONE ERP • جرد المخزون بتاريخ ${today} • تم الجرد لـ ${filledCount} من ${filtered.length} منتج
+        </div>
+        <script>window.onload = () => window.print();<\/script>
+      </body>
+      </html>
+    `);
+    w.document.close();
   };
 
   return (
@@ -236,8 +348,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                       <div className="text-xs text-gray-500">{s.productName} •
                         <span className={`mr-1 ${
                           s.status === 'available' ? 'text-green-400' :
-                          s.status === 'sold' ? 'text-purple-400' :
-                          'text-blue-400'
+                          s.status === 'sold' ? 'text-purple-400' : 'text-blue-400'
                         }`}>
                           {s.status === 'available' ? 'متاح' : s.status === 'sold' ? 'مباع' : 'محول'}
                         </span>
@@ -616,7 +727,9 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowJrard(!showJrard)}
-            className={`btn-secondary flex items-center gap-2 text-sm ${showJrard ? 'bg-yellow-700/20 border-yellow-700/40 text-yellow-300' : ''}`}
+            className={`btn-secondary flex items-center gap-2 text-sm ${
+              showJrard ? 'bg-yellow-700/20 border-yellow-700/40 text-yellow-300' : ''
+            }`}
           >
             📋 {showJrard ? 'إخفاء الجرد' : 'جرد المخزون'}
           </button>
@@ -631,7 +744,10 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         <div className="bg-[#1a1a35] border border-yellow-700/30 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-yellow-300">📋 جرد المخزون - مقارنة النظام بالواقع</h3>
-            <button onClick={() => window.print()} className="btn-secondary text-sm">🖨️ طباعة الجرد</button>
+            {/* ✅ استبدلنا window.print() بدالة printJrard الصحيحة */}
+            <button onClick={printJrard} className="btn-secondary text-sm flex items-center gap-2">
+              <Printer size={14} /> 🖨️ طباعة الجرد
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -646,8 +762,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
               <tbody>
                 {filtered.map(p => {
                   const inSystem = getRealStock(p);
-                  const actual = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
-                  const diff = !isNaN(actual) ? actual - inSystem : NaN;
+                  const actualVal = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
+                  const diffVal = !isNaN(actualVal) ? actualVal - inSystem : NaN;
                   return (
                     <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
                       <td className="py-2 px-3">
@@ -665,13 +781,15 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                         />
                       </td>
                       <td className="py-2 px-3 text-center">
-                        {!isNaN(diff) ? (
+                        {!isNaN(diffVal) ? (
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            diff === 0 ? 'bg-green-900/40 text-green-400' :
-                            diff < 0 ? 'bg-red-900/40 text-red-400' :
+                            diffVal === 0 ? 'bg-green-900/40 text-green-400' :
+                            diffVal < 0 ? 'bg-red-900/40 text-red-400' :
                             'bg-yellow-900/40 text-yellow-400'
                           }`}>
-                            {diff === 0 ? '✓ تطابق' : diff < 0 ? `⚠️ عجز ${Math.abs(diff)}` : `📈 زيادة ${diff}`}
+                            {diffVal === 0 ? '✓ تطابق' :
+                             diffVal < 0 ? `⚠️ عجز ${Math.abs(diffVal)}` :
+                             `📈 زيادة ${diffVal}`}
                           </span>
                         ) : '-'}
                       </td>
@@ -712,7 +830,9 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
           {['all', 'phones', 'tablets', 'laptops', 'accessories', 'other'].map(cat => (
             <button key={cat} onClick={() => setFilterCat(cat)}
               className={`px-3 py-1.5 rounded-xl text-xs border transition-colors ${
-                filterCat === cat ? 'bg-violet-700/40 border-violet-500/50 text-violet-300' : 'border-white/10 text-gray-400'
+                filterCat === cat
+                  ? 'bg-violet-700/40 border-violet-500/50 text-violet-300'
+                  : 'border-white/10 text-gray-400'
               }`}>
               {cat === 'all' ? 'الكل' : categoryLabel(cat)}
             </button>
@@ -740,8 +860,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
               <tr><td colSpan={8} className="text-center py-12 text-gray-500">لا توجد منتجات</td></tr>
             ) : filtered.map(p => {
               const avail = getAvailableSerials(p.id).length;
-              const sold = getSoldCount(p);       // ✅ يشمل المنتجات العادية
-              const transferred = getTransferredCount(p); // ✅ يشمل المنتجات العادية
+              const sold = getSoldCount(p);
+              const transferred = getTransferredCount(p);
               const stock = getRealStock(p);
               return (
                 <React.Fragment key={p.id}>
@@ -756,17 +876,10 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                       }`}>{stock}</span>
                     </td>
                     <td className="py-3 px-3 text-center text-green-400 text-sm hidden md:table-cell">
-                      {/* ✅ متاح: للمنتجات بسيريالات نعرض عدد السيريالات، للعادية نعرض stock */}
                       {p.productType === 'serial' ? avail : p.stock}
                     </td>
-                    <td className="py-3 px-3 text-center text-purple-400 text-sm hidden md:table-cell">
-                      {/* ✅ مباع: دايماً بيظهر رقم */}
-                      {sold}
-                    </td>
-                    <td className="py-3 px-3 text-center text-blue-400 text-sm hidden md:table-cell">
-                      {/* ✅ محول: دايماً بيظهر رقم */}
-                      {transferred}
-                    </td>
+                    <td className="py-3 px-3 text-center text-purple-400 text-sm hidden md:table-cell">{sold}</td>
+                    <td className="py-3 px-3 text-center text-blue-400 text-sm hidden md:table-cell">{transferred}</td>
                     <td className="py-3 px-3 text-center text-gray-300 text-sm">{formatCurrency(p.costPrice)}</td>
                     <td className="py-3 px-3 text-center text-white font-medium text-sm">{formatCurrency(p.salePrice)}</td>
                     <td className="py-3 px-3 text-center">
