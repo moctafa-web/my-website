@@ -6,7 +6,6 @@ import { normalizeForCompare } from '../utils/helpers';
 
 // ==================== Firebase Helper Functions ====================
 
-// ✅ تنظيف undefined قبل الحفظ في Firebase
 const cleanForFirebase = (obj: any): any => {
   if (obj === null || obj === undefined) return null;
   if (Array.isArray(obj)) return obj.map(cleanForFirebase);
@@ -107,13 +106,9 @@ const generateDemoData = (): AppState => {
 };
 
 export function useStore() {
-  // نبدأ ببيانات تجريبية فقط (وليس من localStorage) - بيانات Firebase هي المصدر الوحيد للحقيقة.
-  // الاعتماد على localStorage كان يتسبب في ظهور بيانات قديمة/مختلفة على كل جهاز بشكل مستقل.
   const [state, setState] = useState<AppState>(() => generateDemoData());
-
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🔥 Load from Firebase on start
   useEffect(() => {
     const loadDataFromFirebase = async () => {
       try {
@@ -137,8 +132,6 @@ export function useStore() {
           getDocs(collection(db, 'dailyJournals')),
         ]);
 
-        // 🔥 Firebase هو المصدر الوحيد للحقيقة دائمًا - حتى لو فاضي بالكامل (يعني تم حذف كل البيانات فعليًا)
-        // لا نرجع لبيانات محلية قديمة أبدًا، لتجنب اختلاف البيانات بين الأجهزة المختلفة
         const products = productsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Product));
         const serials = serialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as SerialItem));
         const customers = customersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Customer));
@@ -165,7 +158,6 @@ export function useStore() {
           expenses,
           noonOrders,
           dailyJournals,
-          // العلامات التجارية (brands) فقط نحتفظ بالقائمة الافتراضية لو فاضية تمامًا (دي بيانات تأسيسية للنظام وليست بيانات عمل)
           brands: brands.length ? brands : prev.brands,
           settings: savedSettings || prev.settings,
         }));
@@ -179,16 +171,11 @@ export function useStore() {
     loadDataFromFirebase();
   }, []);
 
-  // ملاحظة: تم إلغاء الاعتماد على localStorage بالكامل كمصدر بيانات.
-  // Firebase هو المصدر الوحيد للحقيقة، وكل التعديلات تُحفظ مباشرة فيه عبر saveToFirebase/deleteFromFirebase
-  // في كل دالة على حدة، فلا حاجة لنسخة محلية احتياطية تسبب تعارض البيانات بين الأجهزة.
-
   const updateState = useCallback((updater: (prev: AppState) => AppState) => {
     setState(updater);
   }, []);
 
   // ==================== PRODUCTS ====================
-  // ترجع true لو تمت الإضافة، أو false مع رسالة تكرار لو المنتج موجود بالفعل بنفس SKU
   const addProduct = useCallback((product: Product): { success: boolean; message?: string } => {
     const normalizedSku = normalizeForCompare(product.sku);
     let isDuplicate = false;
@@ -229,7 +216,6 @@ export function useStore() {
   }, []);
 
   // ==================== CUSTOMERS ====================
-  // ترجع true لو تمت الإضافة، أو false مع رسالة تكرار لو عميل بنفس الاسم والتليفون موجود بالفعل
   const addCustomer = useCallback((customer: Customer): { success: boolean; message?: string } => {
     const normalizedName = normalizeForCompare(customer.name);
     const normalizedPhone = normalizeForCompare(customer.phone || '');
@@ -258,7 +244,6 @@ export function useStore() {
   }, []);
 
   // ==================== SUPPLIERS ====================
-  // ترجع true لو تمت الإضافة، أو false مع رسالة تكرار لو مورد بنفس الاسم موجود بالفعل
   const addSupplier = useCallback((supplier: Supplier): { success: boolean; message?: string } => {
     const normalizedName = normalizeForCompare(supplier.name);
     let isDuplicate = false;
@@ -283,11 +268,13 @@ export function useStore() {
   }, []);
 
   // ==================== SALE INVOICES ====================
+  // ✅ تم إصلاح خصم مخزون المنتجات العادية + التعامل مع السيريالات
   const addSaleInvoice = useCallback((invoice: SaleInvoice) => {
     setState(prev => {
       const newState = { ...prev, saleInvoices: [...prev.saleInvoices, invoice] };
       let updatedCustomer: Customer | null = null;
       const updatedSerials: SerialItem[] = [];
+      const updatedProducts: Product[] = [];
 
       const custIdx = newState.customers.findIndex(c => c.id === invoice.customerId);
       if (custIdx >= 0) {
@@ -316,16 +303,29 @@ export function useStore() {
       }
 
       invoice.items.forEach(item => {
-        if (item.serials && item.serials.length > 0) {
-          item.serials.forEach(sl => {
-            newState.serials = newState.serials.map(s => {
-              if (s.serial === sl.serial) {
-                const updated = { ...s, status: 'sold' as const, saleInvoiceId: invoice.id, salePrice: item.unitPrice };
-                updatedSerials.push(updated);
-                return updated;
-              }
-              return s;
+        const product = newState.products.find(p => p.id === item.productId);
+
+        if (product?.productType === 'serial') {
+          if (item.serials && item.serials.length > 0) {
+            item.serials.forEach(sl => {
+              newState.serials = newState.serials.map(s => {
+                if (s.serial === sl.serial) {
+                  const updated = { ...s, status: 'sold' as const, saleInvoiceId: invoice.id, salePrice: item.unitPrice };
+                  updatedSerials.push(updated);
+                  return updated;
+                }
+                return s;
+              });
             });
+          }
+        } else {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: Math.max(0, p.stock - item.quantity) };
+              updatedProducts.push(updated);
+              return updated;
+            }
+            return p;
           });
         }
       });
@@ -335,34 +335,184 @@ export function useStore() {
       saveToFirebase('saleInvoices', invoice.id, invoice);
       if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
       updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
 
       return newState;
     });
   }, []);
 
+  // ✅ تم إصلاح تعديل فاتورة البيع بحيث يرجّع القديم ثم يطبق الجديد
   const updateSaleInvoice = useCallback((invoice: SaleInvoice) => {
-    setState(prev => ({ ...prev, saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    saveToFirebase('saleInvoices', invoice.id, invoice);
+    setState(prev => {
+      const oldInvoice = prev.saleInvoices.find(i => i.id === invoice.id);
+      if (!oldInvoice) {
+        const newState = {
+          ...prev,
+          saleInvoices: prev.saleInvoices.map(i => i.id === invoice.id ? invoice : i),
+        };
+        saveToFirebase('saleInvoices', invoice.id, invoice);
+        return newState;
+      }
+
+      let newState = { ...prev };
+      const changedCustomers = new Map<string, Customer>();
+      const changedProducts = new Map<string, Product>();
+      const changedSerials = new Map<string, SerialItem>();
+
+      const touchCustomer = (customerId: string, updater: (c: Customer) => Customer) => {
+        newState.customers = newState.customers.map(c => {
+          if (c.id !== customerId) return c;
+          const updated = updater(c);
+          changedCustomers.set(updated.id, updated);
+          return updated;
+        });
+      };
+
+      const touchProduct = (productId: string, updater: (p: Product) => Product) => {
+        newState.products = newState.products.map(p => {
+          if (p.id !== productId) return p;
+          const updated = updater(p);
+          changedProducts.set(updated.id, updated);
+          return updated;
+        });
+      };
+
+      const touchSerialByValue = (serialValue: string, updater: (s: SerialItem) => SerialItem) => {
+        newState.serials = newState.serials.map(s => {
+          if (s.serial !== serialValue) return s;
+          const updated = updater(s);
+          changedSerials.set(updated.id, updated);
+          return updated;
+        });
+      };
+
+      // ===== 1) إلغاء تأثير الفاتورة القديمة =====
+      touchCustomer(oldInvoice.customerId, c => ({
+        ...c,
+        totalInvoices: Math.max(0, (c.totalInvoices || 0) - oldInvoice.total),
+        totalPaid: Math.max(0, (c.totalPaid || 0) - oldInvoice.paid),
+      }));
+
+      if (oldInvoice.paid > 0) {
+        const oldTreasury = oldInvoice.paymentMethod === 'cash' ? 'cash' : 'bank';
+        newState.cashBalance = oldTreasury === 'cash' ? newState.cashBalance - oldInvoice.paid : newState.cashBalance;
+        newState.bankBalance = oldTreasury === 'bank' ? newState.bankBalance - oldInvoice.paid : newState.bankBalance;
+      }
+
+      newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== oldInvoice.id);
+
+      oldInvoice.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+
+        if (product?.productType === 'serial') {
+          (item.serials || []).forEach(sl => {
+            touchSerialByValue(sl.serial, s => ({
+              ...s,
+              status: 'available',
+              saleInvoiceId: undefined,
+              salePrice: undefined,
+            }));
+          });
+        } else {
+          touchProduct(item.productId, p => ({
+            ...p,
+            stock: p.stock + item.quantity,
+          }));
+        }
+      });
+
+      // ===== 2) تطبيق الفاتورة الجديدة =====
+      touchCustomer(invoice.customerId, c => ({
+        ...c,
+        totalInvoices: (c.totalInvoices || 0) + invoice.total,
+        totalPaid: (c.totalPaid || 0) + invoice.paid,
+      }));
+
+      if (invoice.paid > 0) {
+        const newTreasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
+        newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
+        newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
+        newState.treasuryTransactions = [
+          ...newState.treasuryTransactions,
+          {
+            id: `tr_${Date.now()}`,
+            type: 'sale',
+            description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
+            amount: invoice.paid,
+            treasury: newTreasury,
+            direction: 'in',
+            referenceId: invoice.id,
+            date: invoice.date,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+      }
+
+      invoice.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+
+        if (product?.productType === 'serial') {
+          (item.serials || []).forEach(sl => {
+            touchSerialByValue(sl.serial, s => ({
+              ...s,
+              status: 'sold',
+              saleInvoiceId: invoice.id,
+              salePrice: item.unitPrice,
+            }));
+          });
+        } else {
+          touchProduct(item.productId, p => ({
+            ...p,
+            stock: Math.max(0, p.stock - item.quantity),
+          }));
+        }
+      });
+
+      newState.saleInvoices = newState.saleInvoices.map(i => i.id === invoice.id ? invoice : i);
+
+      saveToFirebase('saleInvoices', invoice.id, invoice);
+      changedCustomers.forEach(c => saveToFirebase('customers', c.id, c));
+      changedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      changedSerials.forEach(s => saveToFirebase('serials', s.id, s));
+
+      return newState;
+    });
   }, []);
 
+  // ✅ تم إصلاح حذف فاتورة البيع لإرجاع مخزون المنتجات العادية أيضاً
   const deleteSaleInvoice = useCallback((invoiceId: string) => {
     setState(prev => {
       const invoice = prev.saleInvoices.find(i => i.id === invoiceId);
       if (!invoice) return prev;
-      const newState = { ...prev, saleInvoices: prev.saleInvoices.filter(i => i.id !== invoiceId) };
 
+      const newState = { ...prev, saleInvoices: prev.saleInvoices.filter(i => i.id !== invoiceId) };
       const restoredSerials: SerialItem[] = [];
+      const restoredProducts: Product[] = [];
+
       invoice.items.forEach(item => {
-        if (item.serials && item.serials.length > 0) {
-          item.serials.forEach(sl => {
-            newState.serials = newState.serials.map(s => {
-              if (s.serial === sl.serial && s.saleInvoiceId === invoiceId) {
-                const updated = { ...s, status: 'available' as const, saleInvoiceId: undefined, salePrice: undefined };
-                restoredSerials.push(updated);
-                return updated;
-              }
-              return s;
+        const product = newState.products.find(p => p.id === item.productId);
+
+        if (product?.productType === 'serial') {
+          if (item.serials && item.serials.length > 0) {
+            item.serials.forEach(sl => {
+              newState.serials = newState.serials.map(s => {
+                if (s.serial === sl.serial && s.saleInvoiceId === invoiceId) {
+                  const updated = { ...s, status: 'available' as const, saleInvoiceId: undefined, salePrice: undefined };
+                  restoredSerials.push(updated);
+                  return updated;
+                }
+                return s;
+              });
             });
+          }
+        } else {
+          newState.products = newState.products.map(p => {
+            if (p.id === item.productId) {
+              const updated = { ...p, stock: p.stock + item.quantity };
+              restoredProducts.push(updated);
+              return updated;
+            }
+            return p;
           });
         }
       });
@@ -386,14 +536,13 @@ export function useStore() {
         newState.cashBalance = treasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
         newState.bankBalance = treasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
       }
+
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
 
       deleteFromFirebase('saleInvoices', invoiceId);
-      if (updatedCustomer !== null) {
-        const c = updatedCustomer as Customer;
-        saveToFirebase('customers', c.id, c);
-      }
+      if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
       restoredSerials.forEach(s => saveToFirebase('serials', s.id, s));
+      restoredProducts.forEach(p => saveToFirebase('products', p.id, p));
 
       return newState;
     });
@@ -432,7 +581,6 @@ export function useStore() {
         }];
       }
 
-      // ✅ فقط المنتجات العادية - المنتجات بسيريال مخزونها من عدد السيريالات
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product && product.productType === 'normal') {
@@ -473,7 +621,6 @@ export function useStore() {
 
       const updatedProducts: Product[] = [];
 
-      // ✅ فقط المنتجات العادية
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product && product.productType === 'normal') {
@@ -488,7 +635,6 @@ export function useStore() {
         }
       });
 
-      // حذف السيريالات المرتبطة (المتاحة فقط)
       const removedSerialIds: string[] = [];
       newState.serials = newState.serials.filter(s => {
         if (s.purchaseInvoiceId === invoiceId && s.status === 'available') {
@@ -520,10 +666,7 @@ export function useStore() {
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
 
       deleteFromFirebase('purchaseInvoices', invoiceId);
-      if (updatedSupplier !== null) {
-        const s = updatedSupplier as Supplier;
-        saveToFirebase('suppliers', s.id, s);
-      }
+      if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
       removedSerialIds.forEach(id => deleteFromFirebase('serials', id));
 
@@ -626,14 +769,8 @@ export function useStore() {
       }];
 
       saveToFirebase('payments', payment.id, payment);
-      if (changedCustomer !== null) {
-        const c = changedCustomer as Customer;
-        saveToFirebase('customers', c.id, c);
-      }
-      if (changedSupplier !== null) {
-        const s = changedSupplier as Supplier;
-        saveToFirebase('suppliers', s.id, s);
-      }
+      if (changedCustomer) saveToFirebase('customers', changedCustomer.id, changedCustomer);
+      if (changedSupplier) saveToFirebase('suppliers', changedSupplier.id, changedSupplier);
       changedSaleInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
       changedPurchaseInvoices.forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
 
@@ -665,7 +802,6 @@ export function useStore() {
   }, []);
 
   // ==================== NOON ORDERS ====================
-  // لو رقم الأوردر موجود بالفعل، نضيف المنتجات الجديدة لنفس الأوردر الموجود (دمج) بدل إنشاء أوردر مكرر منفصل
   const addNoonOrder = useCallback((order: NoonOrder): { success: boolean; message?: string; merged?: boolean } => {
     let result: { success: boolean; message?: string; merged?: boolean } = { success: true };
     setState(prev => {
@@ -677,7 +813,6 @@ export function useStore() {
         return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
       });
 
-      // الأوردر النهائي: لو موجود، نفس الأوردر القديم + المنتجات الجديدة مضافة لقايمته. لو جديد، يتسجل عادي.
       const finalOrder: NoonOrder = existingOrder
         ? { ...existingOrder, items: [...existingOrder.items, ...itemsWithCost] }
         : { ...order, items: itemsWithCost };
@@ -695,11 +830,9 @@ export function useStore() {
       const updatedProducts: Product[] = [];
       const updatedSerials: SerialItem[] = [];
 
-      // خصم المخزون فقط للمنتجات الجديدة المضافة الآن (لا نكرر الخصم على عناصر الأوردر القديمة)
       itemsWithCost.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product?.productType === 'serial') {
-          // منتج بسيريالات: المخزون الحقيقي محسوب من عدد السيريالات المتاحة فقط (لا نخصم stock مباشرة لتجنب عدّ مزدوج)
           const serialToTransfer = item.serial
             ? newState.serials.find(s => s.serial === item.serial && s.status === 'available')
             : newState.serials.find(s => s.productId === item.productId && s.status === 'available');
@@ -714,7 +847,6 @@ export function useStore() {
             });
           }
         } else {
-          // منتج عادي: نخصم من stock مباشرة
           newState.products = newState.products.map(p => {
             if (p.id === item.productId) {
               const updated = { ...p, stock: Math.max(0, p.stock - 1) };
@@ -811,7 +943,6 @@ export function useStore() {
     });
   }, []);
 
-  // استيراد جماعي (من Excel): يدمج الأوردرات اللي عندها نفس رقم الأوردر (مع الموجود بالفعل، أو مع بعضها داخل نفس الاستيراد)
   const addNoonOrders = useCallback((orders: NoonOrder[]): { addedCount: number; mergedCount: number } => {
     let addedCount = 0;
     let mergedCount = 0;
@@ -819,7 +950,6 @@ export function useStore() {
       const newState = { ...prev };
       const updatedProducts: Product[] = [];
       const updatedSerials: SerialItem[] = [];
-      // نبني قائمة الأوردرات تدريجيًا، فلو صفين في نفس ملف الاستيراد بنفس رقم الأوردر، يندمجوا مع بعض بدل تكرار
       let workingOrders = [...prev.noonOrders];
 
       orders.forEach(order => {
@@ -841,7 +971,6 @@ export function useStore() {
           addedCount++;
         }
 
-        // خصم المخزون فقط للعناصر الجديدة المضافة الآن في هذا الصف من الاستيراد
         itemsWithCost.forEach(item => {
           const product = newState.products.find(p => p.id === item.productId);
           if (product?.productType === 'serial') {
@@ -936,8 +1065,7 @@ export function useStore() {
     setState(prev => ({ ...prev, dailyClosings: [...prev.dailyClosings, closing] }));
   }, []);
 
-  // ==================== DAILY JOURNAL (تقفيل اليومية) ====================
-  // يوم واحد = مستند واحد بمعرف هو التاريخ نفسه (YYYY-MM-DD)، فالحفظ يحدّث نفس اليوم بدل تكرار السجلات
+  // ==================== DAILY JOURNAL ====================
   const saveDailyJournal = useCallback((journal: DailyJournal) => {
     setState(prev => {
       const exists = prev.dailyJournals.some(j => j.id === journal.id);
@@ -952,12 +1080,10 @@ export function useStore() {
   // ==================== SETTINGS ====================
   const updateSettings = useCallback(async (settings: AppSettings) => {
     setState(prev => ({ ...prev, settings }));
-    // 🔥 الإعدادات تُحفظ كمستند واحد بمعرف ثابت 'main' في مجموعة settings
     await saveToFirebase('settings', 'main', settings);
   }, []);
 
-  // ==================== DANGEROUS OPERATIONS (محمية بكلمة سر) ====================
-  // حذف جميع بيانات النظام فعليًا من Firebase (وليس فقط localStorage القديم الذي كان لا يفعل شيئًا حقيقيًا)
+  // ==================== DANGEROUS OPERATIONS ====================
   const resetAllData = useCallback(async () => {
     const collections = ['products', 'serials', 'customers', 'suppliers', 'saleInvoices', 'purchaseInvoices', 'payments', 'expenses', 'noonOrders', 'treasuryTransactions', 'dailyClosings', 'dailyJournals'];
     for (const col of collections) {
@@ -970,7 +1096,6 @@ export function useStore() {
     }));
   }, []);
 
-  // حذف جميع أوردرات نون/أمازون فقط (مفيد أثناء مرحلة التجربة بدون التأثير على باقي البيانات)
   const deleteAllNoonOrders = useCallback(async () => {
     const snap = await getDocs(collection(db, 'noonOrders'));
     await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'noonOrders', d.id))));

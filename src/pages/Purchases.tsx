@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle } from 'lucide-react';
 
 interface Props {
   purchaseInvoices: PurchaseInvoice[];
@@ -63,9 +63,9 @@ export default function Purchases({
   const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // ✅ حساب المخزون الحقيقي من عدد السيريالات المتاحة (أدق من p.stock لمنتجات السيريال)
   const getAvailableStock = useCallback((productId: string): number => {
     return serials.filter(s => s.productId === productId && s.status === 'available').length;
   }, [serials]);
@@ -127,7 +127,6 @@ export default function Purchases({
     }
   }, [preselectedSupplierId]);
 
-  // ✅ بحث مرن في اسم المورد ورقم الفاتورة
   const filtered = purchaseInvoices.filter(inv => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
@@ -179,7 +178,6 @@ export default function Purchases({
     return false;
   };
 
-  // ✅ إصلاح: رسالة السيريال المكرر تختفي فوراً عند تغيير القيمة
   const updateSerialField = (itemId: string, index: number, field: 'serial' | 'imei1' | 'imei2', value: string) => {
     setPurchItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
@@ -191,7 +189,7 @@ export default function Purchases({
       if (value && isDuplicateSerial(value, itemId, index)) {
         setDuplicateSerialWarning(value);
       } else {
-        setDuplicateSerialWarning(null); // ✅ تختفي فوراً
+        setDuplicateSerialWarning(null);
       }
     }
   };
@@ -232,11 +230,17 @@ export default function Purchases({
   const syncSerialsWithQuantity = (itemId: string, newQuantity: number) => {
     setPurchItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-      const isSerialProduct = item.serials.length > 0;
-      if (!isSerialProduct) return {
-        ...item, quantity: newQuantity,
-        total: Math.max(0, item.unitPrice * newQuantity - item.discount)
-      };
+      const linkedProduct = products.find(p => p.id === item.productId);
+      const isSerialProduct = linkedProduct?.productType === 'serial' || item.serials.length > 0;
+
+      if (!isSerialProduct) {
+        return {
+          ...item,
+          quantity: newQuantity,
+          total: Math.max(0, item.unitPrice * newQuantity - item.discount)
+        };
+      }
+
       let newSerials = [...item.serials];
       if (newQuantity > newSerials.length) {
         while (newSerials.length < newQuantity) newSerials.push({ serial: '', imei1: '', imei2: '' });
@@ -244,7 +248,9 @@ export default function Purchases({
         newSerials = newSerials.slice(0, newQuantity);
       }
       return {
-        ...item, quantity: newSerials.length, serials: newSerials,
+        ...item,
+        quantity: newSerials.length,
+        serials: newSerials,
         total: Math.max(0, item.unitPrice * newSerials.length - item.discount)
       };
     }));
@@ -269,6 +275,7 @@ export default function Purchases({
     });
     setItemSearch(prev => ({ ...prev, [itemId]: product.name }));
     setShowItemDrop(prev => ({ ...prev, [itemId]: false }));
+    setValidationError(null);
   };
 
   const getFilteredProducts = (searchStr: string) => {
@@ -283,8 +290,44 @@ export default function Purchases({
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId);
 
+  // ✅ تحقق إلزامي للسيريالات في فاتورة الشراء
+  const validatePurchaseItems = (): string | null => {
+    for (const item of purchItems) {
+      if (!item.productId) return 'يوجد بند بدون اختيار منتج';
+
+      const product = products.find(p => p.id === item.productId);
+      if (!product) continue;
+
+      if (product.productType === 'serial') {
+        const filledSerials = item.serials.filter(s => s.serial.trim());
+
+        if (filledSerials.length === 0) {
+          return `المنتج "${product.name}" بسيريال، ولا يمكن شراؤه بدون إدخال السيريال`;
+        }
+
+        if (filledSerials.length < item.quantity) {
+          return `المنتج "${product.name}" يحتاج ${item.quantity} سيريال، والمُدخل حالياً ${filledSerials.length} فقط`;
+        }
+
+        for (let i = 0; i < item.serials.length; i++) {
+          const sl = item.serials[i];
+          if (!sl.serial.trim()) {
+            return `أكمل كل السيريالات للمنتج "${product.name}" قبل حفظ الفاتورة`;
+          }
+          if (isDuplicateSerial(sl.serial, item.id, i)) {
+            return `السيريال "${sl.serial}" مكرر أو موجود بالفعل في المخزون`;
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+
   const handleSave = () => {
     if (!supplierId || purchItems.length === 0) return;
+
+    setValidationError(null);
 
     for (const item of purchItems) {
       for (let i = 0; i < item.serials.length; i++) {
@@ -293,6 +336,12 @@ export default function Purchases({
           return;
         }
       }
+    }
+
+    const validationMsg = validatePurchaseItems();
+    if (validationMsg) {
+      setValidationError(validationMsg);
+      return;
     }
 
     const items: InvoiceItem[] = purchItems.map(item => ({
@@ -330,7 +379,6 @@ export default function Purchases({
       return;
     }
 
-    // ✅ نولد invoiceId مسبقاً عشان نربط السيريالات بيه
     const invoiceId = generateId();
     const invoiceNumber = `${settings.purchasePrefix}-${String(settings.lastPurchaseInvoiceNum + 1).padStart(4, '0')}`;
     const newSerials: SerialItem[] = [];
@@ -346,7 +394,7 @@ export default function Purchases({
             imei1: sl.imei1 || undefined,
             imei2: sl.imei2 || undefined,
             status: 'available',
-            purchaseInvoiceId: invoiceId, // ✅ ربط السيريال بالفاتورة
+            purchaseInvoiceId: invoiceId,
             costPrice: item.unitPrice,
             createdAt: new Date().toISOString(),
           });
@@ -355,7 +403,7 @@ export default function Purchases({
     });
 
     const invoice: PurchaseInvoice = {
-      id: invoiceId, // ✅ نفس الـ id
+      id: invoiceId,
       invoiceNumber,
       supplierId,
       supplierName: selectedSupplier?.name || '',
@@ -373,7 +421,6 @@ export default function Purchases({
       createdAt: new Date().toISOString(),
     };
 
-    // ✅ الفاتورة الأول عشان تتسجل في Firebase، بعدين السيريالات
     onAddPurchaseInvoice(invoice);
     if (newSerials.length > 0) onAddSerials(newSerials);
 
@@ -391,10 +438,10 @@ export default function Purchases({
     setFormDate(getTodayStr());
     setEditingInvoice(null);
     setDuplicateSerialWarning(null);
+    setValidationError(null);
     setItemSearch({});
   };
 
-  // ✅ إصلاح: زرار الحذف شغال + يغلق نافذة العرض لو مفتوحة
   const handleDeleteInvoice = () => {
     if (!confirmDeleteInvoice) return;
     onDeletePurchaseInvoice(confirmDeleteInvoice.id);
@@ -563,7 +610,6 @@ export default function Purchases({
         </table>
       </div>
 
-      {/* ==================== فورم الفاتورة ==================== */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
@@ -623,8 +669,12 @@ export default function Purchases({
               <div className="space-y-4">
                 {purchItems.map((item) => {
                   const linkedProduct = products.find(p => p.id === item.productId);
+                  const isSerialProduct = linkedProduct?.productType === 'serial';
+
                   return (
-                    <div key={item.id} className="bg-[#252545] border border-violet-900/20 rounded-xl p-4">
+                    <div key={item.id} className={`bg-[#252545] border rounded-xl p-4 ${
+                      isSerialProduct ? 'border-blue-700/30' : 'border-violet-900/20'
+                    }`}>
                       <div className="grid grid-cols-12 gap-2 items-end mb-3">
                         <div className="col-span-12 md:col-span-5 relative">
                           <label className="form-label text-xs">المنتج</label>
@@ -644,7 +694,10 @@ export default function Purchases({
                                 <button key={p.id} onClick={() => selectProduct(item.id, p)}
                                   className="block w-full text-right px-3 py-2 text-xs text-gray-300 hover:bg-violet-700/20">
                                   <div className="font-medium">{p.name}</div>
-                                  <div className="text-gray-500">{p.sku} • مخزون متاح: {getAvailableStock(p.id)}</div>
+                                  <div className="text-gray-500">
+                                    {p.sku} • مخزون متاح: {getAvailableStock(p.id)}
+                                    {p.productType === 'serial' && <span className="text-blue-400 mr-2">• منتج بسيريال</span>}
+                                  </div>
                                 </button>
                               ))}
                               <button
@@ -678,6 +731,15 @@ export default function Purchases({
                             className="p-1.5 rounded-lg text-red-400 hover:bg-red-900/20"><X size={14} /></button>
                         </div>
                       </div>
+
+                      {isSerialProduct && (
+                        <div className="mb-3 flex items-center gap-2 bg-blue-900/10 border border-blue-700/20 rounded-lg px-3 py-2">
+                          <AlertCircle size={14} className="text-blue-400 shrink-0" />
+                          <span className="text-xs text-blue-300">
+                            هذا المنتج <strong>بسيريال</strong> — إدخال السيريالات إلزامي ولن يتم حفظ الفاتورة بدونها
+                          </span>
+                        </div>
+                      )}
 
                       {(linkedProduct?.productType === 'serial' || item.serials.length > 0) && (
                         <div className="space-y-2">
@@ -779,6 +841,13 @@ export default function Purchases({
               </div>
             )}
 
+            {validationError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-4 text-red-400 flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                {validationError}
+              </div>
+            )}
+
             <div className="flex gap-3 mt-5">
               <button onClick={handleSave} className="btn-primary flex-1">
                 💾 {editingInvoice ? 'حفظ التعديلات' : 'حفظ الفاتورة'}
@@ -789,7 +858,6 @@ export default function Purchases({
         </div>
       )}
 
-      {/* ==================== إضافة منتج جديد ==================== */}
       {showNewProductModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
@@ -849,7 +917,6 @@ export default function Purchases({
         </div>
       )}
 
-      {/* ==================== عرض الفاتورة ==================== */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
@@ -935,7 +1002,6 @@ export default function Purchases({
         </div>
       )}
 
-      {/* ==================== إضافة مورد ==================== */}
       {addSupplierModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
@@ -968,7 +1034,6 @@ export default function Purchases({
         </div>
       )}
 
-      {/* ==================== تأكيد الحذف ==================== */}
       {confirmDeleteInvoice && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
