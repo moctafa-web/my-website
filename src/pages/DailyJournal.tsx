@@ -8,8 +8,6 @@ interface Props {
   onSaveJournal: (journal: DailyJournalType) => void;
 }
 
-// دفتر اليومية - تقفيل الدرج اليومي، متصل بالكامل بـ Firebase (مش localStorage)
-// كل يوم = مستند واحد بمعرف هو التاريخ نفسه، فالحفظ يحدّث نفس اليوم تلقائيًا بدون تكرار.
 export default function DailyJournal({ journals, onSaveJournal }: Props) {
   const [date, setDate] = useState(getTodayStr());
   const [openingBalance, setOpeningBalance] = useState('');
@@ -21,13 +19,28 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
   const [outEntries, setOutEntries] = useState<JournalEntry[]>([{ id: '1', label: '', amount: 0 }]);
   const [showHistory, setShowHistory] = useState(false);
 
-  // خريطة سريعة لليوميات بالتاريخ كمفتاح
+  // ✅ Ref لتخزين آخر دفعة محفوظة + Debounce timer
+  const lastSavedRef = useRef<DailyJournalType | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSaveRef = useRef(onSaveJournal);
+
+  // ✅ نحافظ على أحدث onSaveJournal بدون ما نحطه في dependencies
+  useEffect(() => {
+    onSaveRef.current = onSaveJournal;
+  }, [onSaveJournal]);
+
   const journalsByDate: Record<string, DailyJournalType> = {};
   journals.forEach(j => { journalsByDate[j.date] = j; });
 
-  // عند تغيير التاريخ المحدد، نحمّل بيانات هذا اليوم من Firebase (إن وُجدت)
+  // ✅ تحميل بيانات اليوم عند تغيير التاريخ فقط
   useEffect(() => {
     const saved = journalsByDate[date];
+
+    // ✅ لو البيانات اللي جاية من Firebase هي نفسها اللي حفظناها، متعملش حاجة
+    if (saved && lastSavedRef.current && saved.updatedAt === lastSavedRef.current.updatedAt) {
+      return;
+    }
+
     if (saved) {
       setOpeningBalance(saved.openingBalance ? String(saved.openingBalance) : '');
       setInEntries(saved.inEntries.length > 0 ? saved.inEntries : [{ id: '1', label: '', amount: 0 }]);
@@ -43,22 +56,46 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
       setClosingTime(null);
       setClosingNote('');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, journals]);
 
-  // الحفظ التلقائي في Firebase عند أي تعديل (بدل localStorage)
+  // ✅ Auto-save مع Debounce (نص ثانية)
   useEffect(() => {
-    const journal: DailyJournalType = {
-      id: date,
-      date,
-      openingBalance: parseFloat(openingBalance) || 0,
-      inEntries,
-      outEntries,
-      actualBalance: parseFloat(actualBalance) || 0,
-      closingTime: closingTime || undefined,
-      closingNote: closingNote || undefined,
-      updatedAt: new Date().toISOString(),
+    // ✅ لو مفيش أي بيانات، متحفظش
+    const hasData = openingBalance !== '' ||
+      inEntries.some(e => e.label || e.amount > 0) ||
+      outEntries.some(e => e.label || e.amount > 0) ||
+      actualBalance !== '';
+    if (!hasData) return;
+
+    // ✅ امسح أي timer قديم
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    // ✅ استنى 500ms بعد آخر تغيير
+    saveTimerRef.current = setTimeout(() => {
+      const journal: DailyJournalType = {
+        id: date,
+        date,
+        openingBalance: parseFloat(openingBalance) || 0,
+        inEntries,
+        outEntries,
+        actualBalance: parseFloat(actualBalance) || 0,
+        closingTime: closingTime || undefined,
+        closingNote: closingNote || undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      lastSavedRef.current = journal;
+      onSaveRef.current(journal);
+    }, 500);
+
+    // ✅ Cleanup عند إلغاء الـ effect
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
     };
-    onSaveJournal(journal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, openingBalance, inEntries, outEntries, actualBalance, closingTime, closingNote]);
 
@@ -95,10 +132,14 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
   const removeOut = (id: string) => setOutEntries(prev => prev.filter(e => e.id !== id));
 
   const updateIn = (id: string, field: 'label' | 'amount', value: string) => {
-    setInEntries(prev => prev.map(e => e.id === id ? { ...e, [field]: field === 'amount' ? parseFloat(value) || 0 : value } : e));
+    setInEntries(prev => prev.map(e =>
+      e.id === id ? { ...e, [field]: field === 'amount' ? parseFloat(value) || 0 : value } : e
+    ));
   };
   const updateOut = (id: string, field: 'label' | 'amount', value: string) => {
-    setOutEntries(prev => prev.map(e => e.id === id ? { ...e, [field]: field === 'amount' ? parseFloat(value) || 0 : value } : e));
+    setOutEntries(prev => prev.map(e =>
+      e.id === id ? { ...e, [field]: field === 'amount' ? parseFloat(value) || 0 : value } : e
+    ));
   };
 
   const opening = parseFloat(openingBalance) || 0;
@@ -122,7 +163,6 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
     setActualBalance('');
     setClosingTime(null);
     setClosingNote('');
-    // الحفظ التلقائي (useEffect أعلاه) سيحفظ نسخة فاضية لهذا اليوم في Firebase تلقائيًا
   };
 
   const handlePrint = () => {
