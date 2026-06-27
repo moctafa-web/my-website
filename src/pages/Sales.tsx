@@ -66,7 +66,6 @@ export default function Sales({
   const [newCustomer, setNewCustomer]             = useState({ name: '', phone: '', type: 'individual' as Customer['type'] });
   const [customerDupError, setCustomerDupError]   = useState<string | null>(null);
 
-  // Form state
   const [formDate, setFormDate]           = useState(getTodayStr());
   const [customerId, setCustomerId]       = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -80,11 +79,10 @@ export default function Sales({
   const [itemSearch, setItemSearch]       = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop]   = useState<Record<string, boolean>>({});
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
-  const [stockError, setStockError]       = useState<string | null>(null); // ✅ خطأ المخزون
-  const [showSerialDrop, setShowSerialDrop] = useState<Record<string, number | null>>({}); // ✅ dropdown السيريالات
+  const [stockError, setStockError]       = useState<string | null>(null);
+  const [showSerialDrop, setShowSerialDrop] = useState<Record<string, number | null>>({});
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Quick Purchase
   const [showQuickPurchase, setShowQuickPurchase]     = useState(false);
   const [quickPurchTargetItemId, setQuickPurchTargetItemId] = useState<string | null>(null);
   const [qpSupplierId, setQpSupplierId]               = useState('');
@@ -118,7 +116,6 @@ export default function Sales({
     return product?.stock || 0;
   }, [serials, products]);
 
-  // ✅ السيريالات المتاحة لمنتج معين
   const getAvailableSerials = useCallback((productId: string): SerialItem[] => {
     return serials.filter(s => s.productId === productId && s.status === 'available');
   }, [serials]);
@@ -178,8 +175,11 @@ export default function Sales({
 
   useEffect(() => {
     if (preselectedCustomerId) {
+      // ✅ دور في العملاء والموردين
       const customer = customers.find(c => c.id === preselectedCustomerId);
-      if (customer) { setCustomerId(customer.id); setCustomerSearch(customer.name); }
+      const supplier = suppliers.find(s => s.id === preselectedCustomerId);
+      const party = customer || supplier;
+      if (party) { setCustomerId(party.id); setCustomerSearch(party.name); }
       setShowForm(true);
       onPreselectedHandled?.();
     }
@@ -192,9 +192,15 @@ export default function Sales({
     inv.date.includes(searchQuery)
   ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    (c.phone || '').includes(customerSearch)
+  // ✅ البحث في العملاء والموردين معاً
+  const allParties = [
+    ...customers.map(c => ({ ...c, partyType: 'customer' as const })),
+    ...suppliers.map(s => ({ ...s, partyType: 'supplier' as const })),
+  ];
+
+  const filteredCustomers = allParties.filter(p =>
+    p.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    (p.phone || '').includes(customerSearch)
   );
 
   const subtotal           = saleItems.reduce((s, item) => s + item.total, 0);
@@ -208,7 +214,6 @@ export default function Sales({
     setItemSearch(prev => ({ ...prev, [newItem.id]: '' }));
   };
 
-  // ✅ فحص سيريال مكرر
   const isDuplicateSaleSerial = (serial: string, currentItemId: string, currentIndex: number): boolean => {
     const normalized = serial.trim().toLowerCase();
     if (!normalized) return false;
@@ -221,7 +226,6 @@ export default function Sales({
     return false;
   };
 
-  // ✅ فحص سيريال متاح في المخزون
   const isValidAvailableSerial = (serial: string, productId: string): boolean => {
     const normalized = serial.trim().toLowerCase();
     if (!normalized) return true;
@@ -246,7 +250,6 @@ export default function Sales({
     }
   };
 
-  // ✅ اختيار سيريال من القائمة المقترحة
   const selectSerialFromDrop = (itemId: string, index: number, serial: SerialItem) => {
     setSaleItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
@@ -325,7 +328,6 @@ export default function Sales({
     }));
   };
 
-  // ✅ عند اختيار منتج: يملأ أول سيريال متاح تلقائياً
   const selectProduct = (itemId: string, product: Product) => {
     const availSerial = serials.find(s => s.productId === product.id && s.status === 'available');
     updateItem(itemId, {
@@ -352,9 +354,9 @@ export default function Sales({
     ).slice(0, 10);
   };
 
-  const selectedCustomer = customers.find(c => c.id === customerId);
+  // ✅ ابحث في العملاء والموردين
+  const selectedParty = allParties.find(p => p.id === customerId);
 
-  // ✅ التحقق من المخزون قبل الحفظ
   const validateStock = (): string | null => {
     for (const item of saleItems) {
       if (!item.productId) continue;
@@ -362,7 +364,6 @@ export default function Sales({
       if (!product) continue;
 
       if (product.productType === 'serial') {
-        // منتج بسيريال: لازم كل سيريال يكون متاح
         const filledSerials = item.serials.filter(s => s.serial.trim());
         if (filledSerials.length === 0) {
           return `منتج "${product.name}" يحتاج سيريال - لا يمكن البيع بدون سيريال`;
@@ -375,15 +376,12 @@ export default function Sales({
             return `السيريال "${sl.serial}" غير متاح في المخزون لمنتج "${product.name}"`;
           }
         }
-        // تحقق من أن عدد السيريالات لا يتجاوز المتاح
         const availableCount = getAvailableStock(item.productId);
         if (item.quantity > availableCount) {
           return `منتج "${product.name}" - المطلوب ${item.quantity} والمتاح ${availableCount} فقط`;
         }
       } else {
-        // منتج عادي: تحقق من الكمية
         const availableStock = getAvailableStock(item.productId);
-        // عند التعديل نسمح بالكمية الأصلية
         let usedInThisInvoice = 0;
         if (editingInvoice) {
           const originalItem = editingInvoice.items.find(i => i.productId === item.productId);
@@ -401,7 +399,6 @@ export default function Sales({
   const handleSave = () => {
     if (!customerId || saleItems.length === 0) return;
 
-    // ✅ تحقق من تكرار السيريالات
     for (const item of saleItems) {
       for (let i = 0; i < item.serials.length; i++) {
         if (item.serials[i].serial && isDuplicateSaleSerial(item.serials[i].serial, item.id, i)) {
@@ -411,7 +408,6 @@ export default function Sales({
       }
     }
 
-    // ✅ تحقق من المخزون
     const stockErr = validateStock();
     if (stockErr) {
       setStockError(stockErr);
@@ -438,7 +434,7 @@ export default function Sales({
       const updatedInvoice: SaleInvoice = {
         ...editingInvoice,
         customerId,
-        customerName: selectedCustomer?.name || '',
+        customerName: selectedParty?.name || '',
         date: formDate,
         items,
         subtotal,
@@ -462,7 +458,7 @@ export default function Sales({
       id: generateId(),
       invoiceNumber,
       customerId,
-      customerName: selectedCustomer?.name || '',
+      customerName: selectedParty?.name || '',
       date: formDate,
       items,
       subtotal,
@@ -513,7 +509,6 @@ export default function Sales({
     setNewCustomer({ name: '', phone: '', type: 'individual' });
   };
 
-  // Quick Purchase
   const openQuickPurchase = (saleItemId: string, searchText: string) => {
     setQuickPurchTargetItemId(saleItemId);
     setShowItemDrop(prev => ({ ...prev, [saleItemId]: false }));
@@ -795,7 +790,7 @@ export default function Sales({
           <thead className="bg-violet-900/20">
             <tr>
               <th className="text-right py-3 px-4 text-gray-400 font-medium">رقم الفاتورة</th>
-              <th className="text-right py-3 px-4 text-gray-400 font-medium">العميل</th>
+              <th className="text-right py-3 px-4 text-gray-400 font-medium">العميل / الجهة</th>
               <th className="text-center py-3 px-4 text-gray-400 font-medium">التاريخ</th>
               <th className="text-center py-3 px-4 text-gray-400 font-medium">الإجمالي</th>
               <th className="text-center py-3 px-4 text-gray-400 font-medium">المدفوع</th>
@@ -859,22 +854,34 @@ export default function Sales({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-              {/* العميل */}
+              {/* ✅ البحث في العملاء والموردين */}
               <div className="relative">
-                <label className="form-label">العميل *</label>
+                <label className="form-label">العميل / الجهة *</label>
                 <input type="text" value={customerSearch}
                   onChange={e => { setCustomerSearch(e.target.value); setShowCustDrop(true); setCustomerId(''); }}
                   onFocus={() => setShowCustDrop(true)}
-                  placeholder="ابحث عن عميل..."
+                  placeholder="ابحث عن عميل أو مورد أو تاجر..."
                   className="input-dark w-full"
                 />
                 {showCustDrop && (
                   <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-48 overflow-y-auto">
-                    {filteredCustomers.slice(0, 8).map(c => (
-                      <button key={c.id}
-                        onClick={() => { setCustomerId(c.id); setCustomerSearch(c.name); setShowCustDrop(false); }}
+                    {filteredCustomers.slice(0, 10).map(p => (
+                      <button key={p.id}
+                        onClick={() => { setCustomerId(p.id); setCustomerSearch(p.name); setShowCustDrop(false); }}
                         className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">
-                        {c.name} {c.phone && <span className="text-gray-500 text-xs">({c.phone})</span>}
+                        <div className="flex items-center justify-between">
+                          <span>
+                            {p.name}
+                            {p.phone && <span className="text-gray-500 text-xs mr-1">({p.phone})</span>}
+                          </span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-md mr-2 shrink-0 ${
+                            p.partyType === 'supplier'
+                              ? 'bg-blue-900/40 text-blue-400'
+                              : 'bg-violet-900/40 text-violet-400'
+                          }`}>
+                            {p.partyType === 'supplier' ? 'مورد/تاجر' : 'عميل'}
+                          </span>
+                        </div>
                       </button>
                     ))}
                     <button onClick={() => { setAddCustomerModal(true); setShowCustDrop(false); setCustomerDupError(null); }}
@@ -908,20 +915,17 @@ export default function Sales({
 
               <div className="space-y-3">
                 {saleItems.map((item) => {
-                  const product     = products.find(p => p.id === item.productId);
-                  const isSerial    = product?.productType === 'serial';
-                  const availStock  = item.productId ? getAvailableStock(item.productId) : 0;
-                  const availSers   = item.productId ? getAvailableSerials(item.productId) : [];
-                  const stockOk     = !item.productId || (isSerial
-                    ? availStock >= item.quantity
-                    : availStock >= item.quantity);
+                  const product    = products.find(p => p.id === item.productId);
+                  const isSerial   = product?.productType === 'serial';
+                  const availStock = item.productId ? getAvailableStock(item.productId) : 0;
+                  const availSers  = item.productId ? getAvailableSerials(item.productId) : [];
+                  const stockOk    = !item.productId || availStock >= item.quantity;
 
                   return (
                     <div key={item.id} className={`bg-[#252545] border rounded-xl p-3 ${
                       item.productId && !stockOk ? 'border-red-600/40' : 'border-violet-900/20'
                     }`}>
                       <div className="grid grid-cols-12 gap-2 items-start">
-                        {/* بحث المنتج */}
                         <div className="col-span-12 md:col-span-4 relative">
                           <label className="form-label text-xs">البند</label>
                           <input type="text" value={itemSearch[item.id] || ''}
@@ -969,7 +973,6 @@ export default function Sales({
                           )}
                         </div>
 
-                        {/* الكمية */}
                         <div className="col-span-4 md:col-span-2">
                           <label className="form-label text-xs">الكمية</label>
                           <input type="number" min="1"
@@ -977,11 +980,8 @@ export default function Sales({
                             onChange={e => syncSerialsWithQuantity(item.id, Math.max(1, parseInt(e.target.value) || 1))}
                             className="input-dark w-full text-sm"
                           />
-                          {/* ✅ تحذير كمية المنتجات العادية */}
                           {item.productId && !isSerial && item.quantity > availStock && (
-                            <div className="text-xs text-red-400 mt-1">
-                              ⚠️ المتاح {availStock}
-                            </div>
+                            <div className="text-xs text-red-400 mt-1">⚠️ المتاح {availStock}</div>
                           )}
                         </div>
 
@@ -1016,37 +1016,29 @@ export default function Sales({
                         </div>
                       </div>
 
-                      {/* ✅ تحذير مخزون منتهي */}
                       {item.productId && availStock === 0 && (
                         <div className="mt-2 flex items-center gap-2 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
                           <AlertCircle size={14} className="text-red-400 shrink-0" />
-                          <span className="text-xs text-red-400">
-                            هذا المنتج غير متاح في المخزون - لا يمكن بيعه
-                          </span>
+                          <span className="text-xs text-red-400">هذا المنتج غير متاح في المخزون</span>
                         </div>
                       )}
 
-                      {/* ✅ السيريالات مع Dropdown للاقتراحات */}
                       {isSerial && item.serials.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-white/5 space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="text-xs text-gray-400 font-medium">
                               السيريالات ({item.serials.filter(s => s.serial).length} / {item.quantity}):
                             </div>
-                            <div className="text-xs text-violet-400">
-                              💡 اختر من المتاح أو اكتب يدوياً
-                            </div>
+                            <div className="text-xs text-violet-400">💡 اختر من المتاح أو اكتب يدوياً</div>
                           </div>
 
-                          {/* ✅ قائمة السيريالات المتاحة */}
                           {availSers.length > 0 && (
                             <div className="bg-green-900/10 border border-green-700/20 rounded-lg p-2 mb-2">
                               <div className="text-xs text-green-400 mb-1.5 font-medium">
                                 ✅ السيريالات المتاحة ({availSers.length}):
                               </div>
                               <div className="flex flex-wrap gap-1.5">
-                                {availSers.map((s, si) => {
-                                  // هل السيريال ده اتاختار بالفعل؟
+                                {availSers.map((s) => {
                                   const isSelected = item.serials.some(sl =>
                                     sl.serial.trim().toLowerCase() === s.serial.trim().toLowerCase()
                                   );
@@ -1054,12 +1046,10 @@ export default function Sales({
                                     <button key={s.id}
                                       onClick={() => {
                                         if (isSelected) return;
-                                        // ابحث عن أول خانة فاضية
                                         const emptyIdx = item.serials.findIndex(sl => !sl.serial.trim());
                                         if (emptyIdx >= 0) {
                                           selectSerialFromDrop(item.id, emptyIdx, s);
                                         } else {
-                                          // أضف خانة جديدة وحطه فيها
                                           setSaleItems(prev => prev.map(it => {
                                             if (it.id !== item.id) return it;
                                             const newSerials = [
@@ -1088,7 +1078,6 @@ export default function Sales({
                             </div>
                           )}
 
-                          {/* خانات السيريال */}
                           {item.serials.map((sl, si) => {
                             const isDup     = sl.serial && isDuplicateSaleSerial(sl.serial, item.id, si);
                             const isInvalid = sl.serial && !isDup && !isValidAvailableSerial(sl.serial, item.productId);
@@ -1129,12 +1118,8 @@ export default function Sales({
                                     )}
                                   </div>
                                 </div>
-                                {isDup && (
-                                  <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال مكرر في الفاتورة</div>
-                                )}
-                                {isInvalid && (
-                                  <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال غير متاح في المخزون</div>
-                                )}
+                                {isDup && <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال مكرر في الفاتورة</div>}
+                                {isInvalid && <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال غير متاح في المخزون</div>}
                               </div>
                             );
                           })}
@@ -1205,7 +1190,6 @@ export default function Sales({
               </div>
             </div>
 
-            {/* ✅ رسائل الخطأ */}
             {duplicateSerialWarning && (
               <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
                 ⚠️ السيريال "{duplicateSerialWarning}" مكرر في هذه الفاتورة
@@ -1248,7 +1232,7 @@ export default function Sales({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <div><div className="text-xs text-gray-500">العميل</div><div className="font-bold text-white">{viewInvoice.customerName}</div></div>
+              <div><div className="text-xs text-gray-500">العميل / الجهة</div><div className="font-bold text-white">{viewInvoice.customerName}</div></div>
               <div><div className="text-xs text-gray-500">التاريخ</div><div className="font-bold text-white">{viewInvoice.date}</div></div>
               <div><div className="text-xs text-gray-500">طريقة الدفع</div><div className="font-bold text-white">{paymentMethodLabel(viewInvoice.paymentMethod)}</div></div>
               <div>

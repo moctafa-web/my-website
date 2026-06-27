@@ -28,10 +28,9 @@ export default function Dashboard({
   onNewPurchase,
   adjustTreasury,
 }: Props) {
-  const [showTreasury, setShowTreasury]     = useState(false);
-  const [showDebtBook, setShowDebtBook]     = useState(false);
-  const [debtTab, setDebtTab]               = useState<'owed' | 'owing'>('owed');
-  const [copied, setCopied]                 = useState(false);
+  const [showTreasury, setShowTreasury] = useState(false);
+  const [showDebtBook, setShowDebtBook] = useState(false);
+  const [copied, setCopied]             = useState(false);
 
   const [treasuryForm, setTreasuryForm] = useState({
     type: 'cash' as 'cash' | 'bank',
@@ -45,7 +44,6 @@ export default function Dashboard({
   /* ─── إحصائيات اليوم ─── */
   const todaySales     = state.saleInvoices.filter(i => i.date === today);
   const todayPurchases = state.purchaseInvoices.filter(i => i.date === today);
-
   const todaySalesTotal     = todaySales.reduce((s, i) => s + i.paid, 0);
   const todayPurchasesTotal = todayPurchases.reduce((s, i) => s + i.paid, 0);
 
@@ -59,31 +57,62 @@ export default function Dashboard({
     p => !p.costPrice || p.costPrice === 0
   );
 
-  /* ─── دفتر الديون ─── */
+  /* ─── دفتر الديون - عملاء وموردين معاً ─── */
+
+  // اللي لينا عندهم (عملاء + موردين عليهم فلوس)
   const customersOwing = state.customers
     .map(c => {
       const balance =
         (c.totalInvoices || 0) -
-        (c.totalPaid    || 0) +
+        (c.totalPaid || 0) +
         (c.openingBalance || 0);
-      return { ...c, balance };
+      return { id: c.id, name: c.name, phone: c.phone || '', balance, type: 'customer' as const };
     })
-    .filter(c => c.balance > 0)
+    .filter(c => c.balance > 0);
+
+  const suppliersWithCredit = state.suppliers
+    .map(s => {
+      const balance =
+        (s.totalInvoices || 0) -
+        (s.totalPaid || 0) +
+        (s.openingBalance || 0);
+      // لو الرصيد سالب = نحن دفعنا أكتر = المورد عنده فلوس لينا
+      return { id: s.id, name: s.name, phone: s.phone || '', balance: -balance, type: 'supplier' as const };
+    })
+    .filter(s => s.balance > 0);
+
+  // كل اللي لينا عندهم مجتمعين مرتبين
+  const allOwingUs = [...customersOwing, ...suppliersWithCredit]
     .sort((a, b) => b.balance - a.balance);
 
+  // اللي ليهم عندنا (موردين + عملاء لهم فلوس)
   const suppliersOwed = state.suppliers
     .map(s => {
       const balance =
         (s.totalInvoices || 0) -
-        (s.totalPaid    || 0) +
+        (s.totalPaid || 0) +
         (s.openingBalance || 0);
-      return { ...s, balance };
+      return { id: s.id, name: s.name, phone: s.phone || '', balance, type: 'supplier' as const };
     })
-    .filter(s => s.balance > 0)
+    .filter(s => s.balance > 0);
+
+  const customersWithDebit = state.customers
+    .map(c => {
+      const balance =
+        (c.totalInvoices || 0) -
+        (c.totalPaid || 0) +
+        (c.openingBalance || 0);
+      // لو الرصيد سالب = العميل دفع أكتر = نحن عندنا فلوس ليه
+      return { id: c.id, name: c.name, phone: c.phone || '', balance: -balance, type: 'customer' as const };
+    })
+    .filter(c => c.balance > 0);
+
+  // كل اللي ليهم عندنا مجتمعين مرتبين
+  const allWeOwe = [...suppliersOwed, ...customersWithDebit]
     .sort((a, b) => b.balance - a.balance);
 
-  const totalOwing = customersOwing.reduce((s, c) => s + c.balance, 0);
-  const totalOwed  = suppliersOwed.reduce((s, c) => s + c.balance, 0);
+  const totalOwing = allOwingUs.reduce((s, c) => s + c.balance, 0);
+  const totalOwed  = allWeOwe.reduce((s, c) => s + c.balance, 0);
   const netBalance = totalOwing - totalOwed;
 
   /* ─── بيانات الرسم البياني ─── */
@@ -93,10 +122,10 @@ export default function Dashboard({
     const dateStr = d.toISOString().split('T')[0];
     return {
       date: d.toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }),
-      مبيعات:  state.saleInvoices.filter(inv => inv.date === dateStr)
-                 .reduce((s, inv) => s + inv.total, 0),
+      مبيعات: state.saleInvoices.filter(inv => inv.date === dateStr)
+                .reduce((s, inv) => s + inv.total, 0),
       مشتريات: state.purchaseInvoices.filter(inv => inv.date === dateStr)
-                 .reduce((s, inv) => s + inv.total, 0),
+                .reduce((s, inv) => s + inv.total, 0),
     };
   });
 
@@ -119,7 +148,7 @@ export default function Dashboard({
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
 
-    const owingRows = customersOwing.map((c, i) => `
+    const owingRows = allOwingUs.map((c, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${c.name}</td>
@@ -128,7 +157,7 @@ export default function Dashboard({
       </tr>
     `).join('');
 
-    const owedRows = suppliersOwed.map((s, i) => `
+    const owedRows = allWeOwe.map((s, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${s.name}</td>
@@ -188,17 +217,16 @@ export default function Dashboard({
             <div class="date">${printDate}</div>
           </div>
         </div>
-
         <div class="summary">
           <div class="sum-card green">
             <div class="sum-label">💚 لينا عندهم</div>
             <div class="sum-value">${totalOwing.toLocaleString('ar-EG')} ج.م</div>
-            <div style="font-size:11px;color:#16a34a;margin-top:4px">${customersOwing.length} عميل</div>
+            <div style="font-size:11px;color:#16a34a;margin-top:4px">${allOwingUs.length} جهة</div>
           </div>
           <div class="sum-card red">
             <div class="sum-label">❤️ ليهم عندنا</div>
             <div class="sum-value">${totalOwed.toLocaleString('ar-EG')} ج.م</div>
-            <div style="font-size:11px;color:#dc2626;margin-top:4px">${suppliersOwed.length} مورد</div>
+            <div style="font-size:11px;color:#dc2626;margin-top:4px">${allWeOwe.length} جهة</div>
           </div>
           <div class="sum-card blue">
             <div class="sum-label">📊 الصافي</div>
@@ -208,12 +236,11 @@ export default function Dashboard({
             </div>
           </div>
         </div>
-
-        <div class="section-title green">💚 اللي لينا عندهم (عملاء عليهم فلوس)</div>
-        ${customersOwing.length === 0
-          ? '<div class="empty">🎉 ما فيش عملاء عليهم ديون</div>'
+        <div class="section-title green">💚 اللي لينا عندهم</div>
+        ${allOwingUs.length === 0
+          ? '<div class="empty">🎉 ما فيش ديون لينا</div>'
           : `<table>
-              <thead><tr><th>#</th><th>اسم العميل</th><th>التليفون</th><th>المبلغ المستحق</th></tr></thead>
+              <thead><tr><th>#</th><th>الاسم</th><th>التليفون</th><th>المبلغ المستحق</th></tr></thead>
               <tbody>${owingRows}</tbody>
               <tfoot>
                 <tr style="background:#f0fdf4;font-weight:bold">
@@ -223,12 +250,11 @@ export default function Dashboard({
               </tfoot>
             </table>`
         }
-
-        <div class="section-title red">❤️ اللي ليهم عندنا (موردين لهم فلوس)</div>
-        ${suppliersOwed.length === 0
-          ? '<div class="empty">🎉 ما فيش موردين لهم ديون</div>'
+        <div class="section-title red">❤️ اللي ليهم عندنا</div>
+        ${allWeOwe.length === 0
+          ? '<div class="empty">🎉 ما فيش ديون علينا</div>'
           : `<table>
-              <thead><tr><th>#</th><th>اسم المورد</th><th>التليفون</th><th>المبلغ المستحق</th></tr></thead>
+              <thead><tr><th>#</th><th>الاسم</th><th>التليفون</th><th>المبلغ المستحق</th></tr></thead>
               <tbody>${owedRows}</tbody>
               <tfoot>
                 <tr style="background:#fef2f2;font-weight:bold">
@@ -238,7 +264,6 @@ export default function Dashboard({
               </tfoot>
             </table>`
         }
-
         <div class="footer">ONE ERP • تم الطباعة بتاريخ ${printDate}</div>
         <script>window.onload = () => window.print();<\/script>
       </body>
@@ -247,57 +272,51 @@ export default function Dashboard({
     w.document.close();
   };
 
-/* ─── نسخ للواتساب ─── */
-const copyForWhatsapp = () => {
-  const date = new Date().toLocaleDateString('ar-EG', {
-    year: 'numeric', month: 'numeric', day: 'numeric'
-  });
-
-  const formatArabicNum = (num: number) =>
-    num.toLocaleString('ar-EG');
-
-  let msg = '';
-  msg += `📒 تقرير حسابات التجار\n`;
-  msg += `🗓️ ${date}\n\n`;
-
-  // لينا عندهم
-  msg += `✅ لنا عندهم فلوس:\n`;
-  if (customersOwing.length === 0) {
-    msg += `ما فيش عملاء عليهم ديون\n`;
-  } else {
-    customersOwing.forEach((c, i) => {
-      msg += `${i + 1}) ${c.name} - ${formatArabicNum(c.balance)} ج.م\n`;
+  /* ─── نسخ للواتساب ─── */
+  const copyForWhatsapp = () => {
+    const date = new Date().toLocaleDateString('ar-EG', {
+      year: 'numeric', month: 'numeric', day: 'numeric'
     });
-    msg += `الإجمالي: ${formatArabicNum(totalOwing)} ج.م\n`;
-  }
+    const fmt = (num: number) => num.toLocaleString('ar-EG');
 
-  msg += `\n`;
+    let msg = `📒 تقرير حسابات التجار\n`;
+    msg += `🗓️ ${date}\n\n`;
 
-  // ليهم عندنا
-  msg += `💸 لهم عندنا فلوس:\n`;
-  if (suppliersOwed.length === 0) {
-    msg += `ما فيش موردين لهم ديون\n`;
-  } else {
-    suppliersOwed.forEach((s, i) => {
-      msg += `${i + 1}) ${s.name} - ${formatArabicNum(s.balance)} ج.م\n`;
+    msg += `✅ لنا عندهم فلوس:\n`;
+    if (allOwingUs.length === 0) {
+      msg += `ما فيش ديون لينا\n`;
+    } else {
+      allOwingUs.forEach((c, i) => {
+        msg += `${i + 1}) ${c.name} - ${fmt(c.balance)} ج.م\n`;
+      });
+      msg += `الإجمالي: ${fmt(totalOwing)} ج.م\n`;
+    }
+
+    msg += `\n`;
+
+    msg += `💸 لهم عندنا فلوس:\n`;
+    if (allWeOwe.length === 0) {
+      msg += `ما فيش ديون علينا\n`;
+    } else {
+      allWeOwe.forEach((s, i) => {
+        msg += `${i + 1}) ${s.name} - ${fmt(s.balance)} ج.م\n`;
+      });
+      msg += `الإجمالي: ${fmt(totalOwed)} ج.م\n`;
+    }
+
+    msg += `\n`;
+    msg += `📌 الصافي ${netBalance >= 0 ? 'لصالحنا' : 'علينا'}: ${fmt(Math.abs(netBalance))} ج.م`;
+
+    navigator.clipboard.writeText(msg).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
     });
-    msg += `الإجمالي: ${formatArabicNum(totalOwed)} ج.م\n`;
-  }
-
-  msg += `\n`;
-  msg += `📌 الصافي ${netBalance >= 0 ? 'لصالحنا' : 'علينا'}: ${formatArabicNum(Math.abs(netBalance))} ج.م`;
-
-  navigator.clipboard.writeText(msg).then(() => {
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
-  });
-};
-
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
 
-      {/* Quick Actions */}
+      {/* ① Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={onNewSale}
@@ -345,21 +364,7 @@ const copyForWhatsapp = () => {
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard title="مبيعات اليوم" value={formatCurrency(todaySalesTotal)}
-          sub={`${todaySales.length} فاتورة`} icon="💰" color="green" />
-        <StatCard title="مشتريات اليوم" value={formatCurrency(todayPurchasesTotal)}
-          sub={`${todayPurchases.length} فاتورة`} icon="📦" color="blue" />
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard title="الكاش" value={formatCurrency(state.cashBalance)}
-            sub="الرصيد الحالي" icon="💵" color="violet" onClick={() => setShowTreasury(true)} />
-          <StatCard title="البنك" value={formatCurrency(state.bankBalance)}
-            sub="الرصيد الحالي" icon="🏦" color="cyan" onClick={() => setShowTreasury(true)} />
-        </div>
-      </div>
-
-      {/* دفتر الديون + الأجهزة بدون سعر */}
+      {/* ② دفتر الديون + أجهزة بدون سعر - فوق الإحصائيات */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* دفتر الديون */}
@@ -384,7 +389,7 @@ const copyForWhatsapp = () => {
                 <span className="text-xs text-green-400">لينا عندهم</span>
               </div>
               <div className="text-base font-bold text-green-300">{formatCurrency(totalOwing)}</div>
-              <div className="text-xs text-green-500 mt-0.5">{customersOwing.length} عميل</div>
+              <div className="text-xs text-green-500 mt-0.5">{allOwingUs.length} جهة</div>
             </div>
             <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3">
               <div className="flex items-center gap-1 mb-1">
@@ -392,7 +397,7 @@ const copyForWhatsapp = () => {
                 <span className="text-xs text-red-400">ليهم عندنا</span>
               </div>
               <div className="text-base font-bold text-red-300">{formatCurrency(totalOwed)}</div>
-              <div className="text-xs text-red-500 mt-0.5">{suppliersOwed.length} مورد</div>
+              <div className="text-xs text-red-500 mt-0.5">{allWeOwe.length} جهة</div>
             </div>
           </div>
         </button>
@@ -447,7 +452,21 @@ const copyForWhatsapp = () => {
         </div>
       </div>
 
-      {/* Chart + Stock Alerts */}
+      {/* ③ Stats - نزلت تحت */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard title="مبيعات اليوم" value={formatCurrency(todaySalesTotal)}
+          sub={`${todaySales.length} فاتورة`} icon="💰" color="green" />
+        <StatCard title="مشتريات اليوم" value={formatCurrency(todayPurchasesTotal)}
+          sub={`${todayPurchases.length} فاتورة`} icon="📦" color="blue" />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard title="الكاش" value={formatCurrency(state.cashBalance)}
+            sub="الرصيد الحالي" icon="💵" color="violet" onClick={() => setShowTreasury(true)} />
+          <StatCard title="البنك" value={formatCurrency(state.bankBalance)}
+            sub="الرصيد الحالي" icon="🏦" color="cyan" onClick={() => setShowTreasury(true)} />
+        </div>
+      </div>
+
+      {/* ④ Chart + Stock Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">📊 المبيعات والمشتريات - آخر 7 أيام</h3>
@@ -509,7 +528,7 @@ const copyForWhatsapp = () => {
         </div>
       </div>
 
-      {/* Recent Activity */}
+      {/* ⑤ Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
@@ -597,7 +616,6 @@ const copyForWhatsapp = () => {
                   </p>
                 </div>
               </div>
-              {/* ✅ أزرار الطباعة والنسخ */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={copyForWhatsapp}
@@ -626,119 +644,170 @@ const copyForWhatsapp = () => {
             </div>
 
             {/* Summary */}
-            <div className="grid grid-cols-2 gap-3 p-4 border-b border-white/5 shrink-0">
+            <div className="grid grid-cols-3 gap-3 p-4 border-b border-white/5 shrink-0">
               <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-green-400 mb-1">💚 إجمالي لينا</div>
                 <div className="text-lg font-black text-green-300">{formatCurrency(totalOwing)}</div>
-                <div className="text-xs text-green-600">من {customersOwing.length} عميل</div>
+                <div className="text-xs text-green-600">{allOwingUs.length} جهة</div>
               </div>
               <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-red-400 mb-1">❤️ إجمالي ليهم</div>
                 <div className="text-lg font-black text-red-300">{formatCurrency(totalOwed)}</div>
-                <div className="text-xs text-red-600">من {suppliersOwed.length} مورد</div>
+                <div className="text-xs text-red-600">{allWeOwe.length} جهة</div>
+              </div>
+              <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 text-center">
+                <div className="text-xs text-blue-400 mb-1">📊 الصافي</div>
+                <div className={`text-lg font-black ${netBalance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                  {formatCurrency(Math.abs(netBalance))}
+                </div>
+                <div className={`text-xs ${netBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {netBalance >= 0 ? 'لصالحنا ✅' : 'علينا ⚠️'}
+                </div>
               </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-2 p-4 pb-0 shrink-0">
-              <button onClick={() => setDebtTab('owed')}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                  debtTab === 'owed'
-                    ? 'bg-green-700/30 border border-green-500/40 text-green-300'
-                    : 'border border-white/10 text-gray-400 hover:bg-white/5'
-                }`}>
-                💚 لينا عندهم ({customersOwing.length})
+            {/* قائمة موحدة بتابات */}
+            <div className="flex gap-2 p-4 pb-2 shrink-0">
+              <button
+                onClick={() => setShowDebtBook(true)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-green-700/30 border border-green-500/40 text-green-300"
+              >
+                💚 لينا عندهم ({allOwingUs.length})
               </button>
-              <button onClick={() => setDebtTab('owing')}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                  debtTab === 'owing'
-                    ? 'bg-red-700/30 border border-red-500/40 text-red-300'
-                    : 'border border-white/10 text-gray-400 hover:bg-white/5'
-                }`}>
-                ❤️ ليهم عندنا ({suppliersOwed.length})
+              <button
+                onClick={() => setShowDebtBook(true)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-700/30 border border-red-500/40 text-red-300"
+              >
+                ❤️ ليهم عندنا ({allWeOwe.length})
               </button>
             </div>
 
-            {/* List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {debtTab === 'owed' && (
-                <>
-                  {customersOwing.length === 0 ? (
-                    <div className="text-center text-gray-500 py-12">
-                      <div className="text-4xl mb-3">🎉</div>
-                      <div>ما فيش عملاء عليهم ديون</div>
-                    </div>
-                  ) : customersOwing.map((c, idx) => (
-                    <div key={c.id}
-                      className="flex items-center justify-between bg-white/5 hover:bg-white/8
-                                 border border-white/5 hover:border-green-700/30 rounded-xl px-4 py-3
-                                 transition-all group">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-green-900/30 border border-green-700/30
-                                        flex items-center justify-center text-xs font-bold text-green-400">
-                          {idx + 1}
+            {/* List - اللي لينا */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+              {/* قسم لينا عندهم */}
+              {allOwingUs.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-green-400 mb-2 px-1">
+                    💚 لينا عندهم — {allOwingUs.length} جهة
+                  </div>
+                  <div className="space-y-2">
+                    {allOwingUs.map((c, idx) => (
+                      <div key={`owing-${c.id}`}
+                        className="flex items-center justify-between bg-white/5 hover:bg-white/8
+                                   border border-white/5 hover:border-green-700/30 rounded-xl px-4 py-3
+                                   transition-all group">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-green-900/30 border border-green-700/30
+                                          flex items-center justify-center text-xs font-bold text-green-400">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-white">{c.name}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-md ${
+                                c.type === 'supplier'
+                                  ? 'bg-blue-900/30 text-blue-400'
+                                  : 'bg-violet-900/30 text-violet-400'
+                              }`}>
+                                {c.type === 'supplier' ? 'مورد' : 'عميل'}
+                              </span>
+                            </div>
+                            {c.phone && <div className="text-xs text-gray-500">{c.phone}</div>}
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-sm font-bold text-white">{c.name}</div>
-                          {c.phone && <div className="text-xs text-gray-500">{c.phone}</div>}
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className="text-base font-black text-green-400">{formatCurrency(c.balance)}</div>
+                            <div className="text-xs text-gray-500">مستحق لنا</div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setShowDebtBook(false);
+                              onNavigate(c.type === 'supplier' ? 'suppliers' : 'customers');
+                            }}
+                            className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
+                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
+                                       opacity-0 group-hover:opacity-100">
+                            كشف حساب
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-base font-black text-green-400">{formatCurrency(c.balance)}</div>
-                          <div className="text-xs text-gray-500">مستحق</div>
-                        </div>
-                        <button
-                          onClick={() => { setShowDebtBook(false); onNavigate('customers'); }}
-                          className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
-                                     hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
-                                     opacity-0 group-hover:opacity-100">
-                          كشف حساب
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </>
+                    ))}
+                  </div>
+                </div>
               )}
 
-              {debtTab === 'owing' && (
-                <>
-                  {suppliersOwed.length === 0 ? (
-                    <div className="text-center text-gray-500 py-12">
-                      <div className="text-4xl mb-3">🎉</div>
-                      <div>ما فيش موردين لهم ديون</div>
-                    </div>
-                  ) : suppliersOwed.map((s, idx) => (
-                    <div key={s.id}
-                      className="flex items-center justify-between bg-white/5 hover:bg-white/8
-                                 border border-white/5 hover:border-red-700/30 rounded-xl px-4 py-3
-                                 transition-all group">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-red-900/30 border border-red-700/30
-                                        flex items-center justify-center text-xs font-bold text-red-400">
-                          {idx + 1}
+              {allOwingUs.length === 0 && (
+                <div className="text-center text-gray-500 py-6">
+                  <div className="text-3xl mb-2">🎉</div>
+                  <div className="text-sm">ما فيش ديون لينا</div>
+                </div>
+              )}
+
+              {/* فاصل */}
+              {allOwingUs.length > 0 && allWeOwe.length > 0 && (
+                <div className="border-t border-white/10 my-2" />
+              )}
+
+              {/* قسم ليهم عندنا */}
+              {allWeOwe.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-red-400 mb-2 px-1">
+                    ❤️ ليهم عندنا — {allWeOwe.length} جهة
+                  </div>
+                  <div className="space-y-2">
+                    {allWeOwe.map((s, idx) => (
+                      <div key={`owed-${s.id}`}
+                        className="flex items-center justify-between bg-white/5 hover:bg-white/8
+                                   border border-white/5 hover:border-red-700/30 rounded-xl px-4 py-3
+                                   transition-all group">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-red-900/30 border border-red-700/30
+                                          flex items-center justify-center text-xs font-bold text-red-400">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-white">{s.name}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-md ${
+                                s.type === 'customer'
+                                  ? 'bg-violet-900/30 text-violet-400'
+                                  : 'bg-blue-900/30 text-blue-400'
+                              }`}>
+                                {s.type === 'customer' ? 'عميل' : 'مورد'}
+                              </span>
+                            </div>
+                            {s.phone && <div className="text-xs text-gray-500">{s.phone}</div>}
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-sm font-bold text-white">{s.name}</div>
-                          {s.phone && <div className="text-xs text-gray-500">{s.phone}</div>}
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className="text-base font-black text-red-400">{formatCurrency(s.balance)}</div>
+                            <div className="text-xs text-gray-500">مستحق لهم</div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setShowDebtBook(false);
+                              onNavigate(s.type === 'customer' ? 'customers' : 'suppliers');
+                            }}
+                            className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
+                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
+                                       opacity-0 group-hover:opacity-100">
+                            كشف حساب
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-base font-black text-red-400">{formatCurrency(s.balance)}</div>
-                          <div className="text-xs text-gray-500">مستحق لهم</div>
-                        </div>
-                        <button
-                          onClick={() => { setShowDebtBook(false); onNavigate('suppliers'); }}
-                          className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
-                                     hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
-                                     opacity-0 group-hover:opacity-100">
-                          كشف حساب
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {allWeOwe.length === 0 && (
+                <div className="text-center text-gray-500 py-6">
+                  <div className="text-3xl mb-2">🎉</div>
+                  <div className="text-sm">ما فيش ديون علينا</div>
+                </div>
               )}
             </div>
 

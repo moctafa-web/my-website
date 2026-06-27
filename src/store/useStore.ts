@@ -4,8 +4,6 @@ import { db } from '../firebase';
 import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
 import { normalizeForCompare } from '../utils/helpers';
 
-// ==================== Firebase Helper Functions ====================
-
 const cleanForFirebase = (obj: any): any => {
   if (obj === null || obj === undefined) return null;
   if (Array.isArray(obj)) return obj.map(cleanForFirebase);
@@ -268,14 +266,15 @@ export function useStore() {
   }, []);
 
   // ==================== SALE INVOICES ====================
-  // ✅ تم إصلاح خصم مخزون المنتجات العادية + التعامل مع السيريالات
   const addSaleInvoice = useCallback((invoice: SaleInvoice) => {
     setState(prev => {
       const newState = { ...prev, saleInvoices: [...prev.saleInvoices, invoice] };
       let updatedCustomer: Customer | null = null;
+      let updatedSupplier: Supplier | null = null;
       const updatedSerials: SerialItem[] = [];
       const updatedProducts: Product[] = [];
 
+      // ✅ دور في العملاء الأول
       const custIdx = newState.customers.findIndex(c => c.id === invoice.customerId);
       if (custIdx >= 0) {
         const customer = { ...newState.customers[custIdx] };
@@ -283,6 +282,17 @@ export function useStore() {
         customer.totalPaid = (customer.totalPaid || 0) + invoice.paid;
         newState.customers = newState.customers.map(c => c.id === invoice.customerId ? customer : c);
         updatedCustomer = customer;
+      } else {
+        // ✅ لو مش عميل، دور في الموردين
+        // البيع للمورد = المورد بيشتري منا = يقلل الدين اللي علينا ليه
+        const supIdx = newState.suppliers.findIndex(s => s.id === invoice.customerId);
+        if (supIdx >= 0) {
+          const supplier = { ...newState.suppliers[supIdx] };
+          supplier.totalInvoices = (supplier.totalInvoices || 0) - invoice.total;
+          supplier.totalPaid = (supplier.totalPaid || 0) - invoice.paid;
+          newState.suppliers = newState.suppliers.map(s => s.id === invoice.customerId ? supplier : s);
+          updatedSupplier = supplier;
+        }
       }
 
       if (invoice.paid > 0) {
@@ -304,7 +314,6 @@ export function useStore() {
 
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
-
         if (product?.productType === 'serial') {
           if (item.serials && item.serials.length > 0) {
             item.serials.forEach(sl => {
@@ -334,6 +343,7 @@ export function useStore() {
 
       saveToFirebase('saleInvoices', invoice.id, invoice);
       if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
+      if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
       updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
 
@@ -341,7 +351,6 @@ export function useStore() {
     });
   }, []);
 
-  // ✅ تم إصلاح تعديل فاتورة البيع بحيث يرجّع القديم ثم يطبق الجديد
   const updateSaleInvoice = useCallback((invoice: SaleInvoice) => {
     setState(prev => {
       const oldInvoice = prev.saleInvoices.find(i => i.id === invoice.id);
@@ -356,16 +365,41 @@ export function useStore() {
 
       let newState = { ...prev };
       const changedCustomers = new Map<string, Customer>();
+      const changedSuppliers = new Map<string, Supplier>();
       const changedProducts = new Map<string, Product>();
       const changedSerials = new Map<string, SerialItem>();
 
-      const touchCustomer = (customerId: string, updater: (c: Customer) => Customer) => {
-        newState.customers = newState.customers.map(c => {
-          if (c.id !== customerId) return c;
-          const updated = updater(c);
-          changedCustomers.set(updated.id, updated);
-          return updated;
-        });
+      // ✅ helper يشتغل على عملاء أو موردين
+      const touchParty = (partyId: string, delta: { invoices: number; paid: number }) => {
+        const custExists = newState.customers.some(c => c.id === partyId);
+        if (custExists) {
+          newState.customers = newState.customers.map(c => {
+            if (c.id !== partyId) return c;
+            const updated = {
+              ...c,
+              totalInvoices: Math.max(0, (c.totalInvoices || 0) + delta.invoices),
+              totalPaid: Math.max(0, (c.totalPaid || 0) + delta.paid),
+            };
+            changedCustomers.set(updated.id, updated);
+            return updated;
+          });
+          return;
+        }
+        // لو مش عميل دور في الموردين
+        const supExists = newState.suppliers.some(s => s.id === partyId);
+        if (supExists) {
+          newState.suppliers = newState.suppliers.map(s => {
+            if (s.id !== partyId) return s;
+            // عكس لأن البيع للمورد يقلل ما عليه
+            const updated = {
+              ...s,
+              totalInvoices: (s.totalInvoices || 0) + (-delta.invoices),
+              totalPaid: (s.totalPaid || 0) + (-delta.paid),
+            };
+            changedSuppliers.set(updated.id, updated);
+            return updated;
+          });
+        }
       };
 
       const touchProduct = (productId: string, updater: (p: Product) => Product) => {
@@ -387,11 +421,10 @@ export function useStore() {
       };
 
       // ===== 1) إلغاء تأثير الفاتورة القديمة =====
-      touchCustomer(oldInvoice.customerId, c => ({
-        ...c,
-        totalInvoices: Math.max(0, (c.totalInvoices || 0) - oldInvoice.total),
-        totalPaid: Math.max(0, (c.totalPaid || 0) - oldInvoice.paid),
-      }));
+      touchParty(oldInvoice.customerId, {
+        invoices: -(oldInvoice.total),
+        paid: -(oldInvoice.paid),
+      });
 
       if (oldInvoice.paid > 0) {
         const oldTreasury = oldInvoice.paymentMethod === 'cash' ? 'cash' : 'bank';
@@ -403,68 +436,50 @@ export function useStore() {
 
       oldInvoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
-
         if (product?.productType === 'serial') {
           (item.serials || []).forEach(sl => {
             touchSerialByValue(sl.serial, s => ({
-              ...s,
-              status: 'available',
-              saleInvoiceId: undefined,
-              salePrice: undefined,
+              ...s, status: 'available', saleInvoiceId: undefined, salePrice: undefined,
             }));
           });
         } else {
-          touchProduct(item.productId, p => ({
-            ...p,
-            stock: p.stock + item.quantity,
-          }));
+          touchProduct(item.productId, p => ({ ...p, stock: p.stock + item.quantity }));
         }
       });
 
       // ===== 2) تطبيق الفاتورة الجديدة =====
-      touchCustomer(invoice.customerId, c => ({
-        ...c,
-        totalInvoices: (c.totalInvoices || 0) + invoice.total,
-        totalPaid: (c.totalPaid || 0) + invoice.paid,
-      }));
+      touchParty(invoice.customerId, {
+        invoices: invoice.total,
+        paid: invoice.paid,
+      });
 
       if (invoice.paid > 0) {
         const newTreasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
         newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
         newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
-        newState.treasuryTransactions = [
-          ...newState.treasuryTransactions,
-          {
-            id: `tr_${Date.now()}`,
-            type: 'sale',
-            description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
-            amount: invoice.paid,
-            treasury: newTreasury,
-            direction: 'in',
-            referenceId: invoice.id,
-            date: invoice.date,
-            createdAt: new Date().toISOString(),
-          },
-        ];
+        newState.treasuryTransactions = [...newState.treasuryTransactions, {
+          id: `tr_${Date.now()}`,
+          type: 'sale',
+          description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
+          amount: invoice.paid,
+          treasury: newTreasury,
+          direction: 'in',
+          referenceId: invoice.id,
+          date: invoice.date,
+          createdAt: new Date().toISOString(),
+        }];
       }
 
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
-
         if (product?.productType === 'serial') {
           (item.serials || []).forEach(sl => {
             touchSerialByValue(sl.serial, s => ({
-              ...s,
-              status: 'sold',
-              saleInvoiceId: invoice.id,
-              salePrice: item.unitPrice,
+              ...s, status: 'sold', saleInvoiceId: invoice.id, salePrice: item.unitPrice,
             }));
           });
         } else {
-          touchProduct(item.productId, p => ({
-            ...p,
-            stock: Math.max(0, p.stock - item.quantity),
-          }));
+          touchProduct(item.productId, p => ({ ...p, stock: Math.max(0, p.stock - item.quantity) }));
         }
       });
 
@@ -472,6 +487,7 @@ export function useStore() {
 
       saveToFirebase('saleInvoices', invoice.id, invoice);
       changedCustomers.forEach(c => saveToFirebase('customers', c.id, c));
+      changedSuppliers.forEach(s => saveToFirebase('suppliers', s.id, s));
       changedProducts.forEach(p => saveToFirebase('products', p.id, p));
       changedSerials.forEach(s => saveToFirebase('serials', s.id, s));
 
@@ -479,7 +495,6 @@ export function useStore() {
     });
   }, []);
 
-  // ✅ تم إصلاح حذف فاتورة البيع لإرجاع مخزون المنتجات العادية أيضاً
   const deleteSaleInvoice = useCallback((invoiceId: string) => {
     setState(prev => {
       const invoice = prev.saleInvoices.find(i => i.id === invoiceId);
@@ -491,7 +506,6 @@ export function useStore() {
 
       invoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
-
         if (product?.productType === 'serial') {
           if (item.serials && item.serials.length > 0) {
             item.serials.forEach(sl => {
@@ -517,19 +531,40 @@ export function useStore() {
         }
       });
 
-      let updatedCustomer: Customer | null = null;
-      newState.customers = newState.customers.map((c): Customer => {
-        if (c.id === invoice.customerId) {
-          const updated: Customer = {
-            ...c,
-            totalInvoices: Math.max(0, (c.totalInvoices || 0) - invoice.total),
-            totalPaid: Math.max(0, (c.totalPaid || 0) - invoice.paid),
-          };
-          updatedCustomer = updated;
-          return updated;
-        }
-        return c;
-      });
+      // ✅ دور في العملاء الأول، لو مش موجود دور في الموردين
+      const custExists = newState.customers.some(c => c.id === invoice.customerId);
+      if (custExists) {
+        let updatedCustomer: Customer | null = null;
+        newState.customers = newState.customers.map((c): Customer => {
+          if (c.id === invoice.customerId) {
+            const updated: Customer = {
+              ...c,
+              totalInvoices: Math.max(0, (c.totalInvoices || 0) - invoice.total),
+              totalPaid: Math.max(0, (c.totalPaid || 0) - invoice.paid),
+            };
+            updatedCustomer = updated;
+            return updated;
+          }
+          return c;
+        });
+        if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
+      } else {
+        let updatedSupplier: Supplier | null = null;
+        newState.suppliers = newState.suppliers.map((s): Supplier => {
+          if (s.id === invoice.customerId) {
+            // عكس: نرجع الدين اللي كان اتقلل
+            const updated: Supplier = {
+              ...s,
+              totalInvoices: (s.totalInvoices || 0) + invoice.total,
+              totalPaid: (s.totalPaid || 0) + invoice.paid,
+            };
+            updatedSupplier = updated;
+            return updated;
+          }
+          return s;
+        });
+        if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
+      }
 
       if (invoice.paid > 0) {
         const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
@@ -540,7 +575,6 @@ export function useStore() {
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
 
       deleteFromFirebase('saleInvoices', invoiceId);
-      if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
       restoredSerials.forEach(s => saveToFirebase('serials', s.id, s));
       restoredProducts.forEach(p => saveToFirebase('products', p.id, p));
 
@@ -597,7 +631,7 @@ export function useStore() {
 
       newState.settings = {
         ...newState.settings,
-        lastPurchaseInvoiceNum: newState.settings.lastPurchaseInvoiceNum + 1
+        lastPurchaseInvoiceNum: newState.settings.lastPurchaseInvoiceNum + 1,
       };
 
       saveToFirebase('purchaseInvoices', invoice.id, invoice);
@@ -618,7 +652,6 @@ export function useStore() {
       const invoice = prev.purchaseInvoices.find(i => i.id === invoiceId);
       if (!invoice) return prev;
       const newState = { ...prev, purchaseInvoices: prev.purchaseInvoices.filter(i => i.id !== invoiceId) };
-
       const updatedProducts: Product[] = [];
 
       invoice.items.forEach(item => {
