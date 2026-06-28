@@ -107,7 +107,6 @@ export default function Sales({
   const [qpQuickAddError, setQpQuickAddError]         = useState<string | null>(null);
   const qpSerialRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // ✅ حساب المخزون الحقيقي
   const getAvailableStock = useCallback((productId: string): number => {
     const product = products.find(p => p.id === productId);
     if (product?.productType === 'serial') {
@@ -175,7 +174,6 @@ export default function Sales({
 
   useEffect(() => {
     if (preselectedCustomerId) {
-      // ✅ دور في العملاء والموردين
       const customer = customers.find(c => c.id === preselectedCustomerId);
       const supplier = suppliers.find(s => s.id === preselectedCustomerId);
       const party = customer || supplier;
@@ -192,7 +190,6 @@ export default function Sales({
     inv.date.includes(searchQuery)
   ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  // ✅ البحث في العملاء والموردين معاً
   const allParties = [
     ...customers.map(c => ({ ...c, partyType: 'customer' as const })),
     ...suppliers.map(s => ({ ...s, partyType: 'supplier' as const })),
@@ -354,7 +351,6 @@ export default function Sales({
     ).slice(0, 10);
   };
 
-  // ✅ ابحث في العملاء والموردين
   const selectedParty = allParties.find(p => p.id === customerId);
 
   const validateStock = (): string | null => {
@@ -704,44 +700,313 @@ export default function Sales({
     setShowQuickPurchase(false);
   };
 
-  const printInvoice = (inv: SaleInvoice) => {
-    const itemsHtml = inv.items.map(item => `
-      <tr>
-        <td>${item.productName}</td>
-        <td style="text-align:center">${item.quantity}</td>
-        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
-        <td style="text-align:center">${item.discount > 0 ? item.discount : '-'}</td>
-        <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
-      </tr>
-      ${item.serials?.map(s => `<tr><td colspan="5" style="font-size:11px;color:#666;padding-right:20px">
-        السيريال: ${s.serial}${s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}${s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}
-      </td></tr>`).join('') || ''}
-    `).join('');
-    printElement(`
+  // ✅✅✅ دالة الطباعة المعدلة - فاتورة أبيض وأسود نظيفة للعميل
+const printInvoice = (inv: SaleInvoice) => {
+  const itemsHtml = inv.items.map(item => `
+    <tr>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;">
+        <div style="font-weight:600;font-size:14px;color:#111;">${item.productName}</div>
+        ${item.serials?.map(s => `
+          <div style="font-size:11px;color:#666;margin-top:3px;font-family:monospace;">
+            SN: ${s.serial}${s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}${s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}
+          </div>
+        `).join('') || ''}
+      </td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.quantity}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.unitPrice.toLocaleString('ar-EG')}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.discount > 0 ? item.discount.toLocaleString('ar-EG') : '-'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;font-weight:700;">${item.total.toLocaleString('ar-EG')}</td>
+    </tr>
+  `).join('');
+
+  const w = window.open('', '_blank', 'width=900,height=700');
+  if (!w) return;
+
+  w.document.write(`
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8"/>
+      <title>فاتورة ${inv.invoiceNumber}</title>
+      <style>
+        @page { size: A4; margin: 20mm; }
+        @media print {
+          body { margin: 0; }
+          .no-print { display: none !important; }
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+          direction: rtl;
+          color: #111;
+          background: #fff;
+          font-size: 14px;
+          line-height: 1.6;
+          padding: 30px;
+          max-width: 210mm;
+          margin: 0 auto;
+        }
+
+        /* ── الهيدر ── */
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding-bottom: 20px;
+          border-bottom: 3px solid #111;
+          margin-bottom: 24px;
+        }
+        .logo-section { display: flex; align-items: center; gap: 14px; }
+        .logo-section img { max-width: 80px; max-height: 70px; object-fit: contain; }
+        .shop-name { font-size: 32px; font-weight: 900; letter-spacing: 2px; color: #111; }
+        .invoice-title {
+          text-align: left;
+        }
+        .invoice-title h1 {
+          font-size: 22px;
+          font-weight: 800;
+          color: #111;
+          margin-bottom: 6px;
+        }
+        .invoice-number {
+          font-family: monospace;
+          font-size: 16px;
+          font-weight: 700;
+          color: #444;
+        }
+        .invoice-date {
+          font-size: 13px;
+          color: #666;
+          margin-top: 4px;
+        }
+
+        /* ── بيانات الفاتورة ── */
+        .info-section {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 28px;
+          padding: 16px 20px;
+          background: #f9f9f9;
+          border-radius: 8px;
+          border: 1px solid #e5e7eb;
+        }
+        .info-block {}
+        .info-label {
+          font-size: 11px;
+          color: #888;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 3px;
+        }
+        .info-value {
+          font-size: 15px;
+          font-weight: 600;
+          color: #111;
+        }
+
+        /* ── جدول المنتجات ── */
+        .items-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 24px;
+        }
+        .items-table thead tr {
+          background: #111;
+          color: #fff;
+        }
+        .items-table thead th {
+          padding: 12px 12px;
+          font-size: 13px;
+          font-weight: 600;
+          text-align: center;
+        }
+        .items-table thead th:first-child { text-align: right; }
+        .items-table tbody tr:nth-child(even) { background: #f9f9f9; }
+        .items-table tbody tr:hover { background: #f3f3f3; }
+
+        /* ── الملخص ── */
+        .summary-section {
+          display: flex;
+          justify-content: flex-start;
+          margin-bottom: 28px;
+        }
+        .summary-box {
+          width: 320px;
+          margin-right: auto;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .summary-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 10px 16px;
+          font-size: 14px;
+          border-bottom: 1px solid #f3f4f6;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-row .label { color: #666; }
+        .summary-row .value { font-weight: 600; color: #111; }
+        .summary-row.total {
+          background: #111;
+          color: #fff;
+        }
+        .summary-row.total .label { color: #fff; font-weight: 700; font-size: 16px; }
+        .summary-row.total .value { color: #fff; font-weight: 900; font-size: 18px; }
+        .summary-row.remaining .label { color: #c00; }
+        .summary-row.remaining .value { color: #c00; font-weight: 700; }
+
+        /* ── الملاحظات ── */
+        .notes-section {
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 14px 16px;
+          margin-bottom: 24px;
+          background: #fffef0;
+        }
+        .notes-title { font-size: 12px; color: #888; margin-bottom: 6px; font-weight: 600; }
+        .notes-text { font-size: 14px; color: #333; }
+
+        /* ── الفوتر ── */
+        .footer {
+          text-align: center;
+          padding-top: 20px;
+          border-top: 2px solid #111;
+          color: #666;
+          font-size: 13px;
+        }
+        .footer .thank-you {
+          font-size: 18px;
+          font-weight: 700;
+          color: #111;
+          margin-bottom: 6px;
+        }
+
+        /* ── زر الطباعة ── */
+        .print-btn {
+          display: block;
+          margin: 24px auto 0;
+          padding: 12px 40px;
+          background: #111;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 16px;
+          font-family: inherit;
+        }
+        .print-btn:hover { background: #333; }
+      </style>
+    </head>
+    <body>
+
+      <!-- الهيدر -->
       <div class="header">
-        <div><div class="company-name">ONE</div><div style="font-size:12px;color:#666">نظام الإدارة المتكامل</div></div>
-        <div class="invoice-info">
-          <div><strong>فاتورة مبيعات</strong></div>
-          <div>رقم: ${inv.invoiceNumber}</div>
-          <div>التاريخ: ${inv.date}</div>
-          <div>العميل: ${inv.customerName}</div>
+        <div class="logo-section">
+          <!-- لو عندك لوجو:
+          <img src="https://i.postimg.cc/mkjqSRFg/0-One-logo-21.png" alt="logo" />
+          -->
+          <div class="shop-name">ONE</div>
+        </div>
+        <div class="invoice-title">
+          <h1>فاتورة مبيعات</h1>
+          <div class="invoice-number"># ${inv.invoiceNumber}</div>
+          <div class="invoice-date">📅 ${inv.date}</div>
         </div>
       </div>
-      <table>
-        <thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الإجمالي</th></tr></thead>
-        <tbody>${itemsHtml}</tbody>
+
+      <!-- بيانات الفاتورة -->
+      <div class="info-section">
+        <div class="info-block">
+          <div class="info-label">العميل / الجهة</div>
+          <div class="info-value">${inv.customerName}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">طريقة الدفع</div>
+          <div class="info-value">${paymentMethodLabel(inv.paymentMethod)}${inv.instapayPerson ? ` - ${inv.instapayPerson}` : ''}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">حالة الفاتورة</div>
+          <div class="info-value">${inv.status === 'paid' ? '✅ مدفوعة' : inv.status === 'partial' ? '🔶 مدفوعة جزئياً' : '🔴 غير مدفوعة'}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">رقم المرجع</div>
+          <div class="info-value" style="font-family:monospace;">${inv.invoiceNumber}</div>
+        </div>
+      </div>
+
+      <!-- جدول المنتجات -->
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th style="text-align:right;width:45%;">المنتج / البيان</th>
+            <th>الكمية</th>
+            <th>سعر الوحدة</th>
+            <th>الخصم</th>
+            <th>الإجمالي</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml}
+        </tbody>
       </table>
-      <div class="totals"><table>
-        <tr><td>المجموع الفرعي</td><td>${inv.subtotal.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>- ${inv.discount.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
-        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.remaining > 0 ? `<tr><td style="color:#ef4444">المتبقي</td><td style="color:#ef4444">${inv.remaining.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
-        <tr><td>طريقة الدفع</td><td>${paymentMethodLabel(inv.paymentMethod)}</td></tr>
-      </table></div>
-      ${inv.notes ? `<p style="margin-top:15px;font-size:12px;color:#666">ملاحظات: ${inv.notes}</p>` : ''}
-    `);
-  };
+
+      <!-- الملخص المالي -->
+      <div class="summary-section">
+        <div class="summary-box">
+          <div class="summary-row">
+            <span class="label">المجموع الفرعي</span>
+            <span class="value">${inv.subtotal.toLocaleString('ar-EG')} ج.م</span>
+          </div>
+          ${inv.discount > 0 ? `
+          <div class="summary-row">
+            <span class="label">الخصم الإجمالي</span>
+            <span class="value" style="color:#c00;">- ${inv.discount.toLocaleString('ar-EG')} ج.م</span>
+          </div>` : ''}
+          <div class="summary-row total">
+            <span class="label">الإجمالي النهائي</span>
+            <span class="value">${inv.total.toLocaleString('ar-EG')} ج.م</span>
+          </div>
+          <div class="summary-row">
+            <span class="label">المدفوع</span>
+            <span class="value" style="color:#16a34a;">${inv.paid.toLocaleString('ar-EG')} ج.م</span>
+          </div>
+          ${inv.remaining > 0 ? `
+          <div class="summary-row remaining">
+            <span class="label">المتبقي (مديونية)</span>
+            <span class="value">${inv.remaining.toLocaleString('ar-EG')} ج.م</span>
+          </div>` : ''}
+        </div>
+      </div>
+
+      <!-- الملاحظات -->
+      ${inv.notes ? `
+      <div class="notes-section">
+        <div class="notes-title">📝 ملاحظات</div>
+        <div class="notes-text">${inv.notes}</div>
+      </div>
+      ` : ''}
+
+      <!-- الفوتر -->
+      <div class="footer">
+        <div class="thank-you">شكراً لتعاملكم معنا </div>
+        <div> للاستفسار - 01220125121</div>
+      </div>
+
+      <!-- زر الطباعة -->
+      <div class="no-print">
+        <button class="print-btn" onclick="window.print();">
+          🖨️ طباعة الفاتورة
+        </button>
+      </div>
+
+      <script>window.onload = () => window.print();<\/script>
+    </body>
+    </html>
+  `);
+  w.document.close();
+};
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
@@ -854,7 +1119,6 @@ export default function Sales({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-              {/* ✅ البحث في العملاء والموردين */}
               <div className="relative">
                 <label className="form-label">العميل / الجهة *</label>
                 <input type="text" value={customerSearch}
