@@ -547,7 +547,10 @@ export function useStore() {
           }
           return c;
         });
-        if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
+        if (updatedCustomer !== null) {
+          const customerToSave = updatedCustomer as Customer;
+          saveToFirebase('customers', customerToSave.id, customerToSave);
+        }
       } else {
         let updatedSupplier: Supplier | null = null;
         newState.suppliers = newState.suppliers.map((s): Supplier => {
@@ -563,7 +566,10 @@ export function useStore() {
           }
           return s;
         });
-        if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
+        if (updatedSupplier !== null) {
+          const supplierToSave = updatedSupplier as Supplier;
+          saveToFirebase('suppliers', supplierToSave.id, supplierToSave);
+        }
       }
 
       if (invoice.paid > 0) {
@@ -642,6 +648,35 @@ export function useStore() {
     });
   }, []);
 
+  // ✅ ربط فاتورة شراء جديدة بعمليات بيع معلّقة سابقة (منتجات بيعت بدون تسجيل تكلفة شراء).
+  // يبحث في كل فواتير البيع عن بنود pendingCost بنفس اسم المنتج (تطبيع للمقارنة)، ويحدّث تكلفتها
+  // الحقيقية + يلغي علامة "معلّق"، فيصبح الربح الصافي قابلاً للحساب فورًا.
+  const linkPendingCostToPurchase = useCallback((productName: string, costPrice: number): { linkedCount: number } => {
+    let linkedCount = 0;
+    const normalizedName = normalizeForCompare(productName);
+    setState(prev => {
+      const updatedInvoices: SaleInvoice[] = [];
+      const newSaleInvoices = prev.saleInvoices.map(inv => {
+        let changed = false;
+        const newItems = inv.items.map(item => {
+          if (item.pendingCost && normalizeForCompare(item.productName) === normalizedName) {
+            changed = true;
+            linkedCount++;
+            return { ...item, pendingCost: false, costPrice };
+          }
+          return item;
+        });
+        if (!changed) return inv;
+        const updated = { ...inv, items: newItems };
+        updatedInvoices.push(updated);
+        return updated;
+      });
+      updatedInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
+      return { ...prev, saleInvoices: newSaleInvoices };
+    });
+    return { linkedCount };
+  }, []);
+
   const updatePurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
     setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) }));
     saveToFirebase('purchaseInvoices', invoice.id, invoice);
@@ -699,7 +734,7 @@ export function useStore() {
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
 
       deleteFromFirebase('purchaseInvoices', invoiceId);
-      if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
+      if (updatedSupplier !== null) { const supplierToSave = updatedSupplier as Supplier; saveToFirebase('suppliers', supplierToSave.id, supplierToSave); }
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
       removedSerialIds.forEach(id => deleteFromFirebase('serials', id));
 
@@ -802,8 +837,8 @@ export function useStore() {
       }];
 
       saveToFirebase('payments', payment.id, payment);
-      if (changedCustomer) saveToFirebase('customers', changedCustomer.id, changedCustomer);
-      if (changedSupplier) saveToFirebase('suppliers', changedSupplier.id, changedSupplier);
+      if (changedCustomer !== null) { const customerToSave = changedCustomer as Customer; saveToFirebase('customers', customerToSave.id, customerToSave); }
+      if (changedSupplier !== null) { const supplierToSave = changedSupplier as Supplier; saveToFirebase('suppliers', supplierToSave.id, supplierToSave); }
       changedSaleInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
       changedPurchaseInvoices.forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
 
@@ -1167,7 +1202,7 @@ export function useStore() {
     addCustomer, updateCustomer, deleteCustomer,
     addSupplier, updateSupplier, deleteSupplier,
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,
-    addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice,
+    addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice, linkPendingCostToPurchase,
     addPayment,
     addExpense,
     addNoonOrder, updateNoonOrder, addNoonOrders, settleNoonOrders,

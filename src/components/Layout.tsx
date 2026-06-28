@@ -19,6 +19,7 @@ import {
   CreditCard,
   TrendingUp,
   LogOut,
+  Search,
 } from 'lucide-react';
 
 interface NavItem {
@@ -49,6 +50,7 @@ interface LayoutProps {
   children: React.ReactNode;
   cashBalance: number;
   bankBalance: number;
+  onOpenSearch?: () => void;
 }
 
 export default function Layout({
@@ -57,6 +59,7 @@ export default function Layout({
   children,
   cashBalance,
   bankBalance,
+  onOpenSearch,
 }: LayoutProps) {
   const { logout, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
@@ -235,6 +238,16 @@ export default function Layout({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* زرار البحث الشامل - يفتح بحث في كل النظام (منتجات، عملاء، فواتير، سيريالات) أو Ctrl+K */}
+            <button
+              onClick={onOpenSearch}
+              className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-3 py-2 text-gray-400 transition-colors"
+            >
+              <Search size={16} />
+              <span className="hidden md:inline text-sm">بحث شامل...</span>
+              <kbd className="hidden md:inline text-xs bg-white/10 px-1.5 py-0.5 rounded">Ctrl+K</kbd>
+            </button>
+
             <div className="hidden md:flex items-center gap-3">
               <div className="bg-green-900/30 border border-green-700/40 rounded-lg px-3 py-1.5 text-xs">
                 <span className="text-green-400">💵</span>

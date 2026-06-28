@@ -1,7 +1,8 @@
 import { useAuth } from './auth';
 import Login from './pages/Login';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
+import GlobalSearch from './components/GlobalSearch';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Sales from './pages/Sales';
@@ -23,9 +24,22 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
 
   const store = useStore();
   const { state, isLoading } = store;
+
+  // اختصار Ctrl+K (أو Cmd+K على ماك) لفتح البحث الشامل من أي صفحة
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowGlobalSearch(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (loading) {
     return (
@@ -127,6 +141,7 @@ export default function App() {
             onAddSerials={store.addSerials}
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
             onDeletePurchaseInvoice={store.deletePurchaseInvoice}
+            onLinkPendingCost={store.linkPendingCostToPurchase}
             preselectedSupplierId={pendingSupplierId}
             onPreselectedHandled={() => setPendingSupplierId(null)}
           />
@@ -244,8 +259,16 @@ export default function App() {
       onNavigate={setCurrentPage}
       cashBalance={state.cashBalance}
       bankBalance={state.bankBalance}
+      onOpenSearch={() => setShowGlobalSearch(true)}
     >
       {renderPage()}
+      {showGlobalSearch && (
+        <GlobalSearch
+          state={state}
+          onNavigate={setCurrentPage}
+          onClose={() => setShowGlobalSearch(false)}
+        />
+      )}
     </Layout>
   );
 }

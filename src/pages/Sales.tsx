@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, AlertTriangle } from 'lucide-react';
 
 interface Props {
   saleInvoices: SaleInvoice[];
@@ -37,6 +37,8 @@ interface SaleItem {
   taxRate: number;
   serials: { serial: string; imei1: string; imei2: string }[];
   total: number;
+  // ✅ بيع منتج غير موجود في المخزون أصلاً (اسم يدوي، بدون سعر شراء معروف حتى يتم تسجيله)
+  pendingCost?: boolean;
 }
 
 interface PurchItem {
@@ -424,6 +426,8 @@ export default function Sales({
       taxRate: item.taxRate,
       total: item.total,
       serials: item.serials.filter(s => s.serial),
+      pendingCost: item.pendingCost || false,
+      costPrice: item.pendingCost ? 0 : (products.find(p => p.id === item.productId)?.costPrice ?? 0),
     }));
 
     if (editingInvoice) {
@@ -515,6 +519,45 @@ export default function Sales({
     setQpDate(getTodayStr()); setQpNotes(''); setQpPayMethod('cash');
     setQpPaid(''); setQpDupWarning(null);
     setShowQuickPurchase(true);
+  };
+
+  // ✅ بيع منتج غير موجود في المخزون أصلاً: يُكتب اسمه يدويًا بالكامل، ويُباع فورًا بدون تسجيل سعر شراء.
+  // يظهر بعدها في "أجهزة بدون سعر شراء" بالداشبورد باللون الأحمر كـ "معلّق" لحد ما يتم تسجيل فاتورة شراء له.
+  const [showPendingSaleModal, setShowPendingSaleModal] = useState(false);
+  const [pendingSaleTargetItemId, setPendingSaleTargetItemId] = useState<string | null>(null);
+  const [pendingSaleName, setPendingSaleName] = useState('');
+  const [pendingSalePrice, setPendingSalePrice] = useState('');
+
+  const openPendingSale = (saleItemId: string, searchText: string) => {
+    setPendingSaleTargetItemId(saleItemId);
+    setPendingSaleName(searchText);
+    setPendingSalePrice('');
+    setShowItemDrop(prev => ({ ...prev, [saleItemId]: false }));
+    setShowPendingSaleModal(true);
+  };
+
+  const handleConfirmPendingSale = () => {
+    if (!pendingSaleTargetItemId || !pendingSaleName.trim() || !pendingSalePrice) return;
+    const price = parseFloat(pendingSalePrice) || 0;
+    setSaleItems(prev => prev.map(item => {
+      if (item.id !== pendingSaleTargetItemId) return item;
+      return {
+        ...item,
+        productId: '', // لا يوجد منتج فعلي مربوط في المخزون
+        productName: pendingSaleName.trim(),
+        sku: '— (بدون شراء)',
+        unitPrice: price,
+        quantity: 1,
+        serials: [],
+        total: price,
+        pendingCost: true,
+      };
+    }));
+    setItemSearch(prev => ({ ...prev, [pendingSaleTargetItemId]: pendingSaleName.trim() }));
+    setShowPendingSaleModal(false);
+    setPendingSaleTargetItemId(null);
+    setPendingSaleName('');
+    setPendingSalePrice('');
   };
 
   const existingSerialsSet = new Set(serials.map(s => s.serial.trim().toLowerCase()).filter(Boolean));
@@ -1187,8 +1230,14 @@ const printInvoice = (inv: SaleInvoice) => {
 
                   return (
                     <div key={item.id} className={`bg-[#252545] border rounded-xl p-3 ${
-                      item.productId && !stockOk ? 'border-red-600/40' : 'border-violet-900/20'
+                      item.pendingCost ? 'border-red-600/60 bg-red-950/10' : item.productId && !stockOk ? 'border-red-600/40' : 'border-violet-900/20'
                     }`}>
+                      {item.pendingCost && (
+                        <div className="flex items-center gap-1.5 text-red-400 text-xs font-medium mb-2 bg-red-900/20 border border-red-700/30 rounded-lg px-2 py-1">
+                          <AlertTriangle size={12} />
+                          🔴 بيع معلّق - بدون تسجيل سعر شراء (سيظهر في الصفحة الرئيسية لحد ما تسجل فاتورة الشراء)
+                        </div>
+                      )}
                       <div className="grid grid-cols-12 gap-2 items-start">
                         <div className="col-span-12 md:col-span-4 relative">
                           <label className="form-label text-xs">البند</label>
@@ -1199,7 +1248,7 @@ const printInvoice = (inv: SaleInvoice) => {
                             }}
                             onFocus={() => setShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
                             placeholder="ابحث عن منتج..."
-                            className="input-dark w-full text-sm"
+                            className={`input-dark w-full text-sm ${item.pendingCost ? 'border-red-600/50 text-red-300' : ''}`}
                           />
                           {showItemDrop[item.id] && (
                             <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto">
@@ -1233,6 +1282,11 @@ const printInvoice = (inv: SaleInvoice) => {
                                   📦 منتج مش موجود؟ افتح فاتورة شراء
                                 </button>
                               )}
+                              <button onClick={() => openPendingSale(item.id, itemSearch[item.id] || '')}
+                                className="w-full text-right px-3 py-2.5 text-xs text-red-400 hover:bg-red-900/20 border-t border-white/10 font-medium flex items-center gap-2">
+                                <AlertTriangle size={13} />
+                                🔴 بيعه دلوقتي بدون تسجيل شراء (معلّق)
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1599,6 +1653,55 @@ const printInvoice = (inv: SaleInvoice) => {
               <button onClick={() => setConfirmDeleteInvoice(null)} className="btn-secondary flex-1">
                 إلغاء
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== Pending-Cost Sale (بيع بدون تسجيل شراء) ==================== */}
+      {showPendingSaleModal && (
+        <div className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle size={20} className="text-red-400" />
+              <h2 className="text-lg font-bold text-white">بيع بدون تسجيل شراء</h2>
+            </div>
+            <p className="text-red-400/80 text-xs mb-4 bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2">
+              ⚠️ هذا المنتج غير موجود في المخزون. سيُباع الآن بدون تكلفة شراء مسجّلة، وسيظهر باللون الأحمر
+              في "أجهزة بدون سعر شراء" بالصفحة الرئيسية لحد ما تسجّل فاتورة شراء له لاحقًا.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="form-label">اسم المنتج بالكامل *</label>
+                <input
+                  type="text"
+                  value={pendingSaleName}
+                  onChange={e => setPendingSaleName(e.target.value)}
+                  className="input-dark w-full"
+                  placeholder="مثال: iPhone 13 Pro 256GB"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="form-label">سعر البيع *</label>
+                <input
+                  type="number"
+                  value={pendingSalePrice}
+                  onChange={e => setPendingSalePrice(e.target.value)}
+                  className="input-dark w-full"
+                  placeholder="السعر الذي سيدفعه العميل"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={handleConfirmPendingSale}
+                disabled={!pendingSaleName.trim() || !pendingSalePrice}
+                className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                🔴 تأكيد البيع المعلّق
+              </button>
+              <button onClick={() => setShowPendingSaleModal(false)} className="btn-secondary px-4">إلغاء</button>
             </div>
           </div>
         </div>

@@ -89,6 +89,10 @@ export interface InvoiceItem {
   taxRate: number;
   total: number;
   serials?: SerialItemLine[];
+  // ✅ بيع منتج غير موجود في المخزون أصلاً (يُكتب اسمه يدويًا، بدون productId فعلي):
+  // pendingCost = true يعني البيع تم بدون تسجيل سعر شراء، وننتظر تسجيل فاتورة الشراء له لاحقًا.
+  pendingCost?: boolean;
+  costPrice?: number; // تكلفة القطعة (تبقى 0/فاضية لحد ما تُربط بفاتورة شراء فعلية لاحقًا)
 }
 
 export interface SerialItemLine {

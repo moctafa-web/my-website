@@ -11,6 +11,7 @@ interface Props {
   brands: Brand[];
   settings: { lastPurchaseInvoiceNum: number; purchasePrefix: string; companyName: string };
   onAddPurchaseInvoice: (inv: PurchaseInvoice) => void;
+  onLinkPendingCost?: (productName: string, costPrice: number) => { linkedCount: number };
   onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onAddProduct: (p: Product) => { success: boolean; message?: string } | void;
   onAddSerials: (serials: SerialItem[]) => void;
@@ -35,13 +36,14 @@ interface PurchItem {
 export default function Purchases({
   purchaseInvoices, suppliers, products, serials, brands, settings,
   onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials,
-  onUpdatePurchaseInvoice, onDeletePurchaseInvoice,
+  onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onLinkPendingCost,
   preselectedSupplierId, onPreselectedHandled
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<PurchaseInvoice | null>(null);
+  const [linkedInfoToast, setLinkedInfoToast] = useState<string | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<PurchaseInvoice | null>(null);
   const [addSupplierModal, setAddSupplierModal] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', type: 'supplier' as Supplier['type'] });
@@ -424,6 +426,21 @@ export default function Purchases({
     onAddPurchaseInvoice(invoice);
     if (newSerials.length > 0) onAddSerials(newSerials);
 
+    // ✅ بعد حفظ الشراء، نفحص لو فيه بيع معلّق (بدون سعر شراء) بنفس اسم أي منتج في هذه الفاتورة، ونربطهم تلقائيًا
+    if (onLinkPendingCost) {
+      let totalLinked = 0;
+      purchItems.forEach(item => {
+        if (item.productName) {
+          const result = onLinkPendingCost(item.productName, item.unitPrice);
+          totalLinked += result.linkedCount;
+        }
+      });
+      if (totalLinked > 0) {
+        setLinkedInfoToast(`✅ تم ربط ${totalLinked} عملية بيع معلّقة بسعر الشراء الجديد، وأصبح يمكن حساب ربحها الصافي`);
+        setTimeout(() => setLinkedInfoToast(null), 6000);
+      }
+    }
+
     resetForm();
     setShowForm(false);
   };
@@ -533,6 +550,12 @@ export default function Purchases({
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
+      {linkedInfoToast && (
+        <div className="bg-green-900/30 border border-green-700/40 rounded-xl px-4 py-3 text-green-300 text-sm flex items-center justify-between">
+          <span>{linkedInfoToast}</span>
+          <button onClick={() => setLinkedInfoToast(null)} className="text-green-400 hover:text-green-200">✕</button>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">📦 المشتريات</h2>

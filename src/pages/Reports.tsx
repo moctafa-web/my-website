@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppState } from '../types';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, getTodayStr } from '../utils/helpers';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface Props {
@@ -45,40 +45,73 @@ export default function Reports({ state }: Props) {
 
   const COLORS = ['#7c3aed', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
+  // ✅ ربح المحل (offline) الصافي = مبيعات - تكلفة المنتجات المباعة فعليًا (costPrice وقت البيع، وليس فقط مبيعات - مشتريات بشكل عام)
+  const calcOfflineProfit = (invoices: typeof state.saleInvoices) => {
+    return invoices.reduce((sum, inv) => {
+      const invoiceCost = inv.items.reduce((s, item) => {
+        if (item.pendingCost) return s; // بيع معلّق بدون تكلفة معروفة بعد - لا يُحسب ربحه حتى تُسجل تكلفته
+        const cost = item.costPrice ?? (state.products.find(p => p.id === item.productId)?.costPrice || 0);
+        return s + cost * item.quantity;
+      }, 0);
+      return sum + (inv.total - invoiceCost);
+    }, 0);
+  };
+
   const totalSales = state.saleInvoices.reduce((s, i) => s + i.total, 0);
   const totalPurchases = state.purchaseInvoices.reduce((s, i) => s + i.total, 0);
   const totalExpenses = state.expenses.reduce((s, e) => s + e.amount, 0);
-  const totalNoonProfit = state.noonOrders.reduce((s, o) => s + (o.settlementProfit || 0), 0);
-  const netProfit = totalSales - totalPurchases - totalExpenses + totalNoonProfit;
+  const totalOfflineProfit = calcOfflineProfit(state.saleInvoices);
+  const totalNoonProfit = state.noonOrders.filter(o => o.platform === 'noon').reduce((s, o) => s + (o.settlementProfit || 0), 0);
+  const totalAmazonProfit = state.noonOrders.filter(o => o.platform === 'amazon').reduce((s, o) => s + (o.settlementProfit || 0), 0);
+  const totalOtherPlatformProfit = state.noonOrders.filter(o => o.platform !== 'noon' && o.platform !== 'amazon').reduce((s, o) => s + (o.settlementProfit || 0), 0);
+  const netProfit = totalOfflineProfit - totalExpenses + totalNoonProfit + totalAmazonProfit + totalOtherPlatformProfit;
   const totalDebt = state.customers.reduce((s, c) => {
     const invs = state.saleInvoices.filter(i => i.customerId === c.id);
     return s + invs.reduce((x, i) => x + i.remaining, 0);
   }, 0);
 
-  // ربح الشهر الحالي: مبيعات + ربح تسويات نون/أمازون - مشتريات - مصروفات (كل عنصر محسوب بتاريخه الفعلي)
+  // ربح الشهر/اليوم الحالي: مفصّل بين المحل (offline)، نون، أمازون - كل عنصر محسوب بتاريخه الفعلي
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const todayKey = getTodayStr();
   const getMonthKey = (dateStr: string) => dateStr.slice(0, 7);
 
-  const buildMonthSummary = (monthKey: string) => {
-    const monthSales = state.saleInvoices.filter(i => getMonthKey(i.date) === monthKey).reduce((s, i) => s + i.total, 0);
-    const monthPurchases = state.purchaseInvoices.filter(i => getMonthKey(i.date) === monthKey).reduce((s, i) => s + i.total, 0);
-    const monthExpenses = state.expenses.filter(e => getMonthKey(e.date) === monthKey).reduce((s, e) => s + e.amount, 0);
-    // ربح أوردرات نون/أمازون يُحسب بتاريخ التسوية البنكية فعليًا (settledDate) وليس تاريخ إنشاء الأوردر
-    const monthNoonProfit = state.noonOrders.filter(o => o.settledDate && getMonthKey(o.settledDate) === monthKey).reduce((s, o) => s + (o.settlementProfit || 0), 0);
-    const monthNoonAmount = state.noonOrders.filter(o => o.settledDate && getMonthKey(o.settledDate) === monthKey).reduce((s, o) => s + (o.settledAmount || 0), 0);
+  const buildPeriodSummary = (filterFn: (dateStr: string) => boolean) => {
+    const periodSales = state.saleInvoices.filter(i => filterFn(i.date));
+    const periodPurchases = state.purchaseInvoices.filter(i => filterFn(i.date)).reduce((s, i) => s + i.total, 0);
+    const periodExpenses = state.expenses.filter(e => filterFn(e.date)).reduce((s, e) => s + e.amount, 0);
+    const offlineSalesTotal = periodSales.reduce((s, i) => s + i.total, 0);
+    const offlineProfit = calcOfflineProfit(periodSales);
+
+    // ربح نون وأمازون يُحسبان بتاريخ التسوية البنكية الفعلي (settledDate)، فهو التاريخ الذي تحقق فيه الربح فعليًا
+    const settledOrders = state.noonOrders.filter(o => o.settledDate && filterFn(o.settledDate));
+    const noonOrdersInPeriod = settledOrders.filter(o => o.platform === 'noon');
+    const amazonOrdersInPeriod = settledOrders.filter(o => o.platform === 'amazon');
+    const noonProfit = noonOrdersInPeriod.reduce((s, o) => s + (o.settlementProfit || 0), 0);
+    const noonAmount = noonOrdersInPeriod.reduce((s, o) => s + (o.settledAmount || 0), 0);
+    const amazonProfit = amazonOrdersInPeriod.reduce((s, o) => s + (o.settlementProfit || 0), 0);
+    const amazonAmount = amazonOrdersInPeriod.reduce((s, o) => s + (o.settledAmount || 0), 0);
+
+    const totalNet = offlineProfit - periodExpenses + noonProfit + amazonProfit;
     return {
-      monthKey,
-      sales: monthSales,
-      purchases: monthPurchases,
-      expenses: monthExpenses,
-      noonProfit: monthNoonProfit,
-      noonAmount: monthNoonAmount,
-      net: monthSales - monthPurchases - monthExpenses + monthNoonProfit,
+      offlineSales: offlineSalesTotal,
+      offlineProfit,
+      purchases: periodPurchases,
+      expenses: periodExpenses,
+      noonProfit, noonAmount,
+      amazonProfit, amazonAmount,
+      onlineProfit: noonProfit + amazonProfit,
+      net: totalNet,
     };
   };
 
-  const currentMonthSummary = buildMonthSummary(currentMonthKey);
+  const todaySummary = buildPeriodSummary(d => d === todayKey);
+  const currentMonthSummary = buildPeriodSummary(d => getMonthKey(d) === currentMonthKey);
+
+  const buildMonthSummary = (monthKey: string) => {
+    const s = buildPeriodSummary(d => getMonthKey(d) === monthKey);
+    return { monthKey, ...s };
+  };
   const last6MonthsKeys = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -246,45 +279,78 @@ export default function Reports({ state }: Props) {
         )}
       </div>
 
-      {/* ربح الشهر الحالي - شامل المبيعات والمصروفات وربح تسويات نون/أمازون */}
-      <div className="bg-gradient-to-br from-violet-900/30 to-[#1a1a35] border border-violet-700/40 rounded-2xl p-5">
-        <h3 className="font-bold text-white mb-1">📅 ربح شهر {monthLabel(currentMonthKey)}</h3>
-        <p className="text-xs text-gray-500 mb-4">إجمالي الربح هذا الشهر شامل المبيعات المباشرة وربح أوردرات نون/أمازون المحوّلة بنكيًا خلال الشهر</p>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      {/* ربح اليوم - مفصّل بين المحل ونون وأمازون */}
+      <div className="bg-gradient-to-br from-green-900/20 to-[#1a1a35] border border-green-700/30 rounded-2xl p-5">
+        <h3 className="font-bold text-white mb-1">📆 ربح اليوم</h3>
+        <p className="text-xs text-gray-500 mb-4">ربح المحل (أوفلاين) + ربح أوردرات نون وأمازون المحوّلة بنكيًا اليوم، كل قناة على حدة</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-[#252545] rounded-xl p-3 text-center">
-            <div className="text-lg font-black text-green-400">{formatCurrency(currentMonthSummary.sales)}</div>
-            <div className="text-xs text-gray-500 mt-1">مبيعات الشهر</div>
+            <div className="text-lg font-black text-blue-300">{formatCurrency(todaySummary.offlineProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح المحل (أوفلاين)</div>
           </div>
           <div className="bg-[#252545] rounded-xl p-3 text-center">
-            <div className="text-lg font-black text-blue-400">{formatCurrency(currentMonthSummary.purchases)}</div>
-            <div className="text-xs text-gray-500 mt-1">مشتريات الشهر</div>
+            <div className="text-lg font-black text-yellow-300">{formatCurrency(todaySummary.noonProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح نون</div>
+          </div>
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-orange-300">{formatCurrency(todaySummary.amazonProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح أمازون</div>
+          </div>
+          <div className={`rounded-xl p-3 text-center border ${todaySummary.net >= 0 ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'}`}>
+            <div className={`text-lg font-black ${todaySummary.net >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatCurrency(todaySummary.net)}</div>
+            <div className="text-xs text-gray-500 mt-1">صافي ربح اليوم</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ربح الشهر الحالي - مفصّل بين المحل ونون وأمازون */}
+      <div className="bg-gradient-to-br from-violet-900/30 to-[#1a1a35] border border-violet-700/40 rounded-2xl p-5">
+        <h3 className="font-bold text-white mb-1">📅 ربح شهر {monthLabel(currentMonthKey)}</h3>
+        <p className="text-xs text-gray-500 mb-4">ربح كل قناة بيع على حدة، عشان تعرف فين بتكسب أكتر وقد إيه</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-blue-300">{formatCurrency(currentMonthSummary.offlineProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح المحل (أوفلاين)</div>
+            <div className="text-xs text-gray-600 mt-0.5">من {formatCurrency(currentMonthSummary.offlineSales)} مبيعات</div>
+          </div>
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-yellow-300">{formatCurrency(currentMonthSummary.noonProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح نون</div>
+            <div className="text-xs text-gray-600 mt-0.5">من {formatCurrency(currentMonthSummary.noonAmount)} محوّل</div>
+          </div>
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-orange-300">{formatCurrency(currentMonthSummary.amazonProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">ربح أمازون</div>
+            <div className="text-xs text-gray-600 mt-0.5">من {formatCurrency(currentMonthSummary.amazonAmount)} محوّل</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="bg-[#252545] rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-cyan-300">{formatCurrency(currentMonthSummary.onlineProfit)}</div>
+            <div className="text-xs text-gray-500 mt-1">إجمالي ربح الأونلاين (نون+أمازون)</div>
           </div>
           <div className="bg-[#252545] rounded-xl p-3 text-center">
             <div className="text-lg font-black text-orange-400">{formatCurrency(currentMonthSummary.expenses)}</div>
             <div className="text-xs text-gray-500 mt-1">مصروفات الشهر</div>
           </div>
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
-            <div className="text-lg font-black text-violet-300">{formatCurrency(currentMonthSummary.noonProfit)}</div>
-            <div className="text-xs text-gray-500 mt-1">ربح أوردرات نون/أمازون</div>
-          </div>
           <div className={`rounded-xl p-3 text-center border ${currentMonthSummary.net >= 0 ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'}`}>
             <div className={`text-lg font-black ${currentMonthSummary.net >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatCurrency(currentMonthSummary.net)}</div>
-            <div className="text-xs text-gray-500 mt-1">صافي ربح الشهر</div>
+            <div className="text-xs text-gray-500 mt-1">صافي ربح الشهر الإجمالي</div>
           </div>
         </div>
       </div>
 
-      {/* جدول مقارنة آخر 6 شهور */}
+      {/* جدول مقارنة آخر 6 شهور - مفصّل بين المحل ونون وأمازون */}
       <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5 overflow-x-auto">
         <h3 className="font-bold text-white mb-4">📊 مقارنة آخر 6 شهور</h3>
-        <table className="w-full text-sm min-w-[600px]">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-violet-900/20">
             <tr>
               <th className="text-right py-2 px-3 text-gray-400">الشهر</th>
-              <th className="text-center py-2 px-3 text-gray-400">المبيعات</th>
-              <th className="text-center py-2 px-3 text-gray-400">المشتريات</th>
+              <th className="text-center py-2 px-3 text-gray-400">ربح المحل</th>
+              <th className="text-center py-2 px-3 text-gray-400">ربح نون</th>
+              <th className="text-center py-2 px-3 text-gray-400">ربح أمازون</th>
               <th className="text-center py-2 px-3 text-gray-400">المصروفات</th>
-              <th className="text-center py-2 px-3 text-gray-400">ربح نون/أمازون</th>
               <th className="text-center py-2 px-3 text-gray-400">صافي الربح</th>
             </tr>
           </thead>
@@ -292,10 +358,10 @@ export default function Reports({ state }: Props) {
             {monthlyHistory.map(m => (
               <tr key={m.monthKey} className={`border-t border-white/5 ${m.monthKey === currentMonthKey ? 'bg-violet-900/10' : ''}`}>
                 <td className="py-2 px-3 text-white font-medium">{monthLabel(m.monthKey)}</td>
-                <td className="py-2 px-3 text-center text-green-400">{formatCurrency(m.sales)}</td>
-                <td className="py-2 px-3 text-center text-blue-400">{formatCurrency(m.purchases)}</td>
+                <td className="py-2 px-3 text-center text-blue-300">{formatCurrency(m.offlineProfit)}</td>
+                <td className="py-2 px-3 text-center text-yellow-300">{formatCurrency(m.noonProfit)}</td>
+                <td className="py-2 px-3 text-center text-orange-300">{formatCurrency(m.amazonProfit)}</td>
                 <td className="py-2 px-3 text-center text-orange-400">{formatCurrency(m.expenses)}</td>
-                <td className="py-2 px-3 text-center text-violet-300">{formatCurrency(m.noonProfit)}</td>
                 <td className={`py-2 px-3 text-center font-bold ${m.net >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(m.net)}</td>
               </tr>
             ))}

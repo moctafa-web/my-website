@@ -57,6 +57,34 @@ export default function Dashboard({
     p => !p.costPrice || p.costPrice === 0
   );
 
+  // ✅ بنود بيعت بدون تسجيل سعر شراء (منتج اسمه مكتوب يدويًا، مش موجود أصلاً في المخزون).
+  // هذه أخطر من noCostProducts لأنها بيعت بالفعل ولا يوجد لها أثر في جداول الشراء خالص.
+  interface PendingSaleRow {
+    invoiceId: string;
+    invoiceNumber: string;
+    itemId: string;
+    productName: string;
+    quantity: number;
+    salePrice: number;
+    date: string;
+  }
+  const pendingSales: PendingSaleRow[] = [];
+  state.saleInvoices.forEach(inv => {
+    inv.items.forEach(item => {
+      if (item.pendingCost) {
+        pendingSales.push({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          itemId: item.id,
+          productName: item.productName,
+          quantity: item.quantity,
+          salePrice: item.unitPrice,
+          date: inv.date,
+        });
+      }
+    });
+  });
+
   /* ─── دفتر الديون - عملاء وموردين معاً ─── */
 
   // اللي لينا عندهم (عملاء + موردين عليهم فلوس)
@@ -404,25 +432,48 @@ export default function Dashboard({
 
         {/* أجهزة بدون سعر شراء */}
         <div className={`rounded-2xl p-5 border transition-all ${
-          noCostProducts.length > 0
+          (noCostProducts.length + pendingSales.length) > 0
             ? 'bg-gradient-to-br from-red-900/20 to-rose-900/10 border-red-600/30'
             : 'bg-gradient-to-br from-green-900/10 to-emerald-900/5 border-green-700/20'
         }`}>
           <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${
-              noCostProducts.length > 0 ? 'bg-red-500/10' : 'bg-green-500/10'
+              (noCostProducts.length + pendingSales.length) > 0 ? 'bg-red-500/10' : 'bg-green-500/10'
             }`}>
-              {noCostProducts.length > 0 ? '⚠️' : '✅'}
+              {(noCostProducts.length + pendingSales.length) > 0 ? '⚠️' : '✅'}
             </div>
-            {noCostProducts.length > 0 && (
+            {(noCostProducts.length + pendingSales.length) > 0 && (
               <span className="text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded-lg animate-pulse font-bold">
-                {noCostProducts.length} منتج بدون سعر
+                {noCostProducts.length + pendingSales.length} عنصر بدون سعر
               </span>
             )}
           </div>
           <div className="text-base font-bold text-white mb-3">أجهزة بدون سعر شراء</div>
+
+          {/* البنود المعلقة (بيعت فعليًا بدون تسجيل شراء) تظهر أولًا وبشكل أبرز */}
+          {pendingSales.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {pendingSales.map(row => (
+                <div key={row.itemId}
+                  className="flex items-center justify-between bg-red-900/30 border border-red-600/40 rounded-xl px-3 py-2">
+                  <div>
+                    <div className="text-sm text-red-300 font-bold flex items-center gap-1">
+                      🔴 {row.productName}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      فاتورة {row.invoiceNumber} • {row.date} • بيعت بـ {formatCurrency(row.salePrice)}
+                    </div>
+                  </div>
+                  <span className="text-xs text-red-400 bg-red-900/40 px-2 py-1 rounded-lg font-bold">
+                    معلّق
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {noCostProducts.length === 0 ? (
-            <div className="text-sm text-green-400">✅ جميع المنتجات لها سعر شراء</div>
+            pendingSales.length === 0 && <div className="text-sm text-green-400">✅ جميع المنتجات لها سعر شراء</div>
           ) : (
             <div className="space-y-2 max-h-[120px] overflow-y-auto">
               {noCostProducts.map(p => (
@@ -443,7 +494,7 @@ export default function Dashboard({
               ))}
             </div>
           )}
-          {noCostProducts.length > 0 && (
+          {(noCostProducts.length > 0 || pendingSales.length > 0) && (
             <button onClick={() => onNavigate('products')}
               className="mt-3 w-full text-xs text-violet-400 hover:text-violet-300 py-1.5 border border-violet-700/30 rounded-xl">
               الذهاب لصفحة المنتجات →
