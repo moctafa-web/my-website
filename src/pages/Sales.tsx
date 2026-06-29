@@ -1,8 +1,8 @@
 // src/pages/Sales.tsx
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
-import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, AlertTriangle } from 'lucide-react';
+import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor } from '../utils/helpers';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle } from 'lucide-react';
 
 interface Props {
   saleInvoices: SaleInvoice[];
@@ -10,7 +10,13 @@ interface Props {
   products: Product[];
   serials: SerialItem[];
   brands: Brand[];
-  settings: { lastSaleInvoiceNum: number; invoicePrefix: string; companyName: string; lastPurchaseInvoiceNum: number; purchasePrefix: string };
+  settings: {
+    lastSaleInvoiceNum: number;
+    invoicePrefix: string;
+    companyName: string;
+    lastPurchaseInvoiceNum: number;
+    purchasePrefix: string;
+  };
   suppliers?: Supplier[];
   onAddSaleInvoice: (inv: SaleInvoice) => void;
   onAddCustomer: (c: Customer) => { success: boolean; message?: string } | void;
@@ -37,8 +43,6 @@ interface SaleItem {
   taxRate: number;
   serials: { serial: string; imei1: string; imei2: string }[];
   total: number;
-  // ✅ بيع منتج غير موجود في المخزون أصلاً (اسم يدوي، بدون سعر شراء معروف حتى يتم تسجيله)
-  pendingCost?: boolean;
 }
 
 interface PurchItem {
@@ -59,54 +63,54 @@ export default function Sales({
   preselectedCustomerId, onPreselectedHandled,
   onAddProduct, onAddSupplier, onAddPurchaseInvoice, onAddSerials,
 }: Props) {
-  const [showForm, setShowForm]                   = useState(false);
-  const [search, setSearch]                       = useState('');
-  const [viewInvoice, setViewInvoice]             = useState<SaleInvoice | null>(null);
-  const [editingInvoice, setEditingInvoice]       = useState<SaleInvoice | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState('');
+  const [viewInvoice, setViewInvoice] = useState<SaleInvoice | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<SaleInvoice | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<SaleInvoice | null>(null);
-  const [addCustomerModal, setAddCustomerModal]   = useState(false);
-  const [newCustomer, setNewCustomer]             = useState({ name: '', phone: '', type: 'individual' as Customer['type'] });
-  const [customerDupError, setCustomerDupError]   = useState<string | null>(null);
+  const [addCustomerModal, setAddCustomerModal] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', type: 'individual' as Customer['type'] });
+  const [customerDupError, setCustomerDupError] = useState<string | null>(null);
 
-  const [formDate, setFormDate]           = useState(getTodayStr());
-  const [customerId, setCustomerId]       = useState('');
+  const [formDate, setFormDate] = useState(getTodayStr());
+  const [customerId, setCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
-  const [showCustDrop, setShowCustDrop]   = useState(false);
-  const [saleItems, setSaleItems]         = useState<SaleItem[]>([]);
+  const [showCustDrop, setShowCustDrop] = useState(false);
+  const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [instapayPerson, setInstapayPerson] = useState('');
-  const [paid, setPaid]                   = useState('');
-  const [discount, setDiscount]           = useState(0);
-  const [notes, setNotes]                 = useState('');
-  const [itemSearch, setItemSearch]       = useState<Record<string, string>>({});
-  const [showItemDrop, setShowItemDrop]   = useState<Record<string, boolean>>({});
+  const [paid, setPaid] = useState('');
+  const [discount, setDiscount] = useState(0);
+  const [notes, setNotes] = useState('');
+  const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
+  const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
-  const [stockError, setStockError]       = useState<string | null>(null);
-  const [showSerialDrop, setShowSerialDrop] = useState<Record<string, number | null>>({});
+  const [stockError, setStockError] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const [showQuickPurchase, setShowQuickPurchase]     = useState(false);
+  // Quick Purchase states
+  const [showQuickPurchase, setShowQuickPurchase] = useState(false);
   const [quickPurchTargetItemId, setQuickPurchTargetItemId] = useState<string | null>(null);
-  const [qpSupplierId, setQpSupplierId]               = useState('');
-  const [qpSupplierSearch, setQpSupplierSearch]       = useState('');
-  const [qpShowSupDrop, setQpShowSupDrop]             = useState(false);
-  const [qpDate, setQpDate]                           = useState(getTodayStr());
-  const [qpNotes, setQpNotes]                         = useState('');
-  const [qpPayMethod, setQpPayMethod]                 = useState<PaymentMethod>('cash');
-  const [qpPaid, setQpPaid]                           = useState('');
-  const [qpItems, setQpItems]                         = useState<PurchItem[]>([]);
-  const [qpItemSearch, setQpItemSearch]               = useState<Record<string, string>>({});
-  const [qpShowItemDrop, setQpShowItemDrop]           = useState<Record<string, boolean>>({});
-  const [qpDupWarning, setQpDupWarning]               = useState<string | null>(null);
-  const [addSupplierModal, setAddSupplierModal]       = useState(false);
-  const [newSupplier, setNewSupplier]                 = useState({ name: '', phone: '', type: 'supplier' as Supplier['type'] });
+  const [qpSupplierId, setQpSupplierId] = useState('');
+  const [qpSupplierSearch, setQpSupplierSearch] = useState('');
+  const [qpShowSupDrop, setQpShowSupDrop] = useState(false);
+  const [qpDate, setQpDate] = useState(getTodayStr());
+  const [qpNotes, setQpNotes] = useState('');
+  const [qpPayMethod, setQpPayMethod] = useState<PaymentMethod>('cash');
+  const [qpPaid, setQpPaid] = useState('');
+  const [qpItems, setQpItems] = useState<PurchItem[]>([]);
+  const [qpItemSearch, setQpItemSearch] = useState<Record<string, string>>({});
+  const [qpShowItemDrop, setQpShowItemDrop] = useState<Record<string, boolean>>({});
+  const [qpDupWarning, setQpDupWarning] = useState<string | null>(null);
+  const [addSupplierModal, setAddSupplierModal] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', type: 'supplier' as Supplier['type'] });
   const [showNewProductModal, setShowNewProductModal] = useState<string | null>(null);
-  const [newProductForm, setNewProductForm]           = useState({
+  const [newProductForm, setNewProductForm] = useState({
     name: '', sku: '', category: 'phones' as Product['category'],
     brand: 'Apple', productType: 'serial' as Product['productType'],
     costPrice: '', salePrice: '',
   });
-  const [qpQuickAddError, setQpQuickAddError]         = useState<string | null>(null);
+  const [qpQuickAddError, setQpQuickAddError] = useState<string | null>(null);
   const qpSerialRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const getAvailableStock = useCallback((productId: string): number => {
@@ -202,10 +206,10 @@ export default function Sales({
     (p.phone || '').includes(customerSearch)
   );
 
-  const subtotal           = saleItems.reduce((s, item) => s + item.total, 0);
+  const subtotal = saleItems.reduce((s, item) => s + item.total, 0);
   const totalAfterDiscount = Math.max(0, subtotal - discount);
-  const paidAmount         = parseFloat(paid) || 0;
-  const remaining          = totalAfterDiscount - paidAmount;
+  const paidAmount = parseFloat(paid) || 0;
+  const remaining = totalAfterDiscount - paidAmount;
 
   const addItem = () => {
     const newItem = makeEmptySaleItem();
@@ -253,14 +257,9 @@ export default function Sales({
     setSaleItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
       const ns = [...item.serials];
-      ns[index] = {
-        serial: serial.serial,
-        imei1: serial.imei1 || '',
-        imei2: serial.imei2 || '',
-      };
+      ns[index] = { serial: serial.serial, imei1: serial.imei1 || '', imei2: serial.imei2 || '' };
       return { ...item, serials: ns };
     }));
-    setShowSerialDrop(prev => ({ ...prev, [itemId]: null }));
   };
 
   const addSerialSlot = (itemId: string, focusAfter = false) => {
@@ -355,47 +354,73 @@ export default function Sales({
 
   const selectedParty = allParties.find(p => p.id === customerId);
 
-  const validateStock = (): string | null => {
-    for (const item of saleItems) {
-      if (!item.productId) continue;
-      const product = products.find(p => p.id === item.productId);
-      if (!product) continue;
+const validateStock = (): string | null => {
+  for (const item of saleItems) {
+    if (!item.productId) continue;
+    const product = products.find(p => p.id === item.productId);
+    if (!product) continue;
 
-      if (product.productType === 'serial') {
-        const filledSerials = item.serials.filter(s => s.serial.trim());
-        if (filledSerials.length === 0) {
-          return `منتج "${product.name}" يحتاج سيريال - لا يمكن البيع بدون سيريال`;
-        }
-        if (filledSerials.length < item.quantity) {
-          return `منتج "${product.name}" - الكمية ${item.quantity} تحتاج ${item.quantity} سيريال، أدخلت ${filledSerials.length} فقط`;
-        }
-        for (const sl of filledSerials) {
-          if (!isValidAvailableSerial(sl.serial, item.productId)) {
-            return `السيريال "${sl.serial}" غير متاح في المخزون لمنتج "${product.name}"`;
-          }
-        }
-        const availableCount = getAvailableStock(item.productId);
-        if (item.quantity > availableCount) {
-          return `منتج "${product.name}" - المطلوب ${item.quantity} والمتاح ${availableCount} فقط`;
-        }
-      } else {
-        const availableStock = getAvailableStock(item.productId);
-        let usedInThisInvoice = 0;
-        if (editingInvoice) {
-          const originalItem = editingInvoice.items.find(i => i.productId === item.productId);
-          usedInThisInvoice = originalItem?.quantity || 0;
-        }
-        const effectiveAvailable = availableStock + usedInThisInvoice;
-        if (item.quantity > effectiveAvailable) {
-          return `منتج "${product.name}" - المطلوب ${item.quantity} والمتاح ${availableStock} فقط`;
+    if (product.productType === 'serial') {
+      const filledSerials = item.serials.filter(s => s.serial.trim());
+
+      if (filledSerials.length === 0) {
+        return `منتج "${product.name}" يحتاج سيريال - لا يمكن البيع بدون سيريال`;
+      }
+
+      if (filledSerials.length < item.quantity) {
+        return `منتج "${product.name}" - الكمية ${item.quantity} تحتاج ${item.quantity} سيريال، أدخلت ${filledSerials.length} فقط`;
+      }
+
+      for (const sl of filledSerials) {
+        if (!isValidAvailableSerial(sl.serial, item.productId)) {
+          return `السيريال "${sl.serial}" غير متاح في المخزون لمنتج "${product.name}"`;
         }
       }
+
+      // ✅ مهم جداً: في حالة التعديل على نفس الفاتورة، نضيف سيريالات الفاتورة القديمة
+      // لأنها متباعة بالفعل على نفس الفاتورة وليست "ناقصة من المخزون" بالنسبة للتعديل
+      const availableCount = getAvailableStock(item.productId);
+      let usedInThisInvoice = 0;
+
+      if (editingInvoice) {
+        const originalItem = editingInvoice.items.find(i => i.productId === item.productId);
+        usedInThisInvoice = originalItem?.quantity || 0;
+      }
+
+      const effectiveAvailable = availableCount + usedInThisInvoice;
+
+      if (item.quantity > effectiveAvailable) {
+        return `منتج "${product.name}" - المطلوب ${item.quantity} والمتاح ${availableCount} فقط`;
+      }
+    } else {
+      const availableStock = getAvailableStock(item.productId);
+      let usedInThisInvoice = 0;
+
+      if (editingInvoice) {
+        const originalItem = editingInvoice.items.find(i => i.productId === item.productId);
+        usedInThisInvoice = originalItem?.quantity || 0;
+      }
+
+      const effectiveAvailable = availableStock + usedInThisInvoice;
+
+      if (item.quantity > effectiveAvailable) {
+        return `منتج "${product.name}" - المطلوب ${item.quantity} والمتاح ${availableStock} فقط`;
+      }
     }
-    return null;
-  };
+  }
+
+  return null;
+};
 
   const handleSave = () => {
     if (!customerId || saleItems.length === 0) return;
+
+    // ✅ تحقق: كل البنود لازم يكون فيها productId
+    const emptyItem = saleItems.find(item => !item.productId);
+    if (emptyItem) {
+      setStockError('يوجد بند بدون منتج محدد - اختر منتجاً من القائمة أو احذف البند');
+      return;
+    }
 
     for (const item of saleItems) {
       for (let i = 0; i < item.serials.length; i++) {
@@ -426,8 +451,7 @@ export default function Sales({
       taxRate: item.taxRate,
       total: item.total,
       serials: item.serials.filter(s => s.serial),
-      pendingCost: item.pendingCost || false,
-      costPrice: item.pendingCost ? 0 : (products.find(p => p.id === item.productId)?.costPrice ?? 0),
+      costPrice: products.find(p => p.id === item.productId)?.costPrice ?? 0,
     }));
 
     if (editingInvoice) {
@@ -442,7 +466,7 @@ export default function Sales({
         total: totalAfterDiscount,
         paid: paidAmount,
         remaining,
-        status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+        status: totalAfterDiscount === 0 ? 'unpaid' : remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
         paymentMethod,
         instapayPerson: paymentMethod === 'instapay' ? instapayPerson : undefined,
         notes,
@@ -453,7 +477,12 @@ export default function Sales({
       return;
     }
 
-    const invoiceNumber = `${settings.invoicePrefix}-${String(settings.lastSaleInvoiceNum + 1).padStart(4, '0')}`;
+    const existingNumbers = saleInvoices
+      .map(inv => parseInt(inv.invoiceNumber.split('-').pop() || '0', 10))
+      .filter(n => !isNaN(n));
+    const nextNum = Math.max(settings.lastSaleInvoiceNum, ...existingNumbers, 1000) + 1;
+    const invoiceNumber = `${settings.invoicePrefix}-${String(nextNum).padStart(4, '0')}`;
+
     const invoice: SaleInvoice = {
       id: generateId(),
       invoiceNumber,
@@ -467,7 +496,7 @@ export default function Sales({
       total: totalAfterDiscount,
       paid: paidAmount,
       remaining,
-      status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+      status: totalAfterDiscount === 0 ? 'unpaid' : remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
       paymentMethod,
       instapayPerson: paymentMethod === 'instapay' ? instapayPerson : undefined,
       notes,
@@ -483,7 +512,7 @@ export default function Sales({
     setSaleItems([]); setCustomerId(''); setCustomerSearch(''); setPaid(''); setDiscount(0);
     setNotes(''); setPaymentMethod('cash'); setInstapayPerson(''); setFormDate(getTodayStr());
     setEditingInvoice(null); setDuplicateSerialWarning(null); setItemSearch({});
-    setStockError(null); setShowSerialDrop({});
+    setStockError(null);
   };
 
   const handleDeleteInvoice = () => {
@@ -519,45 +548,6 @@ export default function Sales({
     setQpDate(getTodayStr()); setQpNotes(''); setQpPayMethod('cash');
     setQpPaid(''); setQpDupWarning(null);
     setShowQuickPurchase(true);
-  };
-
-  // ✅ بيع منتج غير موجود في المخزون أصلاً: يُكتب اسمه يدويًا بالكامل، ويُباع فورًا بدون تسجيل سعر شراء.
-  // يظهر بعدها في "أجهزة بدون سعر شراء" بالداشبورد باللون الأحمر كـ "معلّق" لحد ما يتم تسجيل فاتورة شراء له.
-  const [showPendingSaleModal, setShowPendingSaleModal] = useState(false);
-  const [pendingSaleTargetItemId, setPendingSaleTargetItemId] = useState<string | null>(null);
-  const [pendingSaleName, setPendingSaleName] = useState('');
-  const [pendingSalePrice, setPendingSalePrice] = useState('');
-
-  const openPendingSale = (saleItemId: string, searchText: string) => {
-    setPendingSaleTargetItemId(saleItemId);
-    setPendingSaleName(searchText);
-    setPendingSalePrice('');
-    setShowItemDrop(prev => ({ ...prev, [saleItemId]: false }));
-    setShowPendingSaleModal(true);
-  };
-
-  const handleConfirmPendingSale = () => {
-    if (!pendingSaleTargetItemId || !pendingSaleName.trim() || !pendingSalePrice) return;
-    const price = parseFloat(pendingSalePrice) || 0;
-    setSaleItems(prev => prev.map(item => {
-      if (item.id !== pendingSaleTargetItemId) return item;
-      return {
-        ...item,
-        productId: '', // لا يوجد منتج فعلي مربوط في المخزون
-        productName: pendingSaleName.trim(),
-        sku: '— (بدون شراء)',
-        unitPrice: price,
-        quantity: 1,
-        serials: [],
-        total: price,
-        pendingCost: true,
-      };
-    }));
-    setItemSearch(prev => ({ ...prev, [pendingSaleTargetItemId]: pendingSaleName.trim() }));
-    setShowPendingSaleModal(false);
-    setPendingSaleTargetItemId(null);
-    setPendingSaleName('');
-    setPendingSalePrice('');
   };
 
   const existingSerialsSet = new Set(serials.map(s => s.serial.trim().toLowerCase()).filter(Boolean));
@@ -613,8 +603,11 @@ export default function Sales({
     setQpItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
       let newSerials = [...item.serials];
-      if (newQuantity > newSerials.length) while (newSerials.length < newQuantity) newSerials.push({ serial: '', imei1: '', imei2: '' });
-      else if (newQuantity < newSerials.length && newQuantity >= 1) newSerials = newSerials.slice(0, newQuantity);
+      if (newQuantity > newSerials.length) {
+        while (newSerials.length < newQuantity) newSerials.push({ serial: '', imei1: '', imei2: '' });
+      } else if (newQuantity < newSerials.length && newQuantity >= 1) {
+        newSerials = newSerials.slice(0, newQuantity);
+      }
       return { ...item, quantity: newSerials.length, serials: newSerials, total: Math.max(0, item.unitPrice * newSerials.length - item.discount) };
     }));
   };
@@ -643,9 +636,9 @@ export default function Sales({
     (s.phone || '').includes(qpSupplierSearch)
   );
 
-  const qpSubtotal    = qpItems.reduce((s, i) => s + i.total, 0);
-  const qpPaidAmount  = parseFloat(qpPaid) || 0;
-  const qpRemaining   = qpSubtotal - qpPaidAmount;
+  const qpSubtotal = qpItems.reduce((s, i) => s + i.total, 0);
+  const qpPaidAmount = parseFloat(qpPaid) || 0;
+  const qpRemaining = qpSubtotal - qpPaidAmount;
   const selectedQpSupplier = suppliers.find(s => s.id === qpSupplierId);
 
   const handleAddSupplier = () => {
@@ -696,7 +689,7 @@ export default function Sales({
         }
       }
     }
-    const invoiceId     = generateId();
+    const invoiceId = generateId();
     const invoiceNumber = `${settings.purchasePrefix}-${String((settings.lastPurchaseInvoiceNum || 1000) + 1).padStart(4, '0')}`;
     const items: InvoiceItem[] = qpItems.map(item => ({
       id: item.id, productId: item.productId, productName: item.productName, sku: item.sku,
@@ -712,7 +705,10 @@ export default function Sales({
             id: generateId(), productId: item.productId, productName: item.productName,
             serial: sl.serial, imei1: sl.imei1 || undefined, imei2: sl.imei2 || undefined,
             status: 'available', purchaseInvoiceId: invoiceId,
-            costPrice: item.unitPrice, createdAt: new Date().toISOString(),
+            costPrice: item.unitPrice,
+            // ✅ لو السعر صفر = سعر معلّق
+            purchasePricePending: item.unitPrice === 0 ? true : false,
+            createdAt: new Date().toISOString(),
           });
         });
       }
@@ -743,313 +739,104 @@ export default function Sales({
     setShowQuickPurchase(false);
   };
 
-  // ✅✅✅ دالة الطباعة المعدلة - فاتورة أبيض وأسود نظيفة للعميل
-const printInvoice = (inv: SaleInvoice) => {
-  const itemsHtml = inv.items.map(item => `
-    <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;">
-        <div style="font-weight:600;font-size:14px;color:#111;">${item.productName}</div>
-        ${item.serials?.map(s => `
-          <div style="font-size:11px;color:#666;margin-top:3px;font-family:monospace;">
-            SN: ${s.serial}${s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}${s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}
-          </div>
-        `).join('') || ''}
-      </td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.quantity}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.unitPrice.toLocaleString('ar-EG')}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.discount > 0 ? item.discount.toLocaleString('ar-EG') : '-'}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;font-weight:700;">${item.total.toLocaleString('ar-EG')}</td>
-    </tr>
-  `).join('');
+  const printInvoice = (inv: SaleInvoice) => {
+    const itemsHtml = inv.items.map(item => `
+      <tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;">
+          <div style="font-weight:600;font-size:14px;color:#111;">${item.productName}</div>
+          ${item.serials?.map(s => `
+            <div style="font-size:11px;color:#666;margin-top:3px;font-family:monospace;">
+              SN: ${s.serial}${s.imei1 ? ` | IMEI1: ${s.imei1}` : ''}${s.imei2 ? ` | IMEI2: ${s.imei2}` : ''}
+            </div>
+          `).join('') || ''}
+        </td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.quantity}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.unitPrice.toLocaleString('ar-EG')}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.discount > 0 ? item.discount.toLocaleString('ar-EG') : '-'}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;font-weight:700;">${item.total.toLocaleString('ar-EG')}</td>
+      </tr>
+    `).join('');
 
-  const w = window.open('', '_blank', 'width=900,height=700');
-  if (!w) return;
-
-  w.document.write(`
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-      <meta charset="UTF-8"/>
-      <title>فاتورة ${inv.invoiceNumber}</title>
-      <style>
-        @page { size: A4; margin: 20mm; }
-        @media print {
-          body { margin: 0; }
-          .no-print { display: none !important; }
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-          font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-          direction: rtl;
-          color: #111;
-          background: #fff;
-          font-size: 14px;
-          line-height: 1.6;
-          padding: 30px;
-          max-width: 210mm;
-          margin: 0 auto;
-        }
-
-        /* ── الهيدر ── */
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          padding-bottom: 20px;
-          border-bottom: 3px solid #111;
-          margin-bottom: 24px;
-        }
-        .logo-section { display: flex; align-items: center; gap: 14px; }
-        .logo-section img { max-width: 80px; max-height: 70px; object-fit: contain; }
-        .shop-name { font-size: 32px; font-weight: 900; letter-spacing: 2px; color: #111; }
-        .invoice-title {
-          text-align: left;
-        }
-        .invoice-title h1 {
-          font-size: 22px;
-          font-weight: 800;
-          color: #111;
-          margin-bottom: 6px;
-        }
-        .invoice-number {
-          font-family: monospace;
-          font-size: 16px;
-          font-weight: 700;
-          color: #444;
-        }
-        .invoice-date {
-          font-size: 13px;
-          color: #666;
-          margin-top: 4px;
-        }
-
-        /* ── بيانات الفاتورة ── */
-        .info-section {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-bottom: 28px;
-          padding: 16px 20px;
-          background: #f9f9f9;
-          border-radius: 8px;
-          border: 1px solid #e5e7eb;
-        }
-        .info-block {}
-        .info-label {
-          font-size: 11px;
-          color: #888;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 3px;
-        }
-        .info-value {
-          font-size: 15px;
-          font-weight: 600;
-          color: #111;
-        }
-
-        /* ── جدول المنتجات ── */
-        .items-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 24px;
-        }
-        .items-table thead tr {
-          background: #111;
-          color: #fff;
-        }
-        .items-table thead th {
-          padding: 12px 12px;
-          font-size: 13px;
-          font-weight: 600;
-          text-align: center;
-        }
-        .items-table thead th:first-child { text-align: right; }
-        .items-table tbody tr:nth-child(even) { background: #f9f9f9; }
-        .items-table tbody tr:hover { background: #f3f3f3; }
-
-        /* ── الملخص ── */
-        .summary-section {
-          display: flex;
-          justify-content: flex-start;
-          margin-bottom: 28px;
-        }
-        .summary-box {
-          width: 320px;
-          margin-right: auto;
-          border: 1px solid #e5e7eb;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-        .summary-row {
-          display: flex;
-          justify-content: space-between;
-          padding: 10px 16px;
-          font-size: 14px;
-          border-bottom: 1px solid #f3f4f6;
-        }
-        .summary-row:last-child { border-bottom: none; }
-        .summary-row .label { color: #666; }
-        .summary-row .value { font-weight: 600; color: #111; }
-        .summary-row.total {
-          background: #111;
-          color: #fff;
-        }
-        .summary-row.total .label { color: #fff; font-weight: 700; font-size: 16px; }
-        .summary-row.total .value { color: #fff; font-weight: 900; font-size: 18px; }
-        .summary-row.remaining .label { color: #c00; }
-        .summary-row.remaining .value { color: #c00; font-weight: 700; }
-
-        /* ── الملاحظات ── */
-        .notes-section {
-          border: 1px solid #e5e7eb;
-          border-radius: 8px;
-          padding: 14px 16px;
-          margin-bottom: 24px;
-          background: #fffef0;
-        }
-        .notes-title { font-size: 12px; color: #888; margin-bottom: 6px; font-weight: 600; }
-        .notes-text { font-size: 14px; color: #333; }
-
-        /* ── الفوتر ── */
-        .footer {
-          text-align: center;
-          padding-top: 20px;
-          border-top: 2px solid #111;
-          color: #666;
-          font-size: 13px;
-        }
-        .footer .thank-you {
-          font-size: 18px;
-          font-weight: 700;
-          color: #111;
-          margin-bottom: 6px;
-        }
-
-        /* ── زر الطباعة ── */
-        .print-btn {
-          display: block;
-          margin: 24px auto 0;
-          padding: 12px 40px;
-          background: #111;
-          color: #fff;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 16px;
-          font-family: inherit;
-        }
-        .print-btn:hover { background: #333; }
-      </style>
-    </head>
-    <body>
-
-      <!-- الهيدر -->
-      <div class="header">
-        <div class="logo-section">
-          <!-- لو عندك لوجو:
-          <img src="https://i.postimg.cc/mkjqSRFg/0-One-logo-21.png" alt="logo" />
-          -->
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return;
+    w.document.write(`
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8"/>
+        <title>فاتورة ${inv.invoiceNumber}</title>
+        <style>
+          @page { size: A4; margin: 20mm; }
+          @media print { body { margin: 0; } .no-print { display: none !important; } }
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; direction: rtl; color: #111; background: #fff; font-size: 14px; line-height: 1.6; padding: 30px; max-width: 210mm; margin: 0 auto; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #111; margin-bottom: 24px; }
+          .shop-name { font-size: 32px; font-weight: 900; letter-spacing: 2px; color: #111; }
+          .invoice-title h1 { font-size: 22px; font-weight: 800; color: #111; margin-bottom: 6px; }
+          .invoice-number { font-family: monospace; font-size: 16px; font-weight: 700; color: #444; }
+          .invoice-date { font-size: 13px; color: #666; margin-top: 4px; }
+          .info-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; padding: 16px 20px; background: #f9f9f9; border-radius: 8px; border: 1px solid #e5e7eb; }
+          .info-label { font-size: 11px; color: #888; margin-bottom: 3px; }
+          .info-value { font-size: 15px; font-weight: 600; color: #111; }
+          .items-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+          .items-table thead tr { background: #111; color: #fff; }
+          .items-table thead th { padding: 12px; font-size: 13px; font-weight: 600; text-align: center; }
+          .items-table thead th:first-child { text-align: right; }
+          .items-table tbody tr:nth-child(even) { background: #f9f9f9; }
+          .summary-section { display: flex; justify-content: flex-start; margin-bottom: 28px; }
+          .summary-box { width: 320px; margin-right: auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+          .summary-row { display: flex; justify-content: space-between; padding: 10px 16px; font-size: 14px; border-bottom: 1px solid #f3f4f6; }
+          .summary-row:last-child { border-bottom: none; }
+          .summary-row .label { color: #666; }
+          .summary-row .value { font-weight: 600; color: #111; }
+          .summary-row.total { background: #111; color: #fff; }
+          .summary-row.total .label { color: #fff; font-weight: 700; font-size: 16px; }
+          .summary-row.total .value { color: #fff; font-weight: 900; font-size: 18px; }
+          .footer { text-align: center; padding-top: 20px; border-top: 2px solid #111; color: #666; font-size: 13px; }
+          .footer .thank-you { font-size: 18px; font-weight: 700; color: #111; margin-bottom: 6px; }
+          .print-btn { display: block; margin: 24px auto 0; padding: 12px 40px; background: #111; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-family: inherit; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
           <div class="shop-name">ONE</div>
-        </div>
-        <div class="invoice-title">
-          <h1>فاتورة مبيعات</h1>
-          <div class="invoice-number"># ${inv.invoiceNumber}</div>
-          <div class="invoice-date">📅 ${inv.date}</div>
-        </div>
-      </div>
-
-      <!-- بيانات الفاتورة -->
-      <div class="info-section">
-        <div class="info-block">
-          <div class="info-label">العميل / الجهة</div>
-          <div class="info-value">${inv.customerName}</div>
-        </div>
-        <div class="info-block">
-          <div class="info-label">طريقة الدفع</div>
-          <div class="info-value">${paymentMethodLabel(inv.paymentMethod)}${inv.instapayPerson ? ` - ${inv.instapayPerson}` : ''}</div>
-        </div>
-        <div class="info-block">
-          <div class="info-label">حالة الفاتورة</div>
-          <div class="info-value">${inv.status === 'paid' ? '✅ مدفوعة' : inv.status === 'partial' ? '🔶 مدفوعة جزئياً' : '🔴 غير مدفوعة'}</div>
-        </div>
-        <div class="info-block">
-          <div class="info-label">رقم المرجع</div>
-          <div class="info-value" style="font-family:monospace;">${inv.invoiceNumber}</div>
-        </div>
-      </div>
-
-      <!-- جدول المنتجات -->
-      <table class="items-table">
-        <thead>
-          <tr>
-            <th style="text-align:right;width:45%;">المنتج / البيان</th>
-            <th>الكمية</th>
-            <th>سعر الوحدة</th>
-            <th>الخصم</th>
-            <th>الإجمالي</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsHtml}
-        </tbody>
-      </table>
-
-      <!-- الملخص المالي -->
-      <div class="summary-section">
-        <div class="summary-box">
-          <div class="summary-row">
-            <span class="label">المجموع الفرعي</span>
-            <span class="value">${inv.subtotal.toLocaleString('ar-EG')} ج.م</span>
+          <div class="invoice-title">
+            <h1>فاتورة مبيعات</h1>
+            <div class="invoice-number"># ${inv.invoiceNumber}</div>
+            <div class="invoice-date">📅 ${inv.date}</div>
           </div>
-          ${inv.discount > 0 ? `
-          <div class="summary-row">
-            <span class="label">الخصم الإجمالي</span>
-            <span class="value" style="color:#c00;">- ${inv.discount.toLocaleString('ar-EG')} ج.م</span>
-          </div>` : ''}
-          <div class="summary-row total">
-            <span class="label">الإجمالي النهائي</span>
-            <span class="value">${inv.total.toLocaleString('ar-EG')} ج.م</span>
-          </div>
-          <div class="summary-row">
-            <span class="label">المدفوع</span>
-            <span class="value" style="color:#16a34a;">${inv.paid.toLocaleString('ar-EG')} ج.م</span>
-          </div>
-          ${inv.remaining > 0 ? `
-          <div class="summary-row remaining">
-            <span class="label">المتبقي (مديونية)</span>
-            <span class="value">${inv.remaining.toLocaleString('ar-EG')} ج.م</span>
-          </div>` : ''}
         </div>
-      </div>
-
-      <!-- الملاحظات -->
-      ${inv.notes ? `
-      <div class="notes-section">
-        <div class="notes-title">📝 ملاحظات</div>
-        <div class="notes-text">${inv.notes}</div>
-      </div>
-      ` : ''}
-
-      <!-- الفوتر -->
-      <div class="footer">
-        <div class="thank-you">شكراً لتعاملكم معنا </div>
-        <div> للاستفسار - 01220125121</div>
-      </div>
-
-      <!-- زر الطباعة -->
-      <div class="no-print">
-        <button class="print-btn" onclick="window.print();">
-          🖨️ طباعة الفاتورة
-        </button>
-      </div>
-
-      <script>window.onload = () => window.print();<\/script>
-    </body>
-    </html>
-  `);
-  w.document.close();
-};
+        <div class="info-section">
+          <div><div class="info-label">العميل / الجهة</div><div class="info-value">${inv.customerName}</div></div>
+          <div><div class="info-label">طريقة الدفع</div><div class="info-value">${paymentMethodLabel(inv.paymentMethod)}${inv.instapayPerson ? ` - ${inv.instapayPerson}` : ''}</div></div>
+          <div><div class="info-label">حالة الفاتورة</div><div class="info-value">${inv.status === 'paid' ? '✅ مدفوعة' : inv.status === 'partial' ? '🔶 جزئياً' : '🔴 غير مدفوعة'}</div></div>
+          <div><div class="info-label">رقم المرجع</div><div class="info-value" style="font-family:monospace;">${inv.invoiceNumber}</div></div>
+        </div>
+        <table class="items-table">
+          <thead><tr><th style="text-align:right;width:45%;">المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الإجمالي</th></tr></thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+        <div class="summary-section">
+          <div class="summary-box">
+            <div class="summary-row"><span class="label">المجموع الفرعي</span><span class="value">${inv.subtotal.toLocaleString('ar-EG')} ج.م</span></div>
+            ${inv.discount > 0 ? `<div class="summary-row"><span class="label">الخصم</span><span class="value" style="color:#c00;">- ${inv.discount.toLocaleString('ar-EG')} ج.م</span></div>` : ''}
+            <div class="summary-row total"><span class="label">الإجمالي النهائي</span><span class="value">${inv.total.toLocaleString('ar-EG')} ج.م</span></div>
+            <div class="summary-row"><span class="label">المدفوع</span><span class="value" style="color:#16a34a;">${inv.paid.toLocaleString('ar-EG')} ج.م</span></div>
+            ${inv.remaining > 0 ? `<div class="summary-row"><span class="label" style="color:#c00;">المتبقي</span><span class="value" style="color:#c00;">${inv.remaining.toLocaleString('ar-EG')} ج.م</span></div>` : ''}
+          </div>
+        </div>
+        ${inv.notes ? `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:24px;background:#fffef0;"><div style="font-size:12px;color:#888;margin-bottom:6px;">📝 ملاحظات</div><div style="font-size:14px;color:#333;">${inv.notes}</div></div>` : ''}
+        <div class="footer">
+          <div class="thank-you">شكراً لتعاملكم معنا</div>
+          <div>للاستفسار - 01220125121</div>
+        </div>
+        <div class="no-print"><button class="print-btn" onclick="window.print();">🖨️ طباعة الفاتورة</button></div>
+        <script>window.onload = () => window.print();<\/script>
+      </body>
+      </html>
+    `);
+    w.document.close();
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
@@ -1167,7 +954,7 @@ const printInvoice = (inv: SaleInvoice) => {
                 <input type="text" value={customerSearch}
                   onChange={e => { setCustomerSearch(e.target.value); setShowCustDrop(true); setCustomerId(''); }}
                   onFocus={() => setShowCustDrop(true)}
-                  placeholder="ابحث عن عميل أو مورد أو تاجر..."
+                  placeholder="ابحث عن عميل أو مورد..."
                   className="input-dark w-full"
                 />
                 {showCustDrop && (
@@ -1191,14 +978,14 @@ const printInvoice = (inv: SaleInvoice) => {
                         </div>
                       </button>
                     ))}
-                    <button onClick={() => { setAddCustomerModal(true); setShowCustDrop(false); setCustomerDupError(null); }}
+                    <button
+                      onClick={() => { setAddCustomerModal(true); setShowCustDrop(false); setCustomerDupError(null); }}
                       className="block w-full text-right px-3 py-2 text-sm text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                       + إضافة عميل جديد
                     </button>
                   </div>
                 )}
               </div>
-
               <div>
                 <label className="form-label">تاريخ الفاتورة</label>
                 <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)}
@@ -1222,23 +1009,15 @@ const printInvoice = (inv: SaleInvoice) => {
 
               <div className="space-y-3">
                 {saleItems.map((item) => {
-                  const product    = products.find(p => p.id === item.productId);
-                  const isSerial   = product?.productType === 'serial';
+                  const product = products.find(p => p.id === item.productId);
+                  const isSerial = product?.productType === 'serial';
                   const availStock = item.productId ? getAvailableStock(item.productId) : 0;
-                  const availSers  = item.productId ? getAvailableSerials(item.productId) : [];
-                  const stockOk    = !item.productId || availStock >= item.quantity;
+                  const availSers = item.productId ? getAvailableSerials(item.productId) : [];
 
                   return (
-                    <div key={item.id} className={`bg-[#252545] border rounded-xl p-3 ${
-                      item.pendingCost ? 'border-red-600/60 bg-red-950/10' : item.productId && !stockOk ? 'border-red-600/40' : 'border-violet-900/20'
-                    }`}>
-                      {item.pendingCost && (
-                        <div className="flex items-center gap-1.5 text-red-400 text-xs font-medium mb-2 bg-red-900/20 border border-red-700/30 rounded-lg px-2 py-1">
-                          <AlertTriangle size={12} />
-                          🔴 بيع معلّق - بدون تسجيل سعر شراء (سيظهر في الصفحة الرئيسية لحد ما تسجل فاتورة الشراء)
-                        </div>
-                      )}
+                    <div key={item.id} className="bg-[#252545] border border-violet-900/20 rounded-xl p-3">
                       <div className="grid grid-cols-12 gap-2 items-start">
+                        {/* البند - البحث عن منتج */}
                         <div className="col-span-12 md:col-span-4 relative">
                           <label className="form-label text-xs">البند</label>
                           <input type="text" value={itemSearch[item.id] || ''}
@@ -1248,7 +1027,7 @@ const printInvoice = (inv: SaleInvoice) => {
                             }}
                             onFocus={() => setShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
                             placeholder="ابحث عن منتج..."
-                            className={`input-dark w-full text-sm ${item.pendingCost ? 'border-red-600/50 text-red-300' : ''}`}
+                            className="input-dark w-full text-sm"
                           />
                           {showItemDrop[item.id] && (
                             <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto">
@@ -1266,8 +1045,8 @@ const printInvoice = (inv: SaleInvoice) => {
                                   >
                                     <div className="font-medium">{p.name}</div>
                                     <div className={`text-xs ${outOfStock ? 'text-red-400' : 'text-gray-500'}`}>
-                                      {p.sku} • {formatCurrency(p.salePrice)} •
-                                      متاح: <span className={outOfStock ? 'text-red-400 font-bold' : 'text-green-400'}>
+                                      {p.sku} • {formatCurrency(p.salePrice)} • متاح:{' '}
+                                      <span className={outOfStock ? 'text-red-400 font-bold' : 'text-green-400'}>
                                         {avail}
                                       </span>
                                       {outOfStock && ' ❌'}
@@ -1275,18 +1054,15 @@ const printInvoice = (inv: SaleInvoice) => {
                                   </button>
                                 );
                               })}
+                              {/* ✅ فقط هذا الزر يبقى - بيع بدون شراء اتشال نهائياً */}
                               {onAddPurchaseInvoice && onAddSerials && (
-                                <button onClick={() => openQuickPurchase(item.id, itemSearch[item.id] || '')}
+                                <button
+                                  onClick={() => openQuickPurchase(item.id, itemSearch[item.id] || '')}
                                   className="w-full text-right px-3 py-2.5 text-xs text-orange-400 hover:bg-orange-900/20 border-t border-white/10 font-medium flex items-center gap-2">
                                   <ShoppingCart size={13} />
                                   📦 منتج مش موجود؟ افتح فاتورة شراء
                                 </button>
                               )}
-                              <button onClick={() => openPendingSale(item.id, itemSearch[item.id] || '')}
-                                className="w-full text-right px-3 py-2.5 text-xs text-red-400 hover:bg-red-900/20 border-t border-white/10 font-medium flex items-center gap-2">
-                                <AlertTriangle size={13} />
-                                🔴 بيعه دلوقتي بدون تسجيل شراء (معلّق)
-                              </button>
                             </div>
                           )}
                         </div>
@@ -1334,6 +1110,7 @@ const printInvoice = (inv: SaleInvoice) => {
                         </div>
                       </div>
 
+                      {/* تنبيه نفاد المخزون */}
                       {item.productId && availStock === 0 && (
                         <div className="mt-2 flex items-center gap-2 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
                           <AlertCircle size={14} className="text-red-400 shrink-0" />
@@ -1341,6 +1118,7 @@ const printInvoice = (inv: SaleInvoice) => {
                         </div>
                       )}
 
+                      {/* السيريالات */}
                       {isSerial && item.serials.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-white/5 space-y-2">
                           <div className="flex items-center justify-between">
@@ -1370,13 +1148,9 @@ const printInvoice = (inv: SaleInvoice) => {
                                         } else {
                                           setSaleItems(prev => prev.map(it => {
                                             if (it.id !== item.id) return it;
-                                            const newSerials = [
-                                              ...it.serials,
-                                              { serial: s.serial, imei1: s.imei1 || '', imei2: s.imei2 || '' },
-                                            ];
+                                            const newSerials = [...it.serials, { serial: s.serial, imei1: s.imei1 || '', imei2: s.imei2 || '' }];
                                             const discountAmt = it.discountType === 'percent'
-                                              ? (it.unitPrice * newSerials.length * it.discount / 100)
-                                              : it.discount;
+                                              ? (it.unitPrice * newSerials.length * it.discount / 100) : it.discount;
                                             return { ...it, serials: newSerials, quantity: newSerials.length, total: Math.max(0, it.unitPrice * newSerials.length - discountAmt) };
                                           }));
                                         }
@@ -1397,7 +1171,7 @@ const printInvoice = (inv: SaleInvoice) => {
                           )}
 
                           {item.serials.map((sl, si) => {
-                            const isDup     = sl.serial && isDuplicateSaleSerial(sl.serial, item.id, si);
+                            const isDup = sl.serial && isDuplicateSaleSerial(sl.serial, item.id, si);
                             const isInvalid = sl.serial && !isDup && !isValidAvailableSerial(sl.serial, item.productId);
                             return (
                               <div key={si}>
@@ -1409,9 +1183,7 @@ const printInvoice = (inv: SaleInvoice) => {
                                       type="text" value={sl.serial}
                                       onChange={e => updateSerialField(item.id, si, 'serial', e.target.value)}
                                       onKeyDown={e => handleSerialKeyDown(e, item.id, si)}
-                                      className={`input-dark w-full text-xs font-mono ${
-                                        isDup || isInvalid ? 'border-red-500/60 bg-red-900/10' : ''
-                                      }`}
+                                      className={`input-dark w-full text-xs font-mono ${isDup || isInvalid ? 'border-red-500/60 bg-red-900/10' : ''}`}
                                       placeholder="Serial Number"
                                     />
                                   </div>
@@ -1550,7 +1322,7 @@ const printInvoice = (inv: SaleInvoice) => {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <div><div className="text-xs text-gray-500">العميل / الجهة</div><div className="font-bold text-white">{viewInvoice.customerName}</div></div>
+              <div><div className="text-xs text-gray-500">العميل</div><div className="font-bold text-white">{viewInvoice.customerName}</div></div>
               <div><div className="text-xs text-gray-500">التاريخ</div><div className="font-bold text-white">{viewInvoice.date}</div></div>
               <div><div className="text-xs text-gray-500">طريقة الدفع</div><div className="font-bold text-white">{paymentMethodLabel(viewInvoice.paymentMethod)}</div></div>
               <div>
@@ -1658,55 +1430,6 @@ const printInvoice = (inv: SaleInvoice) => {
         </div>
       )}
 
-      {/* ==================== Pending-Cost Sale (بيع بدون تسجيل شراء) ==================== */}
-      {showPendingSaleModal && (
-        <div className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-6 w-full max-w-md">
-            <div className="flex items-center gap-2 mb-1">
-              <AlertTriangle size={20} className="text-red-400" />
-              <h2 className="text-lg font-bold text-white">بيع بدون تسجيل شراء</h2>
-            </div>
-            <p className="text-red-400/80 text-xs mb-4 bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2">
-              ⚠️ هذا المنتج غير موجود في المخزون. سيُباع الآن بدون تكلفة شراء مسجّلة، وسيظهر باللون الأحمر
-              في "أجهزة بدون سعر شراء" بالصفحة الرئيسية لحد ما تسجّل فاتورة شراء له لاحقًا.
-            </p>
-            <div className="space-y-3">
-              <div>
-                <label className="form-label">اسم المنتج بالكامل *</label>
-                <input
-                  type="text"
-                  value={pendingSaleName}
-                  onChange={e => setPendingSaleName(e.target.value)}
-                  className="input-dark w-full"
-                  placeholder="مثال: iPhone 13 Pro 256GB"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="form-label">سعر البيع *</label>
-                <input
-                  type="number"
-                  value={pendingSalePrice}
-                  onChange={e => setPendingSalePrice(e.target.value)}
-                  className="input-dark w-full"
-                  placeholder="السعر الذي سيدفعه العميل"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button
-                onClick={handleConfirmPendingSale}
-                disabled={!pendingSaleName.trim() || !pendingSalePrice}
-                className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                🔴 تأكيد البيع المعلّق
-              </button>
-              <button onClick={() => setShowPendingSaleModal(false)} className="btn-secondary px-4">إلغاء</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ==================== Quick Purchase ==================== */}
       {showQuickPurchase && (
         <div className="fixed inset-0 bg-black/85 z-[60] flex items-start justify-center p-4 overflow-y-auto">
@@ -1790,7 +1513,11 @@ const printInvoice = (inv: SaleInvoice) => {
                                   <div className="text-gray-500">{p.sku}</div>
                                 </button>
                               ))}
-                              <button onClick={() => { setShowNewProductModal(item.id); setQpShowItemDrop(prev => ({ ...prev, [item.id]: false })); setQpQuickAddError(null); }}
+                              <button onClick={() => {
+                                setShowNewProductModal(item.id);
+                                setQpShowItemDrop(prev => ({ ...prev, [item.id]: false }));
+                                setQpQuickAddError(null);
+                              }}
                                 className="block w-full text-right px-3 py-2 text-xs text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
                                 + إضافة منتج جديد للنظام
                               </button>
@@ -1838,7 +1565,8 @@ const printInvoice = (inv: SaleInvoice) => {
                             return (
                               <div key={si}>
                                 <div className="grid grid-cols-3 gap-2">
-                                  <input ref={el => { qpSerialRefs.current[`${item.id}-${si}`] = el; }}
+                                  <input
+                                    ref={el => { qpSerialRefs.current[`${item.id}-${si}`] = el; }}
                                     type="text" value={sl.serial}
                                     onChange={e => updateQpSerialField(item.id, si, 'serial', e.target.value)}
                                     onKeyDown={e => handleQpSerialKeyDown(e, item.id, si)}
@@ -1852,8 +1580,10 @@ const printInvoice = (inv: SaleInvoice) => {
                                       onChange={e => updateQpSerialField(item.id, si, 'imei2', e.target.value)}
                                       className="input-dark flex-1 text-xs" placeholder="IMEI 2" />
                                     {item.serials.length > 1 && (
-                                      <button onClick={() => { const ns = item.serials.filter((_, i) => i !== si); updateQpItem(item.id, { serials: ns, quantity: ns.length }); }}
-                                        className="p-1 text-red-400"><X size={12} /></button>
+                                      <button onClick={() => {
+                                        const ns = item.serials.filter((_, i) => i !== si);
+                                        updateQpItem(item.id, { serials: ns, quantity: ns.length });
+                                      }} className="p-1 text-red-400"><X size={12} /></button>
                                     )}
                                   </div>
                                 </div>

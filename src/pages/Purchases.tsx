@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
-import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle } from 'lucide-react';
 
 interface Props {
@@ -11,14 +11,26 @@ interface Props {
   brands: Brand[];
   settings: { lastPurchaseInvoiceNum: number; purchasePrefix: string; companyName: string };
   onAddPurchaseInvoice: (inv: PurchaseInvoice) => void;
-  onLinkPendingCost?: (productName: string, costPrice: number) => { linkedCount: number };
   onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onAddProduct: (p: Product) => { success: boolean; message?: string } | void;
   onAddSerials: (serials: SerialItem[]) => void;
   onUpdatePurchaseInvoice: (inv: PurchaseInvoice) => void;
   onDeletePurchaseInvoice: (invoiceId: string) => void;
+  // ✅ استكمال سعر شراء سيريال معلّق
+  onCompletePendingPurchase?: (
+    serialId: string,
+    newCostPrice: number,
+    supplierId: string,
+    supplierName: string,
+    paymentMethod: 'cash' | 'bank' | 'credit',
+    paidAmount: number,
+    invoiceNumber: string
+  ) => { success: boolean; message?: string };
   preselectedSupplierId?: string | null;
   onPreselectedHandled?: () => void;
+  // ✅ الجديد: فتح نموذج استكمال السعر مباشرة لسيريال معين
+  preselectedPendingSerialId?: string | null;
+  onPreselectedPendingSerialHandled?: () => void;
 }
 
 interface PurchItem {
@@ -36,14 +48,14 @@ interface PurchItem {
 export default function Purchases({
   purchaseInvoices, suppliers, products, serials, brands, settings,
   onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials,
-  onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onLinkPendingCost,
-  preselectedSupplierId, onPreselectedHandled
+  onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onCompletePendingPurchase,
+  preselectedSupplierId, onPreselectedHandled,
+  preselectedPendingSerialId, onPreselectedPendingSerialHandled,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<PurchaseInvoice | null>(null);
-  const [linkedInfoToast, setLinkedInfoToast] = useState<string | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<PurchaseInvoice | null>(null);
   const [addSupplierModal, setAddSupplierModal] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', type: 'supplier' as Supplier['type'] });
@@ -53,6 +65,21 @@ export default function Purchases({
     brand: 'Apple', productType: 'serial' as Product['productType'],
     costPrice: '', salePrice: ''
   });
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
+
+  // ✅ مودال استكمال سعر سيريال معلّق
+  const [showCompletePendingModal, setShowCompletePendingModal] = useState(false);
+  const [pendingSerialToComplete, setPendingSerialToComplete] = useState<SerialItem | null>(null);
+  const [completePendingForm, setCompletePendingForm] = useState({
+    supplierId: '',
+    supplierSearch: '',
+    newCostPrice: '',
+    paymentMethod: 'cash' as 'cash' | 'bank' | 'credit',
+    paidAmount: '',
+  });
+  const [showCompleteSupDrop, setShowCompleteSupDrop] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+  const [completeSuccess, setCompleteSuccess] = useState<string | null>(null);
 
   const [formDate, setFormDate] = useState(getTodayStr());
   const [supplierId, setSupplierId] = useState('');
@@ -114,6 +141,31 @@ export default function Purchases({
     setShowForm(true);
   };
 
+  // ✅ فتح مودال استكمال السعر لسيريال معين
+  const openCompletePendingModal = useCallback((serialId: string) => {
+    const serial = serials.find(s => s.id === serialId);
+    if (!serial) return;
+    setPendingSerialToComplete(serial);
+    setCompletePendingForm({
+      supplierId: '',
+      supplierSearch: '',
+      newCostPrice: '',
+      paymentMethod: 'cash',
+      paidAmount: '',
+    });
+    setCompleteError(null);
+    setCompleteSuccess(null);
+    setShowCompletePendingModal(true);
+  }, [serials]);
+
+  // ✅ استقبال طلب من Dashboard لفتح مودال استكمال السعر
+  useEffect(() => {
+    if (preselectedPendingSerialId) {
+      openCompletePendingModal(preselectedPendingSerialId);
+      onPreselectedPendingSerialHandled?.();
+    }
+  }, [preselectedPendingSerialId]);
+
   useEffect(() => {
     if (preselectedSupplierId) {
       const supplier = suppliers.find(s => s.id === preselectedSupplierId);
@@ -129,6 +181,54 @@ export default function Purchases({
     }
   }, [preselectedSupplierId]);
 
+  // ✅ تنفيذ استكمال السعر
+  const handleCompletePending = () => {
+    if (!pendingSerialToComplete) return;
+    if (!completePendingForm.supplierId) {
+      setCompleteError('اختر المورد أولاً');
+      return;
+    }
+    const newPrice = parseFloat(completePendingForm.newCostPrice);
+    if (!newPrice || newPrice <= 0) {
+      setCompleteError('أدخل سعر الشراء الحقيقي');
+      return;
+    }
+
+    const paidAmount = parseFloat(completePendingForm.paidAmount) || 0;
+    const selectedSupplier = suppliers.find(s => s.id === completePendingForm.supplierId);
+
+    // نولّد رقم فاتورة لو محتاج
+    const existingNumbers = purchaseInvoices
+      .map(inv => parseInt(inv.invoiceNumber.split('-').pop() || '0', 10))
+      .filter(n => !isNaN(n));
+    const nextNum = Math.max(settings.lastPurchaseInvoiceNum, ...existingNumbers, 1000) + 1;
+    const invoiceNumber = `${settings.purchasePrefix}-${String(nextNum).padStart(4, '0')}`;
+
+    if (onCompletePendingPurchase) {
+      const result = onCompletePendingPurchase(
+        pendingSerialToComplete.id,
+        newPrice,
+        completePendingForm.supplierId,
+        selectedSupplier?.name || '',
+        completePendingForm.paymentMethod,
+        paidAmount,
+        invoiceNumber
+      );
+
+      if (result && !result.success) {
+        setCompleteError(result.message || 'حدث خطأ');
+        return;
+      }
+    }
+
+    setCompleteSuccess(`✅ تم تحديد سعر شراء ${pendingSerialToComplete.productName} بـ ${formatCurrency(newPrice)} بنجاح`);
+    setTimeout(() => {
+      setShowCompletePendingModal(false);
+      setPendingSerialToComplete(null);
+      setCompleteSuccess(null);
+    }, 2000);
+  };
+
   const filtered = purchaseInvoices.filter(inv => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
@@ -143,6 +243,11 @@ export default function Purchases({
   const filteredSuppliers = suppliers.filter(s =>
     s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
     (s.phone || '').includes(supplierSearch)
+  );
+
+  const filteredSuppliersForComplete = suppliers.filter(s =>
+    s.name.toLowerCase().includes(completePendingForm.supplierSearch.toLowerCase()) ||
+    (s.phone || '').includes(completePendingForm.supplierSearch)
   );
 
   const subtotal = purchItems.reduce((s, item) => s + item.total, 0);
@@ -168,7 +273,11 @@ export default function Purchases({
         if (item.serials[i].serial.trim().toLowerCase() === normalized) return true;
       }
     }
+    // ✅ التحقق المحسّن: السيريال الموجود لكن معلّق = مسموح بالتحديث
     if (existingSerialsSet.has(normalized)) {
+      const existingSerial = serials.find(s => s.serial.trim().toLowerCase() === normalized);
+      // لو السيريال معلّق → مش مكرر (هيتعامل معه كاستكمال)
+      if (existingSerial?.purchasePricePending) return false;
       if (editingInvoice) {
         const wasInThisInvoice = editingInvoice.items.some(it =>
           it.serials?.some(s => s.serial.trim().toLowerCase() === normalized)
@@ -292,7 +401,6 @@ export default function Purchases({
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId);
 
-  // ✅ تحقق إلزامي للسيريالات في فاتورة الشراء
   const validatePurchaseItems = (): string | null => {
     for (const item of purchItems) {
       if (!item.productId) return 'يوجد بند بدون اختيار منتج';
@@ -322,7 +430,6 @@ export default function Purchases({
         }
       }
     }
-
     return null;
   };
 
@@ -371,7 +478,7 @@ export default function Purchases({
         total: subtotal,
         paid: paidAmount,
         remaining,
-        status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+        status: subtotal === 0 ? 'unpaid' : remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
         paymentMethod,
         notes,
       };
@@ -382,7 +489,11 @@ export default function Purchases({
     }
 
     const invoiceId = generateId();
-    const invoiceNumber = `${settings.purchasePrefix}-${String(settings.lastPurchaseInvoiceNum + 1).padStart(4, '0')}`;
+    const existingPurchNumbers = purchaseInvoices
+      .map(inv => parseInt(inv.invoiceNumber.split('-').pop() || '0', 10))
+      .filter(n => !isNaN(n));
+    const nextPurchNum = Math.max(settings.lastPurchaseInvoiceNum, ...existingPurchNumbers, 1000) + 1;
+    const invoiceNumber = `${settings.purchasePrefix}-${String(nextPurchNum).padStart(4, '0')}`;
     const newSerials: SerialItem[] = [];
 
     purchItems.forEach(item => {
@@ -398,6 +509,8 @@ export default function Purchases({
             status: 'available',
             purchaseInvoiceId: invoiceId,
             costPrice: item.unitPrice,
+            // ✅ لو السعر صفر = سعر معلّق
+            purchasePricePending: item.unitPrice === 0 ? true : false,
             createdAt: new Date().toISOString(),
           });
         });
@@ -417,7 +530,7 @@ export default function Purchases({
       total: subtotal,
       paid: paidAmount,
       remaining,
-      status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+      status: subtotal === 0 ? 'unpaid' : remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
       paymentMethod,
       notes,
       createdAt: new Date().toISOString(),
@@ -425,21 +538,6 @@ export default function Purchases({
 
     onAddPurchaseInvoice(invoice);
     if (newSerials.length > 0) onAddSerials(newSerials);
-
-    // ✅ بعد حفظ الشراء، نفحص لو فيه بيع معلّق (بدون سعر شراء) بنفس اسم أي منتج في هذه الفاتورة، ونربطهم تلقائيًا
-    if (onLinkPendingCost) {
-      let totalLinked = 0;
-      purchItems.forEach(item => {
-        if (item.productName) {
-          const result = onLinkPendingCost(item.productName, item.unitPrice);
-          totalLinked += result.linkedCount;
-        }
-      });
-      if (totalLinked > 0) {
-        setLinkedInfoToast(`✅ تم ربط ${totalLinked} عملية بيع معلّقة بسعر الشراء الجديد، وأصبح يمكن حساب ربحها الصافي`);
-        setTimeout(() => setLinkedInfoToast(null), 6000);
-      }
-    }
 
     resetForm();
     setShowForm(false);
@@ -466,8 +564,6 @@ export default function Purchases({
     setViewInvoice(null);
   };
 
-  const [quickAddError, setQuickAddError] = useState<string | null>(null);
-
   const handleAddSupplier = () => {
     if (!newSupplier.name) return;
     const s: Supplier = {
@@ -490,6 +586,7 @@ export default function Purchases({
   const handleAddNewProduct = (itemId: string) => {
     if (!newProductForm.name || !newProductForm.sku) return;
     const now = new Date().toISOString();
+    const costPrice = parseFloat(newProductForm.costPrice) || 0;
     const product: Product = {
       id: generateId(),
       name: newProductForm.name,
@@ -497,7 +594,7 @@ export default function Purchases({
       category: newProductForm.category,
       brand: newProductForm.brand,
       productType: newProductForm.productType,
-      costPrice: parseFloat(newProductForm.costPrice) || 0,
+      costPrice,
       salePrice: parseFloat(newProductForm.salePrice) || 0,
       stock: 0,
       createdAt: now, updatedAt: now,
@@ -550,12 +647,7 @@ export default function Purchases({
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
-      {linkedInfoToast && (
-        <div className="bg-green-900/30 border border-green-700/40 rounded-xl px-4 py-3 text-green-300 text-sm flex items-center justify-between">
-          <span>{linkedInfoToast}</span>
-          <button onClick={() => setLinkedInfoToast(null)} className="text-green-400 hover:text-green-200">✕</button>
-        </div>
-      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">📦 المشتريات</h2>
@@ -623,7 +715,7 @@ export default function Purchases({
                   <div className="flex gap-1 justify-end">
                     <button onClick={() => setViewInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400" title="عرض"><Eye size={14} /></button>
                     <button onClick={() => printInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-400" title="طباعة"><Printer size={14} /></button>
-                    <button onClick={() => { openEditForm(inv); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400" title="تعديل"><Edit size={14} /></button>
+                    <button onClick={() => openEditForm(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400" title="تعديل"><Edit size={14} /></button>
                     <button onClick={() => setConfirmDeleteInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400" title="حذف"><Trash2 size={14} /></button>
                   </div>
                 </td>
@@ -633,6 +725,7 @@ export default function Purchases({
         </table>
       </div>
 
+      {/* ══ مودال فاتورة الشراء ══ */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
@@ -712,21 +805,32 @@ export default function Purchases({
                             className="input-dark w-full text-sm"
                           />
                           {showItemDrop[item.id] && (
-                            <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
+                            <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto">
+                              {getFilteredProducts(itemSearch[item.id] || '').length === 0 && (
+                                <div className="px-3 py-2 text-xs text-gray-500 text-center">
+                                  لا يوجد منتج بهذا الاسم
+                                </div>
+                              )}
                               {getFilteredProducts(itemSearch[item.id] || '').map(p => (
                                 <button key={p.id} onClick={() => selectProduct(item.id, p)}
                                   className="block w-full text-right px-3 py-2 text-xs text-gray-300 hover:bg-violet-700/20">
                                   <div className="font-medium">{p.name}</div>
                                   <div className="text-gray-500">
                                     {p.sku} • مخزون متاح: {getAvailableStock(p.id)}
-                                    {p.productType === 'serial' && <span className="text-blue-400 mr-2">• منتج بسيريال</span>}
+                                    {p.productType === 'serial' && <span className="text-blue-400 mr-2">• بسيريال</span>}
                                   </div>
                                 </button>
                               ))}
                               <button
-                                onClick={() => { setShowNewProductModal(item.id); setShowItemDrop(prev => ({ ...prev, [item.id]: false })); setQuickAddError(null); }}
-                                className="block w-full text-right px-3 py-2 text-xs text-violet-400 hover:bg-violet-900/20 border-t border-white/10 font-medium">
-                                + إضافة منتج جديد
+                                onClick={() => {
+                                  setShowNewProductModal(item.id);
+                                  setShowItemDrop(prev => ({ ...prev, [item.id]: false }));
+                                  setQuickAddError(null);
+                                  setNewProductForm(p => ({ ...p, name: itemSearch[item.id] || '' }));
+                                }}
+                                className="block w-full text-right px-3 py-2.5 text-sm text-violet-300 hover:bg-violet-900/30 border-t border-violet-700/30 font-bold bg-violet-900/10"
+                              >
+                                ➕ منتج جديد غير موجود؟ اضغط هنا لإضافته
                               </button>
                             </div>
                           )}
@@ -755,11 +859,21 @@ export default function Purchases({
                         </div>
                       </div>
 
+                      {/* تنبيه لو السعر صفر */}
+                      {item.productId && item.unitPrice === 0 && (
+                        <div className="mb-3 flex items-center gap-2 bg-orange-900/10 border border-orange-700/20 rounded-lg px-3 py-2">
+                          <AlertCircle size={14} className="text-orange-400 shrink-0" />
+                          <span className="text-xs text-orange-300">
+                            سعر الشراء = 0 ⟵ سيُسجَّل كـ <strong>سعر معلّق</strong>، يمكن تحديثه لاحقاً من لوحة التحكم
+                          </span>
+                        </div>
+                      )}
+
                       {isSerialProduct && (
                         <div className="mb-3 flex items-center gap-2 bg-blue-900/10 border border-blue-700/20 rounded-lg px-3 py-2">
                           <AlertCircle size={14} className="text-blue-400 shrink-0" />
                           <span className="text-xs text-blue-300">
-                            هذا المنتج <strong>بسيريال</strong> — إدخال السيريالات إلزامي ولن يتم حفظ الفاتورة بدونها
+                            هذا المنتج <strong>بسيريال</strong> — إدخال السيريالات إلزامي
                           </span>
                         </div>
                       )}
@@ -771,7 +885,7 @@ export default function Purchases({
                               السيريالات ({item.serials.filter(s => s.serial).length} / {item.quantity}):
                             </div>
                             <div className="text-xs text-violet-400">
-                              💡 اضغط Enter بعد كل سيريال للانتقال للتالي
+                              💡 اضغط Enter للانتقال للسيريال التالي
                             </div>
                           </div>
                           {item.serials.map((sl, si) => {
@@ -803,9 +917,7 @@ export default function Purchases({
                                   </div>
                                 </div>
                                 {isDup && (
-                                  <div className="text-xs text-red-400 mt-1">
-                                    ⚠️ هذا السيريال موجود بالفعل
-                                  </div>
+                                  <div className="text-xs text-red-400 mt-1">⚠️ هذا السيريال موجود بالفعل</div>
                                 )}
                               </div>
                             );
@@ -860,7 +972,7 @@ export default function Purchases({
 
             {duplicateSerialWarning && (
               <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-4 text-red-400">
-                ⚠️ السيريال "{duplicateSerialWarning}" مكرر أو موجود بالفعل في المخزون.
+                ⚠️ السيريال "{duplicateSerialWarning}" مكرر أو موجود بالفعل.
               </div>
             )}
 
@@ -881,10 +993,137 @@ export default function Purchases({
         </div>
       )}
 
+      {/* ══ مودال استكمال سعر شراء سيريال معلّق ══ */}
+      {showCompletePendingModal && pendingSerialToComplete && (
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a35] border border-orange-700/40 rounded-2xl p-5 w-full max-w-md">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-2xl">💰</span>
+              <div>
+                <h3 className="font-bold text-white">تحديد سعر الشراء</h3>
+                <p className="text-xs text-gray-400">استكمال سعر شراء سيريال معلّق</p>
+              </div>
+            </div>
+
+            {/* معلومات السيريال */}
+            <div className="bg-orange-900/10 border border-orange-700/20 rounded-xl p-3 mb-4">
+              <div className="text-sm font-medium text-white mb-1">{pendingSerialToComplete.productName}</div>
+              <div className="text-xs text-gray-400 font-mono">
+                Serial: {pendingSerialToComplete.serial}
+                {pendingSerialToComplete.imei1 && ` | IMEI1: ${pendingSerialToComplete.imei1}`}
+              </div>
+              <div className="text-xs text-orange-400 mt-1">⏳ سعر الشراء الحالي: معلّق (0)</div>
+            </div>
+
+            <div className="space-y-3">
+              {/* اختيار المورد */}
+              <div className="relative">
+                <label className="form-label">المورد *</label>
+                <input
+                  type="text"
+                  value={completePendingForm.supplierSearch}
+                  onChange={e => setCompletePendingForm(p => ({ ...p, supplierSearch: e.target.value, supplierId: '' }))}
+                  onFocus={() => setShowCompleteSupDrop(true)}
+                  placeholder="ابحث عن مورد..."
+                  className="input-dark w-full"
+                />
+                {showCompleteSupDrop && (
+                  <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-40 overflow-y-auto">
+                    {filteredSuppliersForComplete.slice(0, 8).map(s => (
+                      <button key={s.id}
+                        onClick={() => {
+                          setCompletePendingForm(p => ({ ...p, supplierId: s.id, supplierSearch: s.name }));
+                          setShowCompleteSupDrop(false);
+                        }}
+                        className="block w-full text-right px-3 py-2 text-sm text-gray-300 hover:bg-violet-700/20">
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* السعر الحقيقي */}
+              <div>
+                <label className="form-label">سعر الشراء الحقيقي *</label>
+                <input
+                  type="number"
+                  value={completePendingForm.newCostPrice}
+                  onChange={e => setCompletePendingForm(p => ({ ...p, newCostPrice: e.target.value }))}
+                  className="input-dark w-full"
+                  placeholder="أدخل سعر الشراء الفعلي"
+                />
+              </div>
+
+              {/* طريقة الدفع */}
+              <div>
+                <label className="form-label">طريقة الدفع</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['cash', 'bank', 'credit'] as const).map(method => (
+                    <button key={method}
+                      onClick={() => setCompletePendingForm(p => ({ ...p, paymentMethod: method }))}
+                      className={`py-2 rounded-xl border text-xs font-medium transition-colors ${
+                        completePendingForm.paymentMethod === method
+                          ? 'bg-violet-700/30 border-violet-500/50 text-violet-300'
+                          : 'border-white/10 text-gray-400'
+                      }`}>
+                      {method === 'cash' ? '💵 كاش' : method === 'bank' ? '🏦 بنك' : '⏳ آجل'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* المبلغ المدفوع */}
+              {completePendingForm.paymentMethod !== 'credit' && (
+                <div>
+                  <label className="form-label">المبلغ المدفوع</label>
+                  <input
+                    type="number"
+                    value={completePendingForm.paidAmount}
+                    onChange={e => setCompletePendingForm(p => ({ ...p, paidAmount: e.target.value }))}
+                    className="input-dark w-full"
+                    placeholder={`من ${formatCurrency(parseFloat(completePendingForm.newCostPrice) || 0)}`}
+                  />
+                </div>
+              )}
+            </div>
+
+            {completeError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {completeError}
+              </div>
+            )}
+
+            {completeSuccess && (
+              <div className="bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-green-400">
+                {completeSuccess}
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={handleCompletePending} className="btn-primary flex-1">
+                💾 تأكيد وحفظ السعر
+              </button>
+              <button
+                onClick={() => {
+                  setShowCompletePendingModal(false);
+                  setPendingSerialToComplete(null);
+                  setCompleteError(null);
+                }}
+                className="btn-secondary flex-1"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* مودال إضافة منتج جديد */}
       {showNewProductModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
-            <h3 className="font-bold text-white mb-4">➕ إضافة منتج جديد سريع</h3>
+            <h3 className="font-bold text-white mb-4">➕ إضافة منتج جديد</h3>
             <div className="space-y-3">
               <input type="text" value={newProductForm.name}
                 onChange={e => setNewProductForm(p => ({ ...p, name: e.target.value }))}
@@ -926,6 +1165,9 @@ export default function Purchases({
                   onChange={e => setNewProductForm(p => ({ ...p, salePrice: e.target.value }))}
                   className="input-dark w-full" placeholder="سعر البيع" />
               </div>
+              <p className="text-xs text-gray-500">
+                💡 لو السعر غير معروف، اتركه صفراً وسيُسجَّل كـ "سعر معلّق" يمكن تحديثه لاحقاً
+              </p>
             </div>
             {quickAddError && (
               <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
@@ -940,6 +1182,7 @@ export default function Purchases({
         </div>
       )}
 
+      {/* مودال عرض الفاتورة */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
@@ -1025,6 +1268,7 @@ export default function Purchases({
         </div>
       )}
 
+      {/* مودال إضافة مورد */}
       {addSupplierModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
@@ -1057,6 +1301,7 @@ export default function Purchases({
         </div>
       )}
 
+      {/* مودال تأكيد الحذف */}
       {confirmDeleteInvoice && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
@@ -1068,14 +1313,11 @@ export default function Purchases({
               سيتم خصم الكمية من المخزون وحذف السيريالات المرتبطة وتصحيح رصيد المورد والخزينة تلقائيًا.
             </p>
             <div className="flex gap-2">
-              <button
-                onClick={handleDeleteInvoice}
+              <button onClick={handleDeleteInvoice}
                 className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">
                 🗑️ تأكيد الحذف
               </button>
-              <button
-                onClick={() => setConfirmDeleteInvoice(null)}
-                className="btn-secondary flex-1">
+              <button onClick={() => setConfirmDeleteInvoice(null)} className="btn-secondary flex-1">
                 إلغاء
               </button>
             </div>

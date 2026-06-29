@@ -213,6 +213,179 @@ export function useStore() {
     newSerials.forEach(s => saveToFirebase('serials', s.id, s));
   }, []);
 
+  // ==================== COMPLETE PENDING PURCHASE ====================
+  // ✅ دالة جديدة: استكمال سعر شراء سيريال معلّق
+  // بدل ما تعمل فاتورة شراء جديدة للسيريال ده، بتحدّث السعر في نفس السيريال وفاتورة الشراء الأصلية
+  const completePendingPurchase = useCallback((
+    serialId: string,
+    newCostPrice: number,
+    supplierId: string,
+    supplierName: string,
+    paymentMethod: 'cash' | 'bank' | 'credit',
+    paidAmount: number,
+    invoiceNumber: string
+  ): { success: boolean; message?: string } => {
+    let result: { success: boolean; message?: string } = { success: true };
+
+    setState(prev => {
+      const serial = prev.serials.find(s => s.id === serialId);
+
+      // تحقق: السيريال موجود؟
+      if (!serial) {
+        result = { success: false, message: 'السيريال غير موجود' };
+        return prev;
+      }
+
+      // تحقق: السيريال معلّق فعلاً أو سعره صفر؟
+      if (!serial.purchasePricePending && serial.costPrice !== 0) {
+        result = { success: false, message: 'هذا السيريال لديه سعر شراء مسجل بالفعل' };
+        return prev;
+      }
+
+      const newState = { ...prev };
+
+      // 1) تحديث السيريال: إزالة علامة التعليق + تسجيل السعر الجديد
+      const updatedSerial: SerialItem = {
+        ...serial,
+        costPrice: newCostPrice,
+        purchasePricePending: false,
+      };
+      newState.serials = newState.serials.map(s => s.id === serialId ? updatedSerial : s);
+
+      // 2) تحديث فاتورة الشراء الأصلية لو موجودة
+      let updatedPurchaseInvoice: PurchaseInvoice | null = null;
+      if (serial.purchaseInvoiceId) {
+        const oldInvoice = newState.purchaseInvoices.find(inv => inv.id === serial.purchaseInvoiceId);
+        if (oldInvoice) {
+          // حدّث سعر البند في الفاتورة
+          const updatedItems = oldInvoice.items.map(item => {
+            const hasThisSerial = item.serials?.some(sl => sl.serial === serial.serial);
+            if (!hasThisSerial) return item;
+            const newTotal = newCostPrice * item.quantity - item.discount;
+            return { ...item, unitPrice: newCostPrice, total: newTotal };
+          });
+          const newSubtotal = updatedItems.reduce((s, i) => s + i.total, 0);
+          const newRemaining = newSubtotal - oldInvoice.paid;
+
+          updatedPurchaseInvoice = {
+            ...oldInvoice,
+            items: updatedItems,
+            subtotal: newSubtotal,
+            total: newSubtotal,
+            remaining: Math.max(0, newRemaining),
+            status: newRemaining <= 0 ? 'paid' : oldInvoice.paid > 0 ? 'partial' : 'unpaid',
+          };
+          newState.purchaseInvoices = newState.purchaseInvoices.map(inv =>
+            inv.id === serial.purchaseInvoiceId ? updatedPurchaseInvoice! : inv
+          );
+
+          // تحديث رصيد المورد في الفاتورة الأصلية
+          const priceDiff = newCostPrice - serial.costPrice; // الفرق بين السعر الجديد والقديم
+          if (priceDiff !== 0) {
+            newState.suppliers = newState.suppliers.map(s => {
+              if (s.id !== oldInvoice.supplierId) return s;
+              return {
+                ...s,
+                totalInvoices: (s.totalInvoices || 0) + priceDiff,
+              };
+            });
+          }
+        }
+      } else {
+        // لو مفيش فاتورة شراء أصلية، نعمل فاتورة جديدة
+        const product = newState.products.find(p => p.id === serial.productId);
+        const invoiceId = `inv_pending_${Date.now()}`;
+        const total = newCostPrice;
+        const remaining = total - paidAmount;
+
+        const newInvoice: PurchaseInvoice = {
+          id: invoiceId,
+          invoiceNumber,
+          supplierId,
+          supplierName,
+          date: new Date().toISOString().split('T')[0],
+          items: [{
+            id: `item_${Date.now()}`,
+            productId: serial.productId,
+            productName: serial.productName,
+            sku: product?.sku || '',
+            quantity: 1,
+            unitPrice: newCostPrice,
+            discount: 0,
+            discountType: 'fixed',
+            taxRate: 0,
+            total: newCostPrice,
+            serials: [{ serial: serial.serial, imei1: serial.imei1, imei2: serial.imei2 }],
+            costPrice: newCostPrice,
+          }],
+          subtotal: total,
+          taxTotal: 0,
+          discount: 0,
+          total,
+          paid: paidAmount,
+          remaining: Math.max(0, remaining),
+          status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+          paymentMethod,
+          createdAt: new Date().toISOString(),
+        };
+
+        newState.purchaseInvoices = [...newState.purchaseInvoices, newInvoice];
+        updatedPurchaseInvoice = newInvoice;
+
+        // تحديث المورد
+        const supIdx = newState.suppliers.findIndex(s => s.id === supplierId);
+        if (supIdx >= 0) {
+          newState.suppliers = newState.suppliers.map(s => {
+            if (s.id !== supplierId) return s;
+            return {
+              ...s,
+              totalInvoices: (s.totalInvoices || 0) + total,
+              totalPaid: (s.totalPaid || 0) + paidAmount,
+            };
+          });
+        }
+
+        // تحديث الخزينة لو دفع
+        if (paidAmount > 0 && paymentMethod !== 'credit') {
+          const treasury = paymentMethod === 'cash' ? 'cash' : 'bank';
+          newState.cashBalance = treasury === 'cash' ? newState.cashBalance - paidAmount : newState.cashBalance;
+          newState.bankBalance = treasury === 'bank' ? newState.bankBalance - paidAmount : newState.bankBalance;
+          newState.treasuryTransactions = [...newState.treasuryTransactions, {
+            id: `tr_${Date.now()}`,
+            type: 'purchase',
+            description: `استكمال سعر شراء ${serial.productName} - سيريال ${serial.serial}`,
+            amount: paidAmount,
+            treasury,
+            direction: 'out',
+            referenceId: invoiceId,
+            date: new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString(),
+          }];
+        }
+      }
+
+      // 3) تحديث المنتج: تحديث costPrice لو السعر الجديد مختلف
+      newState.products = newState.products.map(p => {
+        if (p.id !== serial.productId) return p;
+        return { ...p, costPrice: newCostPrice, updatedAt: new Date().toISOString() };
+      });
+
+      // حفظ في Firebase
+      saveToFirebase('serials', updatedSerial.id, updatedSerial);
+      if (updatedPurchaseInvoice) {
+        saveToFirebase('purchaseInvoices', updatedPurchaseInvoice.id, updatedPurchaseInvoice);
+      }
+      const updatedProduct = newState.products.find(p => p.id === serial.productId);
+      if (updatedProduct) saveToFirebase('products', updatedProduct.id, updatedProduct);
+      const updatedSupplier = newState.suppliers.find(s => s.id === supplierId || s.id === prev.purchaseInvoices.find(inv => inv.id === serial.purchaseInvoiceId)?.supplierId);
+      if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
+
+      return newState;
+    });
+
+    return result;
+  }, []);
+
   // ==================== CUSTOMERS ====================
   const addCustomer = useCallback((customer: Customer): { success: boolean; message?: string } => {
     const normalizedName = normalizeForCompare(customer.name);
@@ -274,7 +447,6 @@ export function useStore() {
       const updatedSerials: SerialItem[] = [];
       const updatedProducts: Product[] = [];
 
-      // ✅ دور في العملاء الأول
       const custIdx = newState.customers.findIndex(c => c.id === invoice.customerId);
       if (custIdx >= 0) {
         const customer = { ...newState.customers[custIdx] };
@@ -283,8 +455,6 @@ export function useStore() {
         newState.customers = newState.customers.map(c => c.id === invoice.customerId ? customer : c);
         updatedCustomer = customer;
       } else {
-        // ✅ لو مش عميل، دور في الموردين
-        // البيع للمورد = المورد بيشتري منا = يقلل الدين اللي علينا ليه
         const supIdx = newState.suppliers.findIndex(s => s.id === invoice.customerId);
         if (supIdx >= 0) {
           const supplier = { ...newState.suppliers[supIdx] };
@@ -342,6 +512,7 @@ export function useStore() {
       newState.settings = { ...newState.settings, lastSaleInvoiceNum: newState.settings.lastSaleInvoiceNum + 1 };
 
       saveToFirebase('saleInvoices', invoice.id, invoice);
+      saveToFirebase('settings', 'main', newState.settings);
       if (updatedCustomer) saveToFirebase('customers', updatedCustomer.id, updatedCustomer);
       if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
       updatedSerials.forEach(s => saveToFirebase('serials', s.id, s));
@@ -369,7 +540,6 @@ export function useStore() {
       const changedProducts = new Map<string, Product>();
       const changedSerials = new Map<string, SerialItem>();
 
-      // ✅ helper يشتغل على عملاء أو موردين
       const touchParty = (partyId: string, delta: { invoices: number; paid: number }) => {
         const custExists = newState.customers.some(c => c.id === partyId);
         if (custExists) {
@@ -385,12 +555,10 @@ export function useStore() {
           });
           return;
         }
-        // لو مش عميل دور في الموردين
         const supExists = newState.suppliers.some(s => s.id === partyId);
         if (supExists) {
           newState.suppliers = newState.suppliers.map(s => {
             if (s.id !== partyId) return s;
-            // عكس لأن البيع للمورد يقلل ما عليه
             const updated = {
               ...s,
               totalInvoices: (s.totalInvoices || 0) + (-delta.invoices),
@@ -420,7 +588,6 @@ export function useStore() {
         });
       };
 
-      // ===== 1) إلغاء تأثير الفاتورة القديمة =====
       touchParty(oldInvoice.customerId, {
         invoices: -(oldInvoice.total),
         paid: -(oldInvoice.paid),
@@ -447,7 +614,6 @@ export function useStore() {
         }
       });
 
-      // ===== 2) تطبيق الفاتورة الجديدة =====
       touchParty(invoice.customerId, {
         invoices: invoice.total,
         paid: invoice.paid,
@@ -531,7 +697,6 @@ export function useStore() {
         }
       });
 
-      // ✅ دور في العملاء الأول، لو مش موجود دور في الموردين
       const custExists = newState.customers.some(c => c.id === invoice.customerId);
       if (custExists) {
         let updatedCustomer: Customer | null = null;
@@ -555,7 +720,6 @@ export function useStore() {
         let updatedSupplier: Supplier | null = null;
         newState.suppliers = newState.suppliers.map((s): Supplier => {
           if (s.id === invoice.customerId) {
-            // عكس: نرجع الدين اللي كان اتقلل
             const updated: Supplier = {
               ...s,
               totalInvoices: (s.totalInvoices || 0) + invoice.total,
@@ -641,40 +805,12 @@ export function useStore() {
       };
 
       saveToFirebase('purchaseInvoices', invoice.id, invoice);
+      saveToFirebase('settings', 'main', newState.settings);
       if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
 
       return newState;
     });
-  }, []);
-
-  // ✅ ربط فاتورة شراء جديدة بعمليات بيع معلّقة سابقة (منتجات بيعت بدون تسجيل تكلفة شراء).
-  // يبحث في كل فواتير البيع عن بنود pendingCost بنفس اسم المنتج (تطبيع للمقارنة)، ويحدّث تكلفتها
-  // الحقيقية + يلغي علامة "معلّق"، فيصبح الربح الصافي قابلاً للحساب فورًا.
-  const linkPendingCostToPurchase = useCallback((productName: string, costPrice: number): { linkedCount: number } => {
-    let linkedCount = 0;
-    const normalizedName = normalizeForCompare(productName);
-    setState(prev => {
-      const updatedInvoices: SaleInvoice[] = [];
-      const newSaleInvoices = prev.saleInvoices.map(inv => {
-        let changed = false;
-        const newItems = inv.items.map(item => {
-          if (item.pendingCost && normalizeForCompare(item.productName) === normalizedName) {
-            changed = true;
-            linkedCount++;
-            return { ...item, pendingCost: false, costPrice };
-          }
-          return item;
-        });
-        if (!changed) return inv;
-        const updated = { ...inv, items: newItems };
-        updatedInvoices.push(updated);
-        return updated;
-      });
-      updatedInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
-      return { ...prev, saleInvoices: newSaleInvoices };
-    });
-    return { linkedCount };
   }, []);
 
   const updatePurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
@@ -734,7 +870,10 @@ export function useStore() {
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
 
       deleteFromFirebase('purchaseInvoices', invoiceId);
-      if (updatedSupplier !== null) { const supplierToSave = updatedSupplier as Supplier; saveToFirebase('suppliers', supplierToSave.id, supplierToSave); }
+      if (updatedSupplier !== null) {
+        const supplierToSave = updatedSupplier as Supplier;
+        saveToFirebase('suppliers', supplierToSave.id, supplierToSave);
+      }
       updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
       removedSerialIds.forEach(id => deleteFromFirebase('serials', id));
 
@@ -837,8 +976,8 @@ export function useStore() {
       }];
 
       saveToFirebase('payments', payment.id, payment);
-      if (changedCustomer !== null) { const customerToSave = changedCustomer as Customer; saveToFirebase('customers', customerToSave.id, customerToSave); }
-      if (changedSupplier !== null) { const supplierToSave = changedSupplier as Supplier; saveToFirebase('suppliers', supplierToSave.id, supplierToSave); }
+      if (changedCustomer !== null) { const c = changedCustomer as Customer; saveToFirebase('customers', c.id, c); }
+      if (changedSupplier !== null) { const s = changedSupplier as Supplier; saveToFirebase('suppliers', s.id, s); }
       changedSaleInvoices.forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
       changedPurchaseInvoices.forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
 
@@ -1202,7 +1341,8 @@ export function useStore() {
     addCustomer, updateCustomer, deleteCustomer,
     addSupplier, updateSupplier, deleteSupplier,
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,
-    addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice, linkPendingCostToPurchase,
+    addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice,
+    completePendingPurchase,
     addPayment,
     addExpense,
     addNoonOrder, updateNoonOrder, addNoonOrders, settleNoonOrders,

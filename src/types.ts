@@ -43,6 +43,9 @@ export interface SerialItem {
   costPrice: number;
   salePrice?: number;
   createdAt: string;
+  // ✅ الجديد: علامة تدل على أن سعر الشراء لم يُحدَّد بعد
+  // true = الجهاز دخل المخزون بسعر 0 مؤقتاً وينتظر تحديد السعر الحقيقي
+  purchasePricePending?: boolean;
 }
 
 // ==================== CUSTOMER ====================
@@ -89,10 +92,7 @@ export interface InvoiceItem {
   taxRate: number;
   total: number;
   serials?: SerialItemLine[];
-  // ✅ بيع منتج غير موجود في المخزون أصلاً (يُكتب اسمه يدويًا، بدون productId فعلي):
-  // pendingCost = true يعني البيع تم بدون تسجيل سعر شراء، وننتظر تسجيل فاتورة الشراء له لاحقًا.
-  pendingCost?: boolean;
-  costPrice?: number; // تكلفة القطعة (تبقى 0/فاضية لحد ما تُربط بفاتورة شراء فعلية لاحقًا)
+  costPrice?: number;
 }
 
 export interface SerialItemLine {
@@ -193,7 +193,7 @@ export interface NoonOrderItem {
   imei1?: string;
   imei2?: string;
   price: number;
-  costPrice?: number; // تكلفة القطعة وقت إضافتها للأوردر (لحساب الربح الصافي بعد التسوية)
+  costPrice?: number;
 }
 
 export interface NoonOrder {
@@ -206,10 +206,9 @@ export interface NoonOrder {
   items: NoonOrderItem[];
   status: OrderStatus;
   notes?: string;
-  // Bank settlement fields (تسوية التحويل البنكي)
-  settledAmount?: number;      // المبلغ الصافي المحول فعليًا بعد العمولة والضريبة
-  settledDate?: string;        // تاريخ التحويل
-  settlementProfit?: number;   // الربح المحسوب = settledAmount - إجمالي تكلفة المنتجات
+  settledAmount?: number;
+  settledDate?: string;
+  settlementProfit?: number;
   createdAt: string;
 }
 
@@ -230,7 +229,7 @@ export interface DailyClosing {
   createdAt: string;
 }
 
-// ==================== DAILY JOURNAL (تقفيل اليومية) ====================
+// ==================== DAILY JOURNAL ====================
 export interface JournalEntry {
   id: string;
   label: string;
@@ -238,7 +237,7 @@ export interface JournalEntry {
 }
 
 export interface DailyJournal {
-  id: string; // نفس التاريخ يُستخدم كمعرف (يوم واحد = مستند واحد في Firebase)
+  id: string;
   date: string;
   openingBalance: number;
   inEntries: JournalEntry[];

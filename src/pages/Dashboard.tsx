@@ -13,6 +13,7 @@ interface Props {
   onNavigate: (page: string) => void;
   onNewSale: () => void;
   onNewPurchase: () => void;
+  onCompletePendingSerial?: (serialId: string) => void;
   adjustTreasury: (
     type: 'cash' | 'bank',
     amount: number,
@@ -26,11 +27,12 @@ export default function Dashboard({
   onNavigate,
   onNewSale,
   onNewPurchase,
+  onCompletePendingSerial,
   adjustTreasury,
 }: Props) {
   const [showTreasury, setShowTreasury] = useState(false);
   const [showDebtBook, setShowDebtBook] = useState(false);
-  const [copied, setCopied]             = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [treasuryForm, setTreasuryForm] = useState({
     type: 'cash' as 'cash' | 'bank',
@@ -42,105 +44,61 @@ export default function Dashboard({
   const today = getTodayStr();
 
   /* ─── إحصائيات اليوم ─── */
-  const todaySales     = state.saleInvoices.filter(i => i.date === today);
+  const todaySales = state.saleInvoices.filter(i => i.date === today);
   const todayPurchases = state.purchaseInvoices.filter(i => i.date === today);
-  const todaySalesTotal     = todaySales.reduce((s, i) => s + i.paid, 0);
+  const todaySalesTotal = todaySales.reduce((s, i) => s + i.paid, 0);
   const todayPurchasesTotal = todayPurchases.reduce((s, i) => s + i.paid, 0);
 
   const outOfStock = state.products.filter(p => p.stock === 0);
-  const lowStock   = state.products.filter(
+  const lowStock = state.products.filter(
     p => p.stock > 0 && p.stock <= (p.minStock || 2)
   );
 
-  /* ─── الأجهزة بدون سعر شراء ─── */
-  const noCostProducts = state.products.filter(
-    p => !p.costPrice || p.costPrice === 0
-  );
+  /* ─── السيريالات المعلّقة (سعر الشراء غير معروف) ─── */
+const pendingSerials = state.serials
+  .filter(s =>
+    s.purchasePricePending === true ||
+    s.costPrice === 0
+  )
+  .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
-  // ✅ بنود بيعت بدون تسجيل سعر شراء (منتج اسمه مكتوب يدويًا، مش موجود أصلاً في المخزون).
-  // هذه أخطر من noCostProducts لأنها بيعت بالفعل ولا يوجد لها أثر في جداول الشراء خالص.
-  interface PendingSaleRow {
-    invoiceId: string;
-    invoiceNumber: string;
-    itemId: string;
-    productName: string;
-    quantity: number;
-    salePrice: number;
-    date: string;
-  }
-  const pendingSales: PendingSaleRow[] = [];
-  state.saleInvoices.forEach(inv => {
-    inv.items.forEach(item => {
-      if (item.pendingCost) {
-        pendingSales.push({
-          invoiceId: inv.id,
-          invoiceNumber: inv.invoiceNumber,
-          itemId: item.id,
-          productName: item.productName,
-          quantity: item.quantity,
-          salePrice: item.unitPrice,
-          date: inv.date,
-        });
-      }
-    });
-  });
-
-  /* ─── دفتر الديون - عملاء وموردين معاً ─── */
-
-  // اللي لينا عندهم (عملاء + موردين عليهم فلوس)
+  /* ─── دفتر الديون ─── */
   const customersOwing = state.customers
     .map(c => {
-      const balance =
-        (c.totalInvoices || 0) -
-        (c.totalPaid || 0) +
-        (c.openingBalance || 0);
+      const balance = (c.totalInvoices || 0) - (c.totalPaid || 0) + (c.openingBalance || 0);
       return { id: c.id, name: c.name, phone: c.phone || '', balance, type: 'customer' as const };
     })
     .filter(c => c.balance > 0);
 
   const suppliersWithCredit = state.suppliers
     .map(s => {
-      const balance =
-        (s.totalInvoices || 0) -
-        (s.totalPaid || 0) +
-        (s.openingBalance || 0);
-      // لو الرصيد سالب = نحن دفعنا أكتر = المورد عنده فلوس لينا
+      const balance = (s.totalInvoices || 0) - (s.totalPaid || 0) + (s.openingBalance || 0);
       return { id: s.id, name: s.name, phone: s.phone || '', balance: -balance, type: 'supplier' as const };
     })
     .filter(s => s.balance > 0);
 
-  // كل اللي لينا عندهم مجتمعين مرتبين
   const allOwingUs = [...customersOwing, ...suppliersWithCredit]
     .sort((a, b) => b.balance - a.balance);
 
-  // اللي ليهم عندنا (موردين + عملاء لهم فلوس)
   const suppliersOwed = state.suppliers
     .map(s => {
-      const balance =
-        (s.totalInvoices || 0) -
-        (s.totalPaid || 0) +
-        (s.openingBalance || 0);
+      const balance = (s.totalInvoices || 0) - (s.totalPaid || 0) + (s.openingBalance || 0);
       return { id: s.id, name: s.name, phone: s.phone || '', balance, type: 'supplier' as const };
     })
     .filter(s => s.balance > 0);
 
   const customersWithDebit = state.customers
     .map(c => {
-      const balance =
-        (c.totalInvoices || 0) -
-        (c.totalPaid || 0) +
-        (c.openingBalance || 0);
-      // لو الرصيد سالب = العميل دفع أكتر = نحن عندنا فلوس ليه
+      const balance = (c.totalInvoices || 0) - (c.totalPaid || 0) + (c.openingBalance || 0);
       return { id: c.id, name: c.name, phone: c.phone || '', balance: -balance, type: 'customer' as const };
     })
     .filter(c => c.balance > 0);
 
-  // كل اللي ليهم عندنا مجتمعين مرتبين
   const allWeOwe = [...suppliersOwed, ...customersWithDebit]
     .sort((a, b) => b.balance - a.balance);
 
   const totalOwing = allOwingUs.reduce((s, c) => s + c.balance, 0);
-  const totalOwed  = allWeOwe.reduce((s, c) => s + c.balance, 0);
+  const totalOwed = allWeOwe.reduce((s, c) => s + c.balance, 0);
   const netBalance = totalOwing - totalOwed;
 
   /* ─── بيانات الرسم البياني ─── */
@@ -151,9 +109,9 @@ export default function Dashboard({
     return {
       date: d.toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }),
       مبيعات: state.saleInvoices.filter(inv => inv.date === dateStr)
-                .reduce((s, inv) => s + inv.total, 0),
+        .reduce((s, inv) => s + inv.total, 0),
       مشتريات: state.purchaseInvoices.filter(inv => inv.date === dateStr)
-                .reduce((s, inv) => s + inv.total, 0),
+        .reduce((s, inv) => s + inv.total, 0),
     };
   });
 
@@ -309,7 +267,6 @@ export default function Dashboard({
 
     let msg = `📒 تقرير حسابات التجار\n`;
     msg += `🗓️ ${date}\n\n`;
-
     msg += `✅ لنا عندهم فلوس:\n`;
     if (allOwingUs.length === 0) {
       msg += `ما فيش ديون لينا\n`;
@@ -319,9 +276,7 @@ export default function Dashboard({
       });
       msg += `الإجمالي: ${fmt(totalOwing)} ج.م\n`;
     }
-
     msg += `\n`;
-
     msg += `💸 لهم عندنا فلوس:\n`;
     if (allWeOwe.length === 0) {
       msg += `ما فيش ديون علينا\n`;
@@ -331,7 +286,6 @@ export default function Dashboard({
       });
       msg += `الإجمالي: ${fmt(totalOwed)} ج.م\n`;
     }
-
     msg += `\n`;
     msg += `📌 الصافي ${netBalance >= 0 ? 'لصالحنا' : 'علينا'}: ${fmt(Math.abs(netBalance))} ج.م`;
 
@@ -392,7 +346,7 @@ export default function Dashboard({
         </button>
       </div>
 
-      {/* ② دفتر الديون + أجهزة بدون سعر - فوق الإحصائيات */}
+      {/* ② دفتر الديون + سيريالات معلّقة */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* دفتر الديون */}
@@ -430,80 +384,70 @@ export default function Dashboard({
           </div>
         </button>
 
-        {/* أجهزة بدون سعر شراء */}
+        {/* سيريالات معلّقة - سعر الشراء غير محدد */}
         <div className={`rounded-2xl p-5 border transition-all ${
-          (noCostProducts.length + pendingSales.length) > 0
-            ? 'bg-gradient-to-br from-red-900/20 to-rose-900/10 border-red-600/30'
+          pendingSerials.length > 0
+            ? 'bg-gradient-to-br from-orange-900/20 to-red-900/10 border-orange-600/30'
             : 'bg-gradient-to-br from-green-900/10 to-emerald-900/5 border-green-700/20'
         }`}>
           <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${
-              (noCostProducts.length + pendingSales.length) > 0 ? 'bg-red-500/10' : 'bg-green-500/10'
+              pendingSerials.length > 0 ? 'bg-orange-500/10' : 'bg-green-500/10'
             }`}>
-              {(noCostProducts.length + pendingSales.length) > 0 ? '⚠️' : '✅'}
+              {pendingSerials.length > 0 ? '⏳' : '✅'}
             </div>
-            {(noCostProducts.length + pendingSales.length) > 0 && (
-              <span className="text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded-lg animate-pulse font-bold">
-                {noCostProducts.length + pendingSales.length} عنصر بدون سعر
+            {pendingSerials.length > 0 && (
+              <span className="text-xs text-orange-400 bg-orange-900/30 px-2 py-1 rounded-lg animate-pulse font-bold">
+                {pendingSerials.length} سيريال بدون سعر
               </span>
             )}
           </div>
-          <div className="text-base font-bold text-white mb-3">أجهزة بدون سعر شراء</div>
+          <div className="text-base font-bold text-white mb-1">سيريالات بسعر شراء معلّق</div>
+          <div className="text-xs text-gray-500 mb-3">
+            أجهزة دخلت المخزون بسعر مؤقت — اضغط "تحديد السعر" لاستكمال سعر الشراء الحقيقي
+          </div>
 
-          {/* البنود المعلقة (بيعت فعليًا بدون تسجيل شراء) تظهر أولًا وبشكل أبرز */}
-          {pendingSales.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {pendingSales.map(row => (
-                <div key={row.itemId}
-                  className="flex items-center justify-between bg-red-900/30 border border-red-600/40 rounded-xl px-3 py-2">
-                  <div>
-                    <div className="text-sm text-red-300 font-bold flex items-center gap-1">
-                      🔴 {row.productName}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      فاتورة {row.invoiceNumber} • {row.date} • بيعت بـ {formatCurrency(row.salePrice)}
-                    </div>
-                  </div>
-                  <span className="text-xs text-red-400 bg-red-900/40 px-2 py-1 rounded-lg font-bold">
-                    معلّق
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {noCostProducts.length === 0 ? (
-            pendingSales.length === 0 && <div className="text-sm text-green-400">✅ جميع المنتجات لها سعر شراء</div>
+          {pendingSerials.length === 0 ? (
+            <div className="text-sm text-green-400">✅ كل السيريالات لها سعر شراء محدد</div>
           ) : (
-            <div className="space-y-2 max-h-[120px] overflow-y-auto">
-              {noCostProducts.map(p => (
-                <div key={p.id}
-                  className="flex items-center justify-between bg-red-900/20 border border-red-700/20 rounded-xl px-3 py-2">
-                  <div>
-                    <div className="text-sm text-white font-medium">{p.name}</div>
-                    <div className="text-xs text-gray-500">{p.sku}</div>
+            <div className="space-y-2 max-h-[160px] overflow-y-auto">
+              {pendingSerials.map(s => (
+                <div key={s.id}
+                  className="flex items-center justify-between bg-orange-900/20 border border-orange-700/30 rounded-xl px-3 py-2 gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm text-white font-medium truncate">{s.productName}</div>
+                    <div className="text-xs text-gray-500 font-mono">{s.serial}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">{p.stock} قطعة</span>
-                    <button onClick={() => onNavigate('products')}
-                      className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20 px-2 py-1 rounded-lg">
-                      تعديل
-                    </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-orange-400 bg-orange-900/40 px-2 py-1 rounded-lg font-bold whitespace-nowrap">
+                      سعر معلّق
+                    </span>
+                    {onCompletePendingSerial && (
+                      <button
+                        onClick={() => onCompletePendingSerial(s.id)}
+                        className="text-xs bg-violet-700/40 hover:bg-violet-700/60 text-violet-200 px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors"
+                      >
+                        💰 تحديد السعر
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
-          {(noCostProducts.length > 0 || pendingSales.length > 0) && (
-            <button onClick={() => onNavigate('products')}
-              className="mt-3 w-full text-xs text-violet-400 hover:text-violet-300 py-1.5 border border-violet-700/30 rounded-xl">
-              الذهاب لصفحة المنتجات →
+
+          {pendingSerials.length > 0 && (
+            <button
+              onClick={() => onNavigate('inventory')}
+              className="mt-3 w-full text-xs text-violet-400 hover:text-violet-300 py-1.5 border border-violet-700/30 rounded-xl transition-colors"
+            >
+              عرض كل السيريالات في المخزون →
             </button>
           )}
         </div>
       </div>
 
-      {/* ③ Stats - نزلت تحت */}
+      {/* ③ Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard title="مبيعات اليوم" value={formatCurrency(todaySalesTotal)}
           sub={`${todaySales.length} فاتورة`} icon="💰" color="green" />
@@ -525,11 +469,11 @@ export default function Dashboard({
             <AreaChart data={last7Days} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <defs>
                 <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#7c3aed" stopOpacity={0.3} />
+                  <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="purchGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.3} />
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
               </defs>
@@ -654,7 +598,6 @@ export default function Dashboard({
                          max-h-[85vh] flex flex-col shadow-2xl"
             onClick={e => e.stopPropagation()}>
 
-            {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-amber-700/20 shrink-0">
               <div className="flex items-center gap-3">
                 <span className="text-2xl">📒</span>
@@ -694,7 +637,6 @@ export default function Dashboard({
               </div>
             </div>
 
-            {/* Summary */}
             <div className="grid grid-cols-3 gap-3 p-4 border-b border-white/5 shrink-0">
               <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-green-400 mb-1">💚 إجمالي لينا</div>
@@ -717,26 +659,7 @@ export default function Dashboard({
               </div>
             </div>
 
-            {/* قائمة موحدة بتابات */}
-            <div className="flex gap-2 p-4 pb-2 shrink-0">
-              <button
-                onClick={() => setShowDebtBook(true)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-green-700/30 border border-green-500/40 text-green-300"
-              >
-                💚 لينا عندهم ({allOwingUs.length})
-              </button>
-              <button
-                onClick={() => setShowDebtBook(true)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-700/30 border border-red-500/40 text-red-300"
-              >
-                ❤️ ليهم عندنا ({allWeOwe.length})
-              </button>
-            </div>
-
-            {/* List - اللي لينا */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
-              {/* قسم لينا عندهم */}
               {allOwingUs.length > 0 && (
                 <div>
                   <div className="text-xs font-bold text-green-400 mb-2 px-1">
@@ -796,12 +719,10 @@ export default function Dashboard({
                 </div>
               )}
 
-              {/* فاصل */}
               {allOwingUs.length > 0 && allWeOwe.length > 0 && (
                 <div className="border-t border-white/10 my-2" />
               )}
 
-              {/* قسم ليهم عندنا */}
               {allWeOwe.length > 0 && (
                 <div>
                   <div className="text-xs font-bold text-red-400 mb-2 px-1">
@@ -862,7 +783,6 @@ export default function Dashboard({
               )}
             </div>
 
-            {/* Footer */}
             <div className="p-4 border-t border-white/5 shrink-0">
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>
@@ -941,12 +861,12 @@ function StatCard({ title, value, sub, icon, color, onClick }: {
   title: string; value: string; sub: string; icon: string; color: string; onClick?: () => void;
 }) {
   const colors: Record<string, string> = {
-    green:  'from-green-900/40  to-green-900/10  border-green-700/30',
-    blue:   'from-blue-900/40   to-blue-900/10   border-blue-700/30',
+    green: 'from-green-900/40  to-green-900/10  border-green-700/30',
+    blue: 'from-blue-900/40   to-blue-900/10   border-blue-700/30',
     violet: 'from-violet-900/40 to-violet-900/10 border-violet-700/30',
-    cyan:   'from-cyan-900/40   to-cyan-900/10   border-cyan-700/30',
+    cyan: 'from-cyan-900/40   to-cyan-900/10   border-cyan-700/30',
     orange: 'from-orange-900/40 to-orange-900/10 border-orange-700/30',
-    red:    'from-red-900/40    to-red-900/10    border-red-700/30',
+    red: 'from-red-900/40    to-red-900/10    border-red-700/30',
   };
   return (
     <div onClick={onClick}

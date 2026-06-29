@@ -24,12 +24,14 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
+  // ✅ جديد: ID السيريال المعلّق اللي عايزين نستكمل سعره
+  const [pendingSerialId, setPendingSerialId] = useState<string | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
 
   const store = useStore();
   const { state, isLoading } = store;
 
-  // اختصار Ctrl+K (أو Cmd+K على ماك) لفتح البحث الشامل من أي صفحة
+  // اختصار Ctrl+K لفتح البحث الشامل
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -56,9 +58,6 @@ export default function App() {
     return <Login />;
   }
 
-  // ✅ مهم: لا نعرض أي بيانات (حتى التجريبية المؤقتة) قبل أن تصل البيانات الحقيقية من Firebase فعليًا.
-  // بدون هذا الفحص، يظهر المستخدم بيانات تجريبية وهمية (أحمد محمد علي...) لحظة فتح الموقع
-  // على أي جهاز جديد، وقد يستمر ظهورها لثوانٍ إن كان الإنترنت بطيئًا، مما يسبب لخبطة وكأنها بيانات حقيقية قديمة.
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0f0f1a]">
@@ -80,6 +79,12 @@ export default function App() {
             onNewSale={() => setCurrentPage('sales')}
             onNewPurchase={() => setCurrentPage('purchases')}
             adjustTreasury={store.adjustTreasury}
+            // ✅ جديد: لما المستخدم يضغط "تحديد السعر" من الداشبورد
+            // ننقله لصفحة المشتريات ونفتحله مودال استكمال السعر مباشرة
+            onCompletePendingSerial={(serialId) => {
+              setPendingSerialId(serialId);
+              setCurrentPage('purchases');
+            }}
           />
         );
 
@@ -141,9 +146,13 @@ export default function App() {
             onAddSerials={store.addSerials}
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
             onDeletePurchaseInvoice={store.deletePurchaseInvoice}
-            onLinkPendingCost={store.linkPendingCostToPurchase}
+            // ✅ جديد: دالة استكمال السعر من useStore
+            onCompletePendingPurchase={store.completePendingPurchase}
             preselectedSupplierId={pendingSupplierId}
             onPreselectedHandled={() => setPendingSupplierId(null)}
+            // ✅ جديد: السيريال المعلّق القادم من الداشبورد
+            preselectedPendingSerialId={pendingSerialId}
+            onPreselectedPendingSerialHandled={() => setPendingSerialId(null)}
           />
         );
 
