@@ -24,14 +24,12 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
-  // ✅ جديد: ID السيريال المعلّق اللي عايزين نستكمل سعره
   const [pendingSerialId, setPendingSerialId] = useState<string | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
 
   const store = useStore();
   const { state, isLoading } = store;
 
-  // اختصار Ctrl+K لفتح البحث الشامل
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -54,9 +52,7 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return <Login />;
-  }
+  if (!user) return <Login />;
 
   if (isLoading) {
     return (
@@ -79,8 +75,6 @@ export default function App() {
             onNewSale={() => setCurrentPage('sales')}
             onNewPurchase={() => setCurrentPage('purchases')}
             adjustTreasury={store.adjustTreasury}
-            // ✅ جديد: لما المستخدم يضغط "تحديد السعر" من الداشبورد
-            // ننقله لصفحة المشتريات ونفتحله مودال استكمال السعر مباشرة
             onCompletePendingSerial={(serialId) => {
               setPendingSerialId(serialId);
               setCurrentPage('purchases');
@@ -146,11 +140,9 @@ export default function App() {
             onAddSerials={store.addSerials}
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
             onDeletePurchaseInvoice={store.deletePurchaseInvoice}
-            // ✅ جديد: دالة استكمال السعر من useStore
             onCompletePendingPurchase={store.completePendingPurchase}
             preselectedSupplierId={pendingSupplierId}
             onPreselectedHandled={() => setPendingSupplierId(null)}
-            // ✅ جديد: السيريال المعلّق القادم من الداشبورد
             preselectedPendingSerialId={pendingSerialId}
             onPreselectedPendingSerialHandled={() => setPendingSerialId(null)}
           />
@@ -206,6 +198,20 @@ export default function App() {
             transactions={state.treasuryTransactions}
             dailyClosings={state.dailyClosings}
             adjustTreasury={store.adjustTreasury}
+            // ✅ الشركاء
+            partners={state.partners}
+            onAddPartner={store.addPartner}
+            onUpdatePartner={store.updatePartner}
+            onDeletePartner={store.deletePartner}
+            // ✅ توزيع الأرباح
+            profitDistributions={state.profitDistributions}
+            onSaveDistribution={store.saveDistribution}
+            onDeleteDistribution={store.deleteDistribution}
+            // ✅ بيانات حساب الربح
+            saleInvoices={state.saleInvoices}
+            purchaseInvoices={state.purchaseInvoices}
+            expenses={state.expenses}
+            noonOrders={state.noonOrders}
           />
         );
 

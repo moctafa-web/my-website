@@ -43,8 +43,6 @@ export interface SerialItem {
   costPrice: number;
   salePrice?: number;
   createdAt: string;
-  // ✅ الجديد: علامة تدل على أن سعر الشراء لم يُحدَّد بعد
-  // true = الجهاز دخل المخزون بسعر 0 مؤقتاً وينتظر تحديد السعر الحقيقي
   purchasePricePending?: boolean;
 }
 
@@ -255,6 +253,39 @@ export interface Brand {
   createdAt: string;
 }
 
+// ==================== PARTNERS (الشركاء) ====================
+export interface Partner {
+  id: string;
+  name: string;
+  capitalAmount: number;   // مبلغ رأس المال بالجنيه
+  isActive: boolean;       // نشط = يدخل في التوزيع
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ==================== PROFIT DISTRIBUTION (توزيع الأرباح) ====================
+export interface ProfitDistributionLine {
+  partnerId: string;
+  partnerName: string;
+  capitalAmount: number;    // رأس مال الشريك وقت الاعتماد
+  capitalPercent: number;   // نسبته من إجمالي رأس المال وقت الاعتماد
+  shareAmount: number;      // نصيبه من الربح/الخسارة
+}
+
+export interface ProfitDistribution {
+  id: string;               // مثال: "2026-06"
+  month: string;            // مثال: "2026-06"
+  totalCapital: number;     // إجمالي رأس المال وقت الاعتماد
+  netProfit: number;        // صافي الربح أو الخسارة (سالب = خسارة)
+  salesProfit: number;      // ربح المبيعات
+  noonProfit: number;       // ربح نون/أمازون
+  totalExpenses: number;    // إجمالي المصروفات
+  lines: ProfitDistributionLine[];
+  notes?: string;
+  createdAt: string;
+}
+
 // ==================== APP STATE ====================
 export interface AppState {
   products: Product[];
@@ -270,6 +301,9 @@ export interface AppState {
   dailyClosings: DailyClosing[];
   dailyJournals: DailyJournal[];
   brands: Brand[];
+  // ✅ جديد
+  partners: Partner[];
+  profitDistributions: ProfitDistribution[];
   cashBalance: number;
   bankBalance: number;
   settings: AppSettings;
