@@ -3,6 +3,8 @@ import Login from './pages/Login';
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import GlobalSearch from './components/GlobalSearch';
+import QuickEntry from './components/QuickEntry';
+import { Zap } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Sales from './pages/Sales';
@@ -26,6 +28,7 @@ export default function App() {
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
   const [pendingSerialId, setPendingSerialId] = useState<string | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [showQuickEntry, setShowQuickEntry] = useState(false);
 
   const store = useStore();
   const { state, isLoading } = store;
@@ -156,6 +159,7 @@ export default function App() {
             saleInvoices={state.saleInvoices}
             purchaseInvoices={state.purchaseInvoices}
             noonOrders={state.noonOrders}
+            onUpdateProduct={store.updateProduct}
           />
         );
 
@@ -282,6 +286,34 @@ export default function App() {
           state={state}
           onNavigate={setCurrentPage}
           onClose={() => setShowGlobalSearch(false)}
+        />
+      )}
+
+      {/* زرار الإدخال السريع - ثابت في كل الصفحات */}
+      <button
+        onClick={() => setShowQuickEntry(true)}
+        title="إدخال سريع"
+        className="fixed bottom-6 left-6 z-[90] w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-violet-800 text-white shadow-2xl shadow-violet-900/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform border border-violet-400/30"
+      >
+        <Zap size={24} fill="currentColor" />
+      </button>
+
+      {showQuickEntry && (
+        <QuickEntry
+          products={state.products}
+          customers={state.customers}
+          suppliers={state.suppliers}
+          serials={state.serials}
+          saleInvoices={state.saleInvoices}
+          purchaseInvoices={state.purchaseInvoices}
+          settings={state.settings}
+          onAddSaleInvoice={store.addSaleInvoice}
+          onAddPurchaseInvoice={store.addPurchaseInvoice}
+          onAddNoonOrder={store.addNoonOrder}
+          onAddCustomer={store.addCustomer}
+          onAddSupplier={store.addSupplier}
+          onAddSerials={store.addSerials}
+          onClose={() => setShowQuickEntry(false)}
         />
       )}
     </Layout>

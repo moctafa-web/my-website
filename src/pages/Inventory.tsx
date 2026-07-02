@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder } from '../types';
 import { formatCurrency, categoryLabel, printElement, getTodayStr } from '../utils/helpers';
-import { Search, Printer, Package, Hash, Eye } from 'lucide-react';
+import { Search, Printer, Package, Hash, Eye, CheckCircle2 } from 'lucide-react';
+import PasswordConfirmModal from '../components/PasswordConfirmModal';
 
 interface Props {
   products: Product[];
@@ -9,15 +10,18 @@ interface Props {
   saleInvoices?: SaleInvoice[];
   purchaseInvoices?: PurchaseInvoice[];
   noonOrders?: NoonOrder[];
+  onUpdateProduct?: (p: Product) => void;
 }
 
-export default function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [] }: Props) {
+export default function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], onUpdateProduct }: Props) {
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('all');
   const [showSerials, setShowSerials] = useState<string | null>(null);
 
   const [showJrard, setShowJrard] = useState(false);
   const [jrardData, setJrardData] = useState<Record<string, string>>({});
+  const [confirmApplyCorrections, setConfirmApplyCorrections] = useState(false);
+  const [correctionsToast, setCorrectionsToast] = useState<string | null>(null);
 
   const [trackTab, setTrackTab] = useState<'serial' | 'product'>('serial');
   const [serialSearch, setSerialSearch] = useState('');
@@ -153,6 +157,31 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         <tbody>${rows}</tbody>
       </table>
     `);
+  };
+
+  // ✅ المنتجات اللي ممكن نصحح رصيدها أوتوماتيك (المنتجات العادية بس، مش السيريالات لأن كل قطعة سيريال ليها سجل مستقل)
+  const correctableProducts = filtered.filter(p => {
+    if (p.productType !== 'normal') return false;
+    const val = jrardData[p.id];
+    if (val === undefined || val === '') return false;
+    const actual = parseInt(val);
+    return !isNaN(actual) && actual !== p.stock;
+  });
+
+  const applyCorrections = () => {
+    if (!onUpdateProduct) { setConfirmApplyCorrections(false); return; }
+    correctableProducts.forEach(p => {
+      const actual = parseInt(jrardData[p.id]);
+      onUpdateProduct({ ...p, stock: actual, updatedAt: new Date().toISOString() });
+    });
+    setCorrectionsToast(`✅ اتصحح رصيد ${correctableProducts.length} منتج حسب الجرد`);
+    setJrardData(prev => {
+      const next = { ...prev };
+      correctableProducts.forEach(p => { delete next[p.id]; });
+      return next;
+    });
+    setConfirmApplyCorrections(false);
+    setTimeout(() => setCorrectionsToast(null), 4000);
   };
 
   // ✅ طباعة الجرد - الحل الصحيح بدل window.print()
@@ -742,13 +771,27 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
       {/* ✅ جرد المخزون */}
       {showJrard && (
         <div className="bg-[#1a1a35] border border-yellow-700/30 rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <h3 className="font-bold text-yellow-300">📋 جرد المخزون - مقارنة النظام بالواقع</h3>
-            {/* ✅ استبدلنا window.print() بدالة printJrard الصحيحة */}
-            <button onClick={printJrard} className="btn-secondary text-sm flex items-center gap-2">
-              <Printer size={14} /> 🖨️ طباعة الجرد
-            </button>
+            <div className="flex items-center gap-2">
+              {onUpdateProduct && (
+                <button
+                  onClick={() => setConfirmApplyCorrections(true)}
+                  disabled={correctableProducts.length === 0}
+                  className="btn-secondary text-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <CheckCircle2 size={14} /> تطبيق التصحيحات ({correctableProducts.length})
+                </button>
+              )}
+              {/* ✅ استبدلنا window.print() بدالة printJrard الصحيحة */}
+              <button onClick={printJrard} className="btn-secondary text-sm flex items-center gap-2">
+                <Printer size={14} /> 🖨️ طباعة الجرد
+              </button>
+            </div>
           </div>
+          <p className="text-xs text-gray-500 mb-4">
+            ملحوظة: التصحيح التلقائي بيشتغل بس على المنتجات العادية (الإكسسوارات). المنتجات بسيريال (موبايلات/تابلت) لازم تتصحح يدويًا من صفحة المخزون لأن كل قطعة ليها سيريال مستقل.
+          </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -800,6 +843,22 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
             </table>
           </div>
         </div>
+      )}
+
+      {correctionsToast && (
+        <div className="bg-green-900/30 border border-green-700/40 text-green-300 text-sm rounded-xl px-4 py-2">
+          {correctionsToast}
+        </div>
+      )}
+
+      {confirmApplyCorrections && (
+        <PasswordConfirmModal
+          title="تطبيق تصحيحات الجرد"
+          message={`هيتحدث رصيد ${correctableProducts.length} منتج ليطابق العدد اللي كتبته في الجرد. الإجراء ده مش هينعكس تلقائيًا.`}
+          confirmLabel="تطبيق التصحيحات"
+          onConfirm={applyCorrections}
+          onCancel={() => setConfirmApplyCorrections(false)}
+        />
       )}
 
       {/* إجمالي المخزون */}
