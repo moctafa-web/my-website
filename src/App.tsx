@@ -254,6 +254,7 @@ export default function App() {
             onDeleteAllNoonOrders={store.deleteAllNoonOrders}
             noonOrdersCount={state.noonOrders.length}
             fullState={state}
+            onBackfillPaymentRecords={store.backfillPaymentRecords}
           />
         );
 

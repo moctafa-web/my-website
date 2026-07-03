@@ -11,9 +11,10 @@ interface Props {
   onDeleteAllNoonOrders: () => Promise<void>;
   noonOrdersCount: number;
   fullState: AppState;
+  onBackfillPaymentRecords: () => { added: number };
 }
 
-export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState }: Props) {
+export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState, onBackfillPaymentRecords }: Props) {
   const [form, setForm] = useState({ ...settings });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -21,6 +22,7 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
   const [showDeleteNoon, setShowDeleteNoon] = useState(false);
   const [resetDone, setResetDone] = useState(false);
   const [noonDeleteDone, setNoonDeleteDone] = useState(false);
+  const [backfillDone, setBackfillDone] = useState<number | null>(null);
 
   const handleSave = async () => {
     setSaving(true);
@@ -132,6 +134,26 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
                 <button onClick={() => setShowDeleteNoon(true)} disabled={noonOrdersCount === 0}
                   className="w-full py-2 text-sm border border-orange-700/40 text-orange-400 rounded-xl hover:bg-orange-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                   🗑️ حذف جميع أوردرات نون/أمازون (مرحلة التجربة)
+                </button>
+              )}
+            </div>
+
+            {/* إصلاح كشوف الحسابات - يضيف سطور الدفعات الناقصة للفواتير القديمة اللي كانت مدفوعة */}
+            <div className="bg-blue-900/10 border border-blue-700/30 rounded-xl p-4">
+              <div className="text-sm text-blue-300 font-medium mb-1">🧾 إصلاح كشوف حسابات العملاء والموردين</div>
+              <div className="text-xs text-gray-500 mb-3">
+                لو كشف حساب عميل أو مورد بيوضح إنه لسه ليه/عليه فلوس رغم إن الفاتورة مكتوب عليها "مدفوعة" - دوس هنا لمرة واحدة. هيضيف سطر الدفعة الناقص لكل الفواتير القديمة من غير ما يغير أي رصيد أو مبلغ فعلي.
+              </div>
+              {backfillDone !== null ? (
+                <div className="text-center text-green-400 text-sm py-2">
+                  ✅ {backfillDone === 0 ? 'كل حاجة مظبوطة، مفيش فواتير محتاجة إصلاح' : `تم إصلاح ${backfillDone} فاتورة`}
+                </div>
+              ) : (
+                <button
+                  onClick={() => { const r = onBackfillPaymentRecords(); setBackfillDone(r.added); }}
+                  className="w-full py-2 text-sm border border-blue-700/40 text-blue-400 rounded-xl hover:bg-blue-900/20 transition-colors"
+                >
+                  🔧 إصلاح كشوف الحسابات الآن
                 </button>
               )}
             </div>

@@ -469,6 +469,21 @@ export function useStore() {
           date: invoice.date,
           createdAt: new Date().toISOString(),
         }];
+        // ✅ نسجل دفعة تلقائية عشان تظهر في كشف حساب العميل/المورد (مدين/دائن) بدل ما تفضل مختفية جوه الفاتورة بس
+        const autoPayment: Payment = {
+          id: `paid_${invoice.id}`,
+          type: 'sale',
+          referenceId: invoice.customerId,
+          referenceName: invoice.customerName,
+          amount: invoice.paid,
+          paymentMethod: invoice.paymentMethod,
+          direction: 'in',
+          date: invoice.date,
+          notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
+          createdAt: new Date().toISOString(),
+        };
+        newState.payments = [...newState.payments, autoPayment];
+        saveToFirebase('payments', autoPayment.id, autoPayment);
       }
 
       invoice.items.forEach(item => {
@@ -583,6 +598,8 @@ export function useStore() {
       }
 
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== oldInvoice.id);
+      // ✅ نشيل الدفعة التلقائية القديمة المرتبطة بالفاتورة عشان نعيد بناءها بالقيمة الجديدة
+      newState.payments = newState.payments.filter(p => p.id !== `paid_${invoice.id}`);
 
       oldInvoice.items.forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
@@ -612,6 +629,22 @@ export function useStore() {
           date: invoice.date,
           createdAt: new Date().toISOString(),
         }];
+        const autoPayment: Payment = {
+          id: `paid_${invoice.id}`,
+          type: 'sale',
+          referenceId: invoice.customerId,
+          referenceName: invoice.customerName,
+          amount: invoice.paid,
+          paymentMethod: invoice.paymentMethod,
+          direction: 'in',
+          date: invoice.date,
+          notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
+          createdAt: new Date().toISOString(),
+        };
+        newState.payments = [...newState.payments, autoPayment];
+        saveToFirebase('payments', autoPayment.id, autoPayment);
+      } else {
+        deleteFromFirebase('payments', `paid_${invoice.id}`);
       }
 
       invoice.items.forEach(item => {
@@ -719,6 +752,8 @@ export function useStore() {
       }
 
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
+      newState.payments = newState.payments.filter(p => p.id !== `paid_${invoiceId}`);
+      deleteFromFirebase('payments', `paid_${invoiceId}`);
 
       deleteFromFirebase('saleInvoices', invoiceId);
       restoredSerials.forEach(s => saveToFirebase('serials', s.id, s));
@@ -759,6 +794,21 @@ export function useStore() {
           date: invoice.date,
           createdAt: new Date().toISOString(),
         }];
+        // ✅ نسجل دفعة تلقائية عشان تظهر في كشف حساب المورد (مدين/دائن) بدل ما تفضل مختفية جوه الفاتورة بس
+        const autoPayment: Payment = {
+          id: `paid_${invoice.id}`,
+          type: 'purchase',
+          referenceId: invoice.supplierId,
+          referenceName: invoice.supplierName,
+          amount: invoice.paid,
+          paymentMethod: invoice.paymentMethod,
+          direction: 'out',
+          date: invoice.date,
+          notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
+          createdAt: new Date().toISOString(),
+        };
+        newState.payments = [...newState.payments, autoPayment];
+        saveToFirebase('payments', autoPayment.id, autoPayment);
       }
 
       invoice.items.forEach(item => {
@@ -787,8 +837,79 @@ export function useStore() {
   }, []);
 
   const updatePurchaseInvoice = useCallback((invoice: PurchaseInvoice) => {
-    setState(prev => ({ ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) }));
-    saveToFirebase('purchaseInvoices', invoice.id, invoice);
+    setState(prev => {
+      const oldInvoice = prev.purchaseInvoices.find(i => i.id === invoice.id);
+      if (!oldInvoice) {
+        const newState = { ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) };
+        saveToFirebase('purchaseInvoices', invoice.id, invoice);
+        return newState;
+      }
+
+      const newState = { ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) };
+      let updatedSupplier: Supplier | null = null;
+
+      // ✅ نلغي أثر القديم ونطبق أثر الجديد على رصيد المورد والخزينة، عشان كشف الحساب والأرصدة يفضلوا مطابقين للفاتورة الفعلية
+      newState.suppliers = newState.suppliers.map((s): Supplier => {
+        if (s.id !== oldInvoice.supplierId && s.id !== invoice.supplierId) return s;
+        let updated = { ...s };
+        if (s.id === oldInvoice.supplierId) {
+          updated.totalInvoices = Math.max(0, (updated.totalInvoices || 0) - oldInvoice.total);
+          updated.totalPaid = Math.max(0, (updated.totalPaid || 0) - oldInvoice.paid);
+        }
+        if (s.id === invoice.supplierId) {
+          updated.totalInvoices = (updated.totalInvoices || 0) + invoice.total;
+          updated.totalPaid = (updated.totalPaid || 0) + invoice.paid;
+        }
+        updatedSupplier = updated;
+        return updated;
+      });
+
+      if (oldInvoice.paid > 0) {
+        const oldTreasury = oldInvoice.paymentMethod === 'cash' ? 'cash' : 'bank';
+        newState.cashBalance = oldTreasury === 'cash' ? newState.cashBalance + oldInvoice.paid : newState.cashBalance;
+        newState.bankBalance = oldTreasury === 'bank' ? newState.bankBalance + oldInvoice.paid : newState.bankBalance;
+      }
+      newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== oldInvoice.id);
+      newState.payments = newState.payments.filter(p => p.id !== `paid_${invoice.id}`);
+
+      if (invoice.paid > 0) {
+        const newTreasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
+        newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
+        newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
+        newState.treasuryTransactions = [...newState.treasuryTransactions, {
+          id: `tr_${Date.now()}`,
+          type: 'purchase',
+          description: `فاتورة مشتريات ${invoice.invoiceNumber} - ${invoice.supplierName}`,
+          amount: invoice.paid,
+          treasury: newTreasury,
+          direction: 'out',
+          referenceId: invoice.id,
+          date: invoice.date,
+          createdAt: new Date().toISOString(),
+        }];
+        const autoPayment: Payment = {
+          id: `paid_${invoice.id}`,
+          type: 'purchase',
+          referenceId: invoice.supplierId,
+          referenceName: invoice.supplierName,
+          amount: invoice.paid,
+          paymentMethod: invoice.paymentMethod,
+          direction: 'out',
+          date: invoice.date,
+          notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
+          createdAt: new Date().toISOString(),
+        };
+        newState.payments = [...newState.payments, autoPayment];
+        saveToFirebase('payments', autoPayment.id, autoPayment);
+      } else {
+        deleteFromFirebase('payments', `paid_${invoice.id}`);
+      }
+
+      saveToFirebase('purchaseInvoices', invoice.id, invoice);
+      if (updatedSupplier !== null) saveToFirebase('suppliers', (updatedSupplier as Supplier).id, updatedSupplier as Supplier);
+
+      return newState;
+    });
   }, []);
 
   const deletePurchaseInvoice = useCallback((invoiceId: string) => {
@@ -841,6 +962,8 @@ export function useStore() {
         newState.bankBalance = treasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
       }
       newState.treasuryTransactions = newState.treasuryTransactions.filter(t => t.referenceId !== invoiceId);
+      newState.payments = newState.payments.filter(p => p.id !== `paid_${invoiceId}`);
+      deleteFromFirebase('payments', `paid_${invoiceId}`);
 
       deleteFromFirebase('purchaseInvoices', invoiceId);
       if (updatedSupplier !== null) {
@@ -1303,6 +1426,43 @@ export function useStore() {
     setState(prev => ({ ...prev, noonOrders: [] }));
   }, []);
 
+  // ✅ إصلاح لمرة واحدة: يضيف سجلات دفعات مفقودة للفواتير القديمة (اللي اتسجلت مدفوعة قبل إصلاح كشف الحساب)
+  // من غير ما يلمس أي أرصدة أو خزينة، لأن دي كانت محسوبة صح من الأول - بس كانت مش ظاهرة كسطر في كشف الحساب
+  const backfillPaymentRecords = useCallback((): { added: number } => {
+    let added = 0;
+    setState(prev => {
+      const existingIds = new Set(prev.payments.map(p => p.id));
+      const newPayments: Payment[] = [];
+
+      prev.saleInvoices.forEach(inv => {
+        const pid = `paid_${inv.id}`;
+        if (inv.paid > 0 && !existingIds.has(pid)) {
+          newPayments.push({
+            id: pid, type: 'sale', referenceId: inv.customerId, referenceName: inv.customerName,
+            amount: inv.paid, paymentMethod: inv.paymentMethod, direction: 'in', date: inv.date,
+            notes: `دفعة مسجلة مع فاتورة ${inv.invoiceNumber}`, createdAt: new Date().toISOString(),
+          });
+        }
+      });
+
+      prev.purchaseInvoices.forEach(inv => {
+        const pid = `paid_${inv.id}`;
+        if (inv.paid > 0 && !existingIds.has(pid)) {
+          newPayments.push({
+            id: pid, type: 'purchase', referenceId: inv.supplierId, referenceName: inv.supplierName,
+            amount: inv.paid, paymentMethod: inv.paymentMethod, direction: 'out', date: inv.date,
+            notes: `دفعة مسجلة مع فاتورة ${inv.invoiceNumber}`, createdAt: new Date().toISOString(),
+          });
+        }
+      });
+
+      added = newPayments.length;
+      newPayments.forEach(p => saveToFirebase('payments', p.id, p));
+      return { ...prev, payments: [...prev.payments, ...newPayments] };
+    });
+    return { added };
+  }, []);
+
   // ==================== TREASURY ====================
   const adjustTreasury = useCallback((type: 'cash' | 'bank', amount: number, direction: 'in' | 'out', description: string) => {
     setState(prev => {
@@ -1350,6 +1510,7 @@ export function useStore() {
     saveDistribution, deleteDistribution,
     resetAllData,
     deleteAllNoonOrders,
+    backfillPaymentRecords,
     adjustTreasury,
   };
 }
