@@ -114,6 +114,14 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     return totalInv - totalPaid;
   };
 
+  // ✅ لو الرصيد موجب: العميل لسه عليه فلوس (مستحق منه)
+  // ✅ لو الرصيد سالب: العميل دفع أكتر من المطلوب (متبقي له عندنا - فرق حساب لصالحه)
+  const balanceLabel = (balance: number): { text: string; amount: number; colorClass: string; bgClass: string } => {
+    if (balance > 0) return { text: 'مستحق منه', amount: balance, colorClass: 'text-red-400', bgClass: 'bg-red-900/20' };
+    if (balance < 0) return { text: 'متبقي له (فرق حساب)', amount: Math.abs(balance), colorClass: 'text-green-400', bgClass: 'bg-green-900/20' };
+    return { text: 'متطابق', amount: 0, colorClass: 'text-gray-400', bgClass: 'bg-white/5' };
+  };
+
   // كل حركات الحساب مجمّعة ومرتبة بالتاريخ (فواتير + دفعات) لعرضها بالتفصيل في الشاشة
   // مع إمكانية فلترة فترة زمنية محددة (من-إلى) لعرض/طباعة جزء من الحساب فقط
   const getFullStatementRows = (c: Customer, filterDates = true) => {
@@ -142,6 +150,10 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     const periodTotalCredit = rowsToPrint.reduce((s, r) => s + r.credit, 0);
     const openingForPeriod = (dateFrom || dateTo) ? (rowsToPrint[0] ? rowsToPrint[0].runningBalance - rowsToPrint[0].debit + rowsToPrint[0].credit : c.openingBalance) : c.openingBalance;
     const finalBalance = rowsToPrint.length > 0 ? rowsToPrint[rowsToPrint.length - 1].runningBalance : getBalance(c);
+    const finalLabel = (dateFrom || dateTo)
+      ? 'الرصيد في نهاية الفترة'
+      : finalBalance > 0 ? 'الرصيد النهائي (مستحق منه)' : finalBalance < 0 ? 'الرصيد النهائي (متبقي له - فرق حساب)' : 'الرصيد النهائي (متطابق)';
+    const finalDisplayAmount = (dateFrom || dateTo) ? finalBalance : Math.abs(finalBalance);
 
     const rows = rowsToPrint.map(t =>
       `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`
@@ -160,7 +172,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       <div class="totals"><table>
         <tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG')} ج.م</td></tr>
         <tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr class="total-row"><td>الرصيد ${(dateFrom || dateTo) ? 'في نهاية الفترة' : 'النهائي (مستحق منه)'}</td><td>${finalBalance.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG')} ج.م</td></tr>
       </table></div>
     `);
   };
@@ -222,9 +234,9 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                     <div className="text-xs text-gray-500">عدد الفواتير</div>
                     <div className="font-bold text-white">{invCount}</div>
                   </div>
-                  <div className={`rounded-xl p-2 text-center ${balance > 0 ? 'bg-red-900/20' : 'bg-green-900/20'}`}>
-                    <div className="text-xs text-gray-500">الرصيد المستحق</div>
-                    <div className={`font-bold text-sm ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</div>
+                  <div className={`rounded-xl p-2 text-center ${balanceLabel(balance).bgClass}`}>
+                    <div className="text-xs text-gray-500">{balanceLabel(balance).text}</div>
+                    <div className={`font-bold text-sm ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -257,7 +269,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                 </div>
                 <div className="flex items-center gap-5">
                   <div className="text-center"><div className="text-xs text-gray-500">الفواتير</div><div className="text-sm font-bold text-white">{invCount}</div></div>
-                  <div className="text-center"><div className="text-xs text-gray-500">الرصيد</div><div className={`text-sm font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</div></div>
+                  <div className="text-center"><div className="text-xs text-gray-500">{balanceLabel(balance).text}</div><div className={`text-sm font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div></div>
                   <div className="flex gap-1">
                     <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
                     <button onClick={() => openPaymentModal(c)} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20"><DollarSign size={14} /></button>
@@ -296,7 +308,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                     </td>
                     <td className="py-2.5 px-3 text-center text-gray-400 text-xs hidden md:table-cell">{c.type === 'individual' ? 'فرد' : c.type === 'company' ? 'شركة' : c.type === 'wholesale' ? 'جملة' : 'تاجر'}</td>
                     <td className="py-2.5 px-3 text-center text-white">{getCustomerInvoices(c.id).length}</td>
-                    <td className={`py-2.5 px-3 text-center font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance.toLocaleString('ar-EG')}</td>
+                    <td className={`py-2.5 px-3 text-center font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</td>
                     <td className="py-2.5 px-3">
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
@@ -349,9 +361,9 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                 <div className="text-xs text-gray-500">المدفوع</div>
                 <div className="font-bold text-blue-400">{formatCurrency(getCustomerInvoices(viewCustomer.id).reduce((s, i) => s + i.paid, 0))}</div>
               </div>
-              <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-gray-500">الرصيد النهائي</div>
-                <div className="font-bold text-red-400">{formatCurrency(getBalance(viewCustomer))}</div>
+              <div className={`${balanceLabel(getBalance(viewCustomer)).bgClass} border ${getBalance(viewCustomer) > 0 ? 'border-red-700/30' : 'border-green-700/30'} rounded-xl p-3 text-center`}>
+                <div className="text-xs text-gray-500">{balanceLabel(getBalance(viewCustomer)).text}</div>
+                <div className={`font-bold ${balanceLabel(getBalance(viewCustomer)).colorClass}`}>{formatCurrency(balanceLabel(getBalance(viewCustomer)).amount)}</div>
               </div>
             </div>
 
@@ -480,7 +492,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
           <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-1">💰 تحصيل دفعة</h3>
-            <p className="text-gray-400 text-sm mb-4">{showPayment.name} • الرصيد: {formatCurrency(getBalance(showPayment))}</p>
+            <p className="text-gray-400 text-sm mb-4">{showPayment.name} • {balanceLabel(getBalance(showPayment)).text}: {formatCurrency(balanceLabel(getBalance(showPayment)).amount)}</p>
             <div className="space-y-3">
               <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="input-dark w-full" placeholder="المبلغ المحصل" />
               <div>
