@@ -255,6 +255,7 @@ export default function App() {
             noonOrdersCount={state.noonOrders.length}
             fullState={state}
             onBackfillPaymentRecords={store.backfillPaymentRecords}
+            onRecalculatePartyTotals={store.recalculatePartyTotals}
           />
         );
 

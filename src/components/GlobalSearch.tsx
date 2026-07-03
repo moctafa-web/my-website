@@ -61,7 +61,8 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
     // عملاء
     state.customers.forEach(c => {
       if (c.name.toLowerCase().includes(q) || (c.phone || '').includes(q)) {
-        const balance = (c.totalInvoices || 0) - (c.totalPaid || 0) + (c.openingBalance || 0);
+        const invs = state.saleInvoices.filter(i => i.customerId === c.id);
+        const balance = invs.reduce((s, i) => s + i.total, 0) + (c.openingBalance || 0) - invs.reduce((s, i) => s + i.paid, 0);
         out.push({
           type: 'customer', id: c.id, title: c.name,
           subtitle: `${c.phone || 'بدون هاتف'} • الرصيد: ${formatCurrency(balance)}`,
@@ -73,7 +74,8 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
     // موردين
     state.suppliers.forEach(s => {
       if (s.name.toLowerCase().includes(q) || (s.phone || '').includes(q)) {
-        const balance = (s.totalInvoices || 0) - (s.totalPaid || 0) + (s.openingBalance || 0);
+        const invs = state.purchaseInvoices.filter(i => i.supplierId === s.id);
+        const balance = invs.reduce((sum, i) => sum + i.total, 0) + (s.openingBalance || 0) - invs.reduce((sum, i) => sum + i.paid, 0);
         out.push({
           type: 'supplier', id: s.id, title: s.name,
           subtitle: `${s.phone || 'بدون هاتف'} • الرصيد: ${formatCurrency(balance)}`,

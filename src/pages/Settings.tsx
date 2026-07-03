@@ -12,9 +12,10 @@ interface Props {
   noonOrdersCount: number;
   fullState: AppState;
   onBackfillPaymentRecords: () => { added: number };
+  onRecalculatePartyTotals: () => { fixedCustomers: number; fixedSuppliers: number };
 }
 
-export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState, onBackfillPaymentRecords }: Props) {
+export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState, onBackfillPaymentRecords, onRecalculatePartyTotals }: Props) {
   const [form, setForm] = useState({ ...settings });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,7 +23,7 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
   const [showDeleteNoon, setShowDeleteNoon] = useState(false);
   const [resetDone, setResetDone] = useState(false);
   const [noonDeleteDone, setNoonDeleteDone] = useState(false);
-  const [backfillDone, setBackfillDone] = useState<number | null>(null);
+  const [backfillDone, setBackfillDone] = useState<{ payments: number; customers: number; suppliers: number } | null>(null);
 
   const handleSave = async () => {
     setSaving(true);
@@ -138,19 +139,25 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
               )}
             </div>
 
-            {/* إصلاح كشوف الحسابات - يضيف سطور الدفعات الناقصة للفواتير القديمة اللي كانت مدفوعة */}
+            {/* إصلاح كشوف الحسابات - يضيف سطور الدفعات الناقصة ويصحح أرصدة العملاء/الموردين المخزنة */}
             <div className="bg-blue-900/10 border border-blue-700/30 rounded-xl p-4">
               <div className="text-sm text-blue-300 font-medium mb-1">🧾 إصلاح كشوف حسابات العملاء والموردين</div>
               <div className="text-xs text-gray-500 mb-3">
-                لو كشف حساب عميل أو مورد بيوضح إنه لسه ليه/عليه فلوس رغم إن الفاتورة مكتوب عليها "مدفوعة" - دوس هنا لمرة واحدة. هيضيف سطر الدفعة الناقص لكل الفواتير القديمة من غير ما يغير أي رصيد أو مبلغ فعلي.
+                لو كشف حساب أو دفتر ديون بيوضح أرقام غريبة أو مختلفة عن بعضها - دوس هنا لمرة واحدة. هيضيف سطور الدفعات الناقصة، ويصحح الأرصدة المخزنة على العملاء والموردين تطابق الفواتير الفعلية، من غير ما يغير أي مبلغ حقيقي.
               </div>
               {backfillDone !== null ? (
                 <div className="text-center text-green-400 text-sm py-2">
-                  ✅ {backfillDone === 0 ? 'كل حاجة مظبوطة، مفيش فواتير محتاجة إصلاح' : `تم إصلاح ${backfillDone} فاتورة`}
+                  ✅ {backfillDone.payments === 0 && backfillDone.customers === 0 && backfillDone.suppliers === 0
+                    ? 'كل حاجة مظبوطة، مفيش حاجة محتاجة إصلاح'
+                    : `تم إصلاح ${backfillDone.payments} فاتورة، و${backfillDone.customers} عميل، و${backfillDone.suppliers} مورد`}
                 </div>
               ) : (
                 <button
-                  onClick={() => { const r = onBackfillPaymentRecords(); setBackfillDone(r.added); }}
+                  onClick={() => {
+                    const paymentsResult = onBackfillPaymentRecords();
+                    const totalsResult = onRecalculatePartyTotals();
+                    setBackfillDone({ payments: paymentsResult.added, customers: totalsResult.fixedCustomers, suppliers: totalsResult.fixedSuppliers });
+                  }}
                   className="w-full py-2 text-sm border border-blue-700/40 text-blue-400 rounded-xl hover:bg-blue-900/20 transition-colors"
                 >
                   🔧 إصلاح كشوف الحسابات الآن

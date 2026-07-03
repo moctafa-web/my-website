@@ -63,16 +63,27 @@ const pendingSerials = state.serials
   .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
   /* ─── دفتر الديون ─── */
+  // ✅ نحسب الرصيد مباشرة من الفواتير الفعلية (مش من الحقول المخزنة على العميل/المورد)
+  // عشان نضمن إنه يطابق دايمًا كشف الحساب التفصيلي، حتى لو الحقول المخزنة اتأخرت لأي سبب
+  const getCustomerBalance = (customerId: string, opening: number) => {
+    const invs = state.saleInvoices.filter(i => i.customerId === customerId);
+    return invs.reduce((s, i) => s + i.total, 0) + opening - invs.reduce((s, i) => s + i.paid, 0);
+  };
+  const getSupplierBalance = (supplierId: string, opening: number) => {
+    const invs = state.purchaseInvoices.filter(i => i.supplierId === supplierId);
+    return invs.reduce((s, i) => s + i.total, 0) + opening - invs.reduce((s, i) => s + i.paid, 0);
+  };
+
   const customersOwing = state.customers
     .map(c => {
-      const balance = (c.totalInvoices || 0) - (c.totalPaid || 0) + (c.openingBalance || 0);
+      const balance = getCustomerBalance(c.id, c.openingBalance || 0);
       return { id: c.id, name: c.name, phone: c.phone || '', balance, type: 'customer' as const };
     })
     .filter(c => c.balance > 0);
 
   const suppliersWithCredit = state.suppliers
     .map(s => {
-      const balance = (s.totalInvoices || 0) - (s.totalPaid || 0) + (s.openingBalance || 0);
+      const balance = getSupplierBalance(s.id, s.openingBalance || 0);
       return { id: s.id, name: s.name, phone: s.phone || '', balance: -balance, type: 'supplier' as const };
     })
     .filter(s => s.balance > 0);
@@ -82,14 +93,14 @@ const pendingSerials = state.serials
 
   const suppliersOwed = state.suppliers
     .map(s => {
-      const balance = (s.totalInvoices || 0) - (s.totalPaid || 0) + (s.openingBalance || 0);
+      const balance = getSupplierBalance(s.id, s.openingBalance || 0);
       return { id: s.id, name: s.name, phone: s.phone || '', balance, type: 'supplier' as const };
     })
     .filter(s => s.balance > 0);
 
   const customersWithDebit = state.customers
     .map(c => {
-      const balance = (c.totalInvoices || 0) - (c.totalPaid || 0) + (c.openingBalance || 0);
+      const balance = getCustomerBalance(c.id, c.openingBalance || 0);
       return { id: c.id, name: c.name, phone: c.phone || '', balance: -balance, type: 'customer' as const };
     })
     .filter(c => c.balance > 0);

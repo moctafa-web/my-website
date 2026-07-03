@@ -1463,6 +1463,45 @@ export function useStore() {
     return { added };
   }, []);
 
+  // ✅ إصلاح لمرة واحدة: يعيد حساب totalInvoices/totalPaid المخزنة على كل عميل ومورد من الفواتير الفعلية
+  // مفيد لو الأرقام اتلخبطت بسبب أي تعديل/حذف قديم قبل ما نصلح الكود
+  const recalculatePartyTotals = useCallback((): { fixedCustomers: number; fixedSuppliers: number } => {
+    let fixedCustomers = 0;
+    let fixedSuppliers = 0;
+    setState(prev => {
+      const newState = { ...prev };
+
+      newState.customers = prev.customers.map(c => {
+        const invs = prev.saleInvoices.filter(i => i.customerId === c.id);
+        const correctTotalInvoices = invs.reduce((s, i) => s + i.total, 0);
+        const correctTotalPaid = invs.reduce((s, i) => s + i.paid, 0);
+        if (correctTotalInvoices !== (c.totalInvoices || 0) || correctTotalPaid !== (c.totalPaid || 0)) {
+          fixedCustomers++;
+          const updated = { ...c, totalInvoices: correctTotalInvoices, totalPaid: correctTotalPaid };
+          saveToFirebase('customers', updated.id, updated);
+          return updated;
+        }
+        return c;
+      });
+
+      newState.suppliers = prev.suppliers.map(s => {
+        const invs = prev.purchaseInvoices.filter(i => i.supplierId === s.id);
+        const correctTotalInvoices = invs.reduce((sum, i) => sum + i.total, 0);
+        const correctTotalPaid = invs.reduce((sum, i) => sum + i.paid, 0);
+        if (correctTotalInvoices !== (s.totalInvoices || 0) || correctTotalPaid !== (s.totalPaid || 0)) {
+          fixedSuppliers++;
+          const updated = { ...s, totalInvoices: correctTotalInvoices, totalPaid: correctTotalPaid };
+          saveToFirebase('suppliers', updated.id, updated);
+          return updated;
+        }
+        return s;
+      });
+
+      return newState;
+    });
+    return { fixedCustomers, fixedSuppliers };
+  }, []);
+
   // ==================== TREASURY ====================
   const adjustTreasury = useCallback((type: 'cash' | 'bank', amount: number, direction: 'in' | 'out', description: string) => {
     setState(prev => {
@@ -1511,6 +1550,7 @@ export function useStore() {
     resetAllData,
     deleteAllNoonOrders,
     backfillPaymentRecords,
+    recalculatePartyTotals,
     adjustTreasury,
   };
 }
