@@ -241,6 +241,7 @@ export interface DailyJournal {
   inEntries: JournalEntry[];
   outEntries: JournalEntry[];
   actualBalance: number;
+  actualBalanceBank?: number;
   closingTime?: string;
   closingNote?: string;
   updatedAt: string;

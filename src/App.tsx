@@ -263,6 +263,7 @@ export default function App() {
         return (
           <DailyJournal
             journals={state.dailyJournals}
+            treasuryTransactions={state.treasuryTransactions}
             onSaveJournal={store.saveDailyJournal}
           />
         );

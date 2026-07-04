@@ -1,17 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { DailyJournal as DailyJournalType, JournalEntry } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { DailyJournal as DailyJournalType, JournalEntry, TreasuryTransaction } from '../types';
 import { formatCurrency, getTodayStr, generateId } from '../utils/helpers';
 import { Plus, X, Printer, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 
 interface Props {
   journals: DailyJournalType[];
+  treasuryTransactions: TreasuryTransaction[];
   onSaveJournal: (journal: DailyJournalType) => void;
 }
 
-export default function DailyJournal({ journals, onSaveJournal }: Props) {
+const TYPE_LABELS: Record<string, string> = {
+  sale: 'مبيعات', purchase: 'مشتريات', expense: 'مصاريف',
+  payment_in: 'تحصيل ديون (عملاء)', payment_out: 'سداد ديون (موردين)',
+  adjustment: 'تسوية يدوية', transfer: 'تحويل بين الخزينتين', opening: 'رصيد افتتاحي',
+};
+
+export default function DailyJournal({ journals, treasuryTransactions, onSaveJournal }: Props) {
   const [date, setDate] = useState(getTodayStr());
-  const [openingBalance, setOpeningBalance] = useState('');
   const [actualBalance, setActualBalance] = useState('');
+  const [actualBalanceBank, setActualBalanceBank] = useState('');
   const [closingTime, setClosingTime] = useState<string | null>(null);
   const [closingNote, setClosingNote] = useState('');
 
@@ -42,17 +49,17 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
     }
 
     if (saved) {
-      setOpeningBalance(saved.openingBalance ? String(saved.openingBalance) : '');
       setInEntries(saved.inEntries.length > 0 ? saved.inEntries : [{ id: '1', label: '', amount: 0 }]);
       setOutEntries(saved.outEntries.length > 0 ? saved.outEntries : [{ id: '1', label: '', amount: 0 }]);
       setActualBalance(saved.actualBalance ? String(saved.actualBalance) : '');
+      setActualBalanceBank(saved.actualBalanceBank ? String(saved.actualBalanceBank) : '');
       setClosingTime(saved.closingTime || null);
       setClosingNote(saved.closingNote || '');
     } else {
-      setOpeningBalance('');
       setInEntries([{ id: '1', label: '', amount: 0 }]);
       setOutEntries([{ id: '1', label: '', amount: 0 }]);
       setActualBalance('');
+      setActualBalanceBank('');
       setClosingTime(null);
       setClosingNote('');
     }
@@ -62,10 +69,10 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
   // ✅ Auto-save مع Debounce (نص ثانية)
   useEffect(() => {
     // ✅ لو مفيش أي بيانات، متحفظش
-    const hasData = openingBalance !== '' ||
+    const hasData =
       inEntries.some(e => e.label || e.amount > 0) ||
       outEntries.some(e => e.label || e.amount > 0) ||
-      actualBalance !== '';
+      actualBalance !== '' || actualBalanceBank !== '';
     if (!hasData) return;
 
     // ✅ امسح أي timer قديم
@@ -78,10 +85,11 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
       const journal: DailyJournalType = {
         id: date,
         date,
-        openingBalance: parseFloat(openingBalance) || 0,
+        openingBalance: autoCalc.cash.openingAuto,
         inEntries,
         outEntries,
         actualBalance: parseFloat(actualBalance) || 0,
+        actualBalanceBank: parseFloat(actualBalanceBank) || 0,
         closingTime: closingTime || undefined,
         closingNote: closingNote || undefined,
         updatedAt: new Date().toISOString(),
@@ -97,7 +105,7 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, openingBalance, inEntries, outEntries, actualBalance, closingTime, closingNote]);
+  }, [date, inEntries, outEntries, actualBalance, actualBalanceBank, closingTime, closingNote, autoCalc.cash.openingAuto]);
 
   const inRefs = useRef<(HTMLInputElement | null)[]>([]);
   const outRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -142,12 +150,36 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
     ));
   };
 
-  const opening = parseFloat(openingBalance) || 0;
   const totalIn = inEntries.reduce((s, e) => s + e.amount, 0);
   const totalOut = outEntries.reduce((s, e) => s + e.amount, 0);
-  const expected = opening + totalIn - totalOut;
   const actual = parseFloat(actualBalance) || 0;
+
+  // ✅ الحساب التلقائي: بيقرا من نفس سجل حركات الخزينة اللي بيتغذى منه كل رصيد في النظام
+  // فبيبقى مطابق 100% لأي رصيد ظاهر في أي مكان تاني (كشف حساب، خزينة، أرباح...)
+  const autoCalc = useMemo(() => {
+    const build = (treasury: 'cash' | 'bank') => {
+      const before = treasuryTransactions.filter(t => t.treasury === treasury && t.date < date);
+      const today = treasuryTransactions.filter(t => t.treasury === treasury && t.date === date);
+      const openingAuto = before.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
+      const byType: Record<string, { in: number; out: number }> = {};
+      today.forEach(t => {
+        if (!byType[t.type]) byType[t.type] = { in: 0, out: 0 };
+        if (t.direction === 'in') byType[t.type].in += t.amount;
+        else byType[t.type].out += t.amount;
+      });
+      const netToday = today.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
+      const expectedClosing = openingAuto + netToday;
+      return { openingAuto, byType, netToday, expectedClosing };
+    };
+    return { cash: build('cash'), bank: build('bank') };
+  }, [treasuryTransactions, date]);
+
+  // ✅ الرصيد النهائي المتوقع = المحسوب تلقائيًا من الفواتير والحركات + أي بند يدوي استثنائي (لو كتبت حاجة)
+  // البنود اليدوية دلوقتي مخصصة بس لحاجات خارج النظام (سلفة شخصية مثلًا) - مش لتكرار المبيعات/المصاريف
+  const expected = autoCalc.cash.expectedClosing + totalIn - totalOut;
   const diff = actual - expected;
+  const bankActualNum = parseFloat(actualBalanceBank) || 0;
+  const diffBank = bankActualNum - autoCalc.bank.expectedClosing;
 
   const handleClosing = () => {
     const now = new Date();
@@ -157,10 +189,10 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
 
   const handleReset = () => {
     if (!window.confirm('هتمسح بيانات هذا اليوم؟')) return;
-    setOpeningBalance('');
     setInEntries([{ id: '1', label: '', amount: 0 }]);
     setOutEntries([{ id: '1', label: '', amount: 0 }]);
     setActualBalance('');
+    setActualBalanceBank('');
     setClosingTime(null);
     setClosingNote('');
   };
@@ -171,6 +203,18 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
     ).join('');
     const outRows = outEntries.filter(e => e.amount > 0).map(e =>
       '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#ef4444">-' + e.amount.toLocaleString('ar-EG') + '</td></tr>'
+    ).join('');
+    const autoCashRows = Object.entries(autoCalc.cash.byType).map(([type, v]) =>
+      '<tr><td>' + (TYPE_LABELS[type] || type) + '</td><td style="text-align:left">' +
+      (v.in > 0 ? '<span style="color:#16a34a">+' + v.in.toLocaleString('ar-EG') + '</span> ' : '') +
+      (v.out > 0 ? '<span style="color:#ef4444">-' + v.out.toLocaleString('ar-EG') + '</span>' : '') +
+      '</td></tr>'
+    ).join('');
+    const autoBankRows = Object.entries(autoCalc.bank.byType).map(([type, v]) =>
+      '<tr><td>' + (TYPE_LABELS[type] || type) + '</td><td style="text-align:left">' +
+      (v.in > 0 ? '<span style="color:#16a34a">+' + v.in.toLocaleString('ar-EG') + '</span> ' : '') +
+      (v.out > 0 ? '<span style="color:#ef4444">-' + v.out.toLocaleString('ar-EG') + '</span>' : '') +
+      '</td></tr>'
     ).join('');
 
     const diffText = diff === 0 ? '✅ مظبوط'
@@ -189,20 +233,27 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
       '.diff{font-size:18px;font-weight:bold;text-align:center;margin-top:12px;padding:10px;border-radius:8px;background:#f0fdf4}</style></head><body>' +
       '<h2>ONE - تقفيل اليومية</h2>' +
       '<p>يوم: ' + date + (closingTime ? ' | وقت التقفيل: ' + closingTime : '') + '</p>' +
+      '<h3>💵 حركة الكاش التلقائية</h3>' +
+      '<table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
+      (autoCashRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
+      '</tbody></table>' +
+      (Object.keys(autoCalc.bank.byType).length > 0 ?
+        '<h3>🏦 حركة البنك التلقائية</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' + autoBankRows + '</tbody></table>' : '') +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
-      '<div><h3 style="color:#16a34a">📥 الداخل</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
+      '<div><h3 style="color:#16a34a">📥 بند إضافي داخل</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
       (inRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
       '</tbody></table><div style="text-align:left;font-weight:bold;color:#16a34a">الإجمالي: ' + totalIn.toLocaleString('ar-EG') + '</div></div>' +
-      '<div><h3 style="color:#dc2626">📤 الخارج</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
+      '<div><h3 style="color:#dc2626">📤 بند إضافي خارج</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
       (outRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
       '</tbody></table><div style="text-align:left;font-weight:bold;color:#dc2626">الإجمالي: ' + totalOut.toLocaleString('ar-EG') + '</div></div>' +
       '</div>' +
-      '<div class="summary"><div><span>رصيد أول اليوم</span><span>' + opening.toLocaleString('ar-EG') + '</span></div>' +
-      '<div><span>+ إجمالي الداخل</span><span style="color:#16a34a">' + totalIn.toLocaleString('ar-EG') + '</span></div>' +
-      '<div><span>- إجمالي الخارج</span><span style="color:#dc2626">' + totalOut.toLocaleString('ar-EG') + '</span></div>' +
-      '<div style="font-weight:bold;border-top:1px solid #ddd;margin-top:8px;padding-top:8px"><span>المفروض يتبقى</span><span>' + expected.toLocaleString('ar-EG') + '</span></div>' +
-      '<div><span>رصيد الدرج الفعلي</span><span>' + actual.toLocaleString('ar-EG') + '</span></div></div>' +
+      '<div class="summary"><div><span>رصيد أول اليوم (كاش)</span><span>' + autoCalc.cash.openingAuto.toLocaleString('ar-EG') + '</span></div>' +
+      '<div style="font-weight:bold;border-top:1px solid #ddd;margin-top:8px;padding-top:8px"><span>المفروض يتبقى (كاش)</span><span>' + expected.toLocaleString('ar-EG') + '</span></div>' +
+      '<div><span>رصيد الدرج الفعلي (كاش)</span><span>' + actual.toLocaleString('ar-EG') + '</span></div></div>' +
       '<div class="diff">' + diffText + '</div>' +
+      (actualBalanceBank !== '' ?
+        '<div class="summary" style="margin-top:16px"><div style="font-weight:bold"><span>المفروض يتبقى (بنك)</span><span>' + autoCalc.bank.expectedClosing.toLocaleString('ar-EG') + '</span></div>' +
+        '<div><span>رصيد البنك الفعلي</span><span>' + bankActualNum.toLocaleString('ar-EG') + '</span></div></div>' : '') +
       '<script>window.print();window.close();</script></body></html>'
     );
     win.document.close();
@@ -291,7 +342,7 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
         </div>
       )}
 
-      {/* التاريخ + رصيد أول اليوم */}
+      {/* التاريخ + رصيد أول اليوم (تلقائي) */}
       <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -299,10 +350,15 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input-dark w-full" />
           </div>
           <div>
-            <label className="form-label">💰 رصيد أول اليوم (الدرج)</label>
-            <input type="number" value={openingBalance} onChange={e => setOpeningBalance(e.target.value)} className="input-dark w-full" placeholder="0" />
+            <label className="form-label">💰 رصيد أول اليوم (الدرج) - تلقائي</label>
+            <div className="input-dark w-full flex items-center text-violet-300 font-bold">
+              {formatCurrency(autoCalc.cash.openingAuto)}
+            </div>
           </div>
         </div>
+        <p className="text-xs text-gray-500 mt-2">
+          🔄 الرصيد ده بيتحسب لوحده من كل حركات الأمس وقبله (مبيعات، مشتريات، مصاريف، دفعات) - مفيش داعي تكتبه يدوي.
+        </p>
         {closingTime && (
           <div className="mt-3 flex items-center gap-2 text-sm text-green-400 bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2">
             <Clock size={14} />
@@ -313,12 +369,51 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
         )}
       </div>
 
-      {/* الداخل والخارج */}
+      {/* ✅ حركة اليوم التلقائية - نفس الأرقام اللي في كشف الحساب والخزينة بالظبط */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {(['cash', 'bank'] as const).map(treasury => {
+          const calc = autoCalc[treasury];
+          const hasMovement = Object.keys(calc.byType).length > 0;
+          return (
+            <div key={treasury} className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 space-y-2">
+              <h3 className="font-bold text-white flex items-center gap-2">
+                {treasury === 'cash' ? '💵 حركة الكاش اليوم (تلقائي)' : '🏦 حركة البنك اليوم (تلقائي)'}
+              </h3>
+              {!hasMovement && <p className="text-xs text-gray-500">مفيش حركات مسجلة في التاريخ ده</p>}
+              {Object.entries(calc.byType).map(([type, v]) => (
+                <div key={type} className="flex justify-between text-sm py-1 border-b border-white/5">
+                  <span className="text-gray-400">{TYPE_LABELS[type] || type}</span>
+                  <span>
+                    {v.in > 0 && <span className="text-green-400">+{v.in.toLocaleString('ar-EG')}</span>}
+                    {v.in > 0 && v.out > 0 && <span className="text-gray-600"> / </span>}
+                    {v.out > 0 && <span className="text-red-400">-{v.out.toLocaleString('ar-EG')}</span>}
+                  </span>
+                </div>
+              ))}
+              <div className="flex justify-between pt-2 font-bold">
+                <span className="text-gray-300 text-sm">صافي اليوم</span>
+                <span className={calc.netToday >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  {calc.netToday >= 0 ? '+' : ''}{formatCurrency(calc.netToday)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm text-violet-300 border-t border-white/10 pt-2">
+                <span>المتوقع آخر اليوم</span>
+                <span className="font-bold">{formatCurrency(calc.expectedClosing)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* الداخل والخارج - بنود استثنائية بس، مش تكرار للمبيعات/المشتريات */}
+      <div className="bg-blue-900/10 border border-blue-700/30 rounded-xl p-3 text-xs text-blue-300">
+        ℹ️ القسم اللي تحت ده لبنود استثنائية بس (زي سلفة شخصية أو حاجة مش متسجلة في النظام). مبيعاتك ومشترياتك ومصاريفك بتتحسب لوحدها فوق - متكتبهاش هنا تاني عشان منضربش الرقم مرتين.
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* الداخل */}
         <div className="bg-[#1a1a35] border border-green-900/30 rounded-2xl p-4 space-y-3">
-          <h3 className="font-bold text-green-400">📥 الداخل</h3>
+          <h3 className="font-bold text-green-400">📥 بند إضافي داخل (استثنائي)</h3>
           <div className="space-y-2">
             {inEntries.map((entry, idx) => (
               <div key={entry.id} className="flex items-center gap-2">
@@ -346,7 +441,7 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
 
         {/* الخارج */}
         <div className="bg-[#1a1a35] border border-red-900/30 rounded-2xl p-4 space-y-3">
-          <h3 className="font-bold text-red-400">📤 الخارج</h3>
+          <h3 className="font-bold text-red-400">📤 بند إضافي خارج (استثنائي)</h3>
           <div className="space-y-2">
             {outEntries.map((entry, idx) => (
               <div key={entry.id} className="flex items-center gap-2">
@@ -373,24 +468,34 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
         </div>
       </div>
 
-      {/* ملخص التقفيل */}
+      {/* ملخص التقفيل - كاش */}
       <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 space-y-3">
-        <h3 className="font-bold text-white">📊 ملخص التقفيل</h3>
+        <h3 className="font-bold text-white">📊 ملخص تقفيل الكاش</h3>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1">
-            <span className="text-gray-400">رصيد أول اليوم</span>
-            <span className="text-white font-medium">{formatCurrency(opening)}</span>
+            <span className="text-gray-400">رصيد أول اليوم (تلقائي)</span>
+            <span className="text-white font-medium">{formatCurrency(autoCalc.cash.openingAuto)}</span>
           </div>
           <div className="flex justify-between py-1">
-            <span className="text-gray-400">+ إجمالي الداخل</span>
-            <span className="text-green-400 font-medium">+{formatCurrency(totalIn)}</span>
+            <span className="text-gray-400">+ صافي حركة اليوم (تلقائي)</span>
+            <span className={autoCalc.cash.netToday >= 0 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}>
+              {autoCalc.cash.netToday >= 0 ? '+' : ''}{formatCurrency(autoCalc.cash.netToday)}
+            </span>
           </div>
-          <div className="flex justify-between py-1">
-            <span className="text-gray-400">- إجمالي الخارج</span>
-            <span className="text-red-400 font-medium">-{formatCurrency(totalOut)}</span>
-          </div>
+          {(totalIn > 0 || totalOut > 0) && (
+            <>
+              <div className="flex justify-between py-1">
+                <span className="text-gray-400">+ بنود إضافية داخلة</span>
+                <span className="text-green-400 font-medium">+{formatCurrency(totalIn)}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-gray-400">- بنود إضافية خارجة</span>
+                <span className="text-red-400 font-medium">-{formatCurrency(totalOut)}</span>
+              </div>
+            </>
+          )}
           <div className="flex justify-between py-2 border-t border-white/10 font-bold">
-            <span className="text-white">المفروض يتبقى</span>
+            <span className="text-white">المفروض يتبقى في الدرج</span>
             <span className="text-violet-400 text-lg">{formatCurrency(expected)}</span>
           </div>
         </div>
@@ -431,6 +536,29 @@ export default function DailyJournal({ journals, onSaveJournal }: Props) {
                 {closingNote && <div className="text-gray-400 text-xs mt-1">{closingNote}</div>}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* ملخص تقفيل البنك */}
+      <div className="bg-[#1a1a35] border border-blue-900/30 rounded-2xl p-4 space-y-3">
+        <h3 className="font-bold text-white">🏦 ملخص تقفيل البنك</h3>
+        <div className="flex justify-between py-2 text-sm font-bold">
+          <span className="text-white">المفروض يتبقى في البنك</span>
+          <span className="text-blue-400 text-lg">{formatCurrency(autoCalc.bank.expectedClosing)}</span>
+        </div>
+        <div className="bg-[#12122a] rounded-xl p-3">
+          <label className="form-label">🏦 رصيد البنك الفعلي (من كشف الحساب/التطبيق)</label>
+          <input type="number" value={actualBalanceBank} onChange={e => setActualBalanceBank(e.target.value)} className="input-dark w-full text-lg font-mono" placeholder="اكتب رصيد البنك الفعلي..." />
+        </div>
+        {actualBalanceBank !== '' && (
+          <div className={
+            'rounded-xl p-4 border text-center ' +
+            (diffBank === 0 ? 'bg-green-900/20 border-green-700/40' : diffBank > 0 ? 'bg-yellow-900/20 border-yellow-700/40' : 'bg-red-900/20 border-red-700/40')
+          }>
+            <div className={'text-lg font-black ' + (diffBank === 0 ? 'text-green-400' : diffBank > 0 ? 'text-yellow-400' : 'text-red-400')}>
+              {diffBank === 0 ? '✅ مظبوط تماماً!' : diffBank > 0 ? ('📈 أوفر +' + formatCurrency(diffBank)) : ('🔴 عجز ' + formatCurrency(Math.abs(diffBank)))}
+            </div>
           </div>
         )}
       </div>
