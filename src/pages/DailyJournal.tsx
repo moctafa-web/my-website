@@ -26,6 +26,27 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
   const [outEntries, setOutEntries] = useState<JournalEntry[]>([{ id: '1', label: '', amount: 0 }]);
   const [showHistory, setShowHistory] = useState(false);
 
+  // ✅ الحساب التلقائي: بيقرا من نفس سجل حركات الخزينة اللي بيتغذى منه كل رصيد في النظام
+  // فبيبقى مطابق 100% لأي رصيد ظاهر في أي مكان تاني (كشف حساب، خزينة، أرباح...)
+  // ⚠️ لازم يتعرّف هنا فوق قبل أي useEffect بيستخدمه، عشان متحصلش أخطاء ترتيب هووكس
+  const autoCalc = useMemo(() => {
+    const build = (treasury: 'cash' | 'bank') => {
+      const before = treasuryTransactions.filter(t => t.treasury === treasury && t.date < date);
+      const today = treasuryTransactions.filter(t => t.treasury === treasury && t.date === date);
+      const openingAuto = before.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
+      const byType: Record<string, { in: number; out: number }> = {};
+      today.forEach(t => {
+        if (!byType[t.type]) byType[t.type] = { in: 0, out: 0 };
+        if (t.direction === 'in') byType[t.type].in += t.amount;
+        else byType[t.type].out += t.amount;
+      });
+      const netToday = today.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
+      const expectedClosing = openingAuto + netToday;
+      return { openingAuto, byType, netToday, expectedClosing };
+    };
+    return { cash: build('cash'), bank: build('bank') };
+  }, [treasuryTransactions, date]);
+
   // ✅ Ref لتخزين آخر دفعة محفوظة + Debounce timer
   const lastSavedRef = useRef<DailyJournalType | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,26 +174,6 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
   const totalIn = inEntries.reduce((s, e) => s + e.amount, 0);
   const totalOut = outEntries.reduce((s, e) => s + e.amount, 0);
   const actual = parseFloat(actualBalance) || 0;
-
-  // ✅ الحساب التلقائي: بيقرا من نفس سجل حركات الخزينة اللي بيتغذى منه كل رصيد في النظام
-  // فبيبقى مطابق 100% لأي رصيد ظاهر في أي مكان تاني (كشف حساب، خزينة، أرباح...)
-  const autoCalc = useMemo(() => {
-    const build = (treasury: 'cash' | 'bank') => {
-      const before = treasuryTransactions.filter(t => t.treasury === treasury && t.date < date);
-      const today = treasuryTransactions.filter(t => t.treasury === treasury && t.date === date);
-      const openingAuto = before.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
-      const byType: Record<string, { in: number; out: number }> = {};
-      today.forEach(t => {
-        if (!byType[t.type]) byType[t.type] = { in: 0, out: 0 };
-        if (t.direction === 'in') byType[t.type].in += t.amount;
-        else byType[t.type].out += t.amount;
-      });
-      const netToday = today.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
-      const expectedClosing = openingAuto + netToday;
-      return { openingAuto, byType, netToday, expectedClosing };
-    };
-    return { cash: build('cash'), bank: build('bank') };
-  }, [treasuryTransactions, date]);
 
   // ✅ الرصيد النهائي المتوقع = المحسوب تلقائيًا من الفواتير والحركات + أي بند يدوي استثنائي (لو كتبت حاجة)
   // البنود اليدوية دلوقتي مخصصة بس لحاجات خارج النظام (سلفة شخصية مثلًا) - مش لتكرار المبيعات/المصاريف
