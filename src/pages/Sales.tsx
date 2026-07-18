@@ -2,7 +2,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
+// ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
+import BarcodeScanner, { DetectedScan } from '../components/BarcodeScanner';
 
 interface Props {
   saleInvoices: SaleInvoice[];
@@ -113,6 +115,14 @@ export default function Sales({
   const [qpQuickAddError, setQpQuickAddError] = useState<string | null>(null);
   const qpSerialRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // ==================== Barcode Scanner States ====================
+  // ✅ نظام مسح الباركود بالكاميرا - يشتغل مع فاتورة البيع وفاتورة الشراء السريعة
+  // مفيش أي تعديل على منطق Firebase أو الحفظ - بس بيملى الحقول تلقائياً بدل الكتابة اليدوية
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanTargetItemId, setScanTargetItemId] = useState<string | null>(null);
+  const [scanMode, setScanMode] = useState<'sale' | 'quick-purchase'>('sale');
+  const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const getAvailableStock = useCallback((productId: string): number => {
     const product = products.find(p => p.id === productId);
     if (product?.productType === 'serial') {
@@ -188,6 +198,13 @@ export default function Sales({
       onPreselectedHandled?.();
     }
   }, [preselectedCustomerId]);
+
+  // ✅ إخفاء رسالة نتيجة المسح تلقائياً بعد فترة قصيرة عشان متتراكمش على الشاشة
+  useEffect(() => {
+    if (!scanMessage) return;
+    const timer = setTimeout(() => setScanMessage(null), 4000);
+    return () => clearTimeout(timer);
+  }, [scanMessage]);
 
   const searchQuery = search.toLowerCase();
   const filtered = saleInvoices.filter(inv =>
@@ -377,8 +394,6 @@ const validateStock = (): string | null => {
         }
       }
 
-      // ✅ مهم جداً: في حالة التعديل على نفس الفاتورة، نضيف سيريالات الفاتورة القديمة
-      // لأنها متباعة بالفعل على نفس الفاتورة وليست "ناقصة من المخزون" بالنسبة للتعديل
       const availableCount = getAvailableStock(item.productId);
       let usedInThisInvoice = 0;
 
@@ -415,7 +430,6 @@ const validateStock = (): string | null => {
   const handleSave = () => {
     if (!customerId || saleItems.length === 0) return;
 
-    // ✅ تحقق: كل البنود لازم يكون فيها productId
     const emptyItem = saleItems.find(item => !item.productId);
     if (emptyItem) {
       setStockError('يوجد بند بدون منتج محدد - اختر منتجاً من القائمة أو احذف البند');
@@ -631,6 +645,122 @@ const validateStock = (): string | null => {
     setQpShowItemDrop(prev => ({ ...prev, [itemId]: false }));
   };
 
+  // ==================== Barcode Scanner Handlers ====================
+  // ✅ منطق المسح لبند فاتورة البيع (بحث عن منتج موجود بالفعل بالمخزون)
+  const handleSaleScanDetected = (scan: DetectedScan) => {
+    const code = scan.barcode.trim();
+    const itemId = scanTargetItemId;
+    if (!itemId) { setShowScanner(false); return; }
+
+    // 1) هل الكود ده سيريال متاح فعلاً في المخزون؟ (أو تابع لنفس الفاتورة وقت التعديل)
+    const matchedSerial = serials.find(s =>
+      s.serial.trim().toLowerCase() === code.toLowerCase() &&
+      (s.status === 'available' || (editingInvoice && s.saleInvoiceId === editingInvoice.id))
+    );
+
+    if (matchedSerial) {
+      const product = products.find(p => p.id === matchedSerial.productId);
+      if (product) {
+        setSaleItems(prev => prev.map(it => {
+          if (it.id !== itemId) return it;
+          const updated: SaleItem = {
+            ...it,
+            productId: product.id,
+            productName: product.name,
+            sku: product.sku,
+            unitPrice: product.salePrice,
+            serials: [{ serial: matchedSerial.serial, imei1: matchedSerial.imei1 || '', imei2: matchedSerial.imei2 || '' }],
+          };
+          const discountAmt = updated.discountType === 'percent'
+            ? (updated.unitPrice * updated.quantity * updated.discount / 100)
+            : updated.discount;
+          updated.total = Math.max(0, updated.unitPrice * updated.quantity - discountAmt);
+          return updated;
+        }));
+        setItemSearch(prev => ({ ...prev, [itemId]: product.name }));
+        setShowItemDrop(prev => ({ ...prev, [itemId]: false }));
+        setStockError(null);
+        setScanMessage({ type: 'success', text: `✅ تم العثور على: ${product.name} - السيريال ${matchedSerial.serial}` });
+        setShowScanner(false);
+        return;
+      }
+    }
+
+    // 2) مش سيريال؟ يبقى نبحث هل الكود ده UPC أو SKU لمنتج موجود في قائمة الأصناف
+    const matchedProduct = products.find(p =>
+      ((p.upc || '').trim() !== '' && (p.upc || '').trim() === code) ||
+      p.sku.trim().toLowerCase() === code.toLowerCase()
+    );
+    if (matchedProduct) {
+      selectProduct(itemId, matchedProduct);
+      setScanMessage({ type: 'success', text: `✅ تم اختيار المنتج: ${matchedProduct.name} - اختر السيريال من المتاح بالأسفل` });
+      setShowScanner(false);
+      return;
+    }
+
+    // 3) مفيش أي تطابق - الكود ده مش موجود في المخزون خالص
+    setScanMessage({ type: 'error', text: `⚠️ الكود "${code}" غير موجود في المخزون. تأكد إنه اتشرى أولاً من فاتورة شراء` });
+    setShowScanner(false);
+  };
+
+  // ✅ منطق المسح لبند "فاتورة الشراء السريعة" (تسجيل قطعة جديدة في المخزون)
+  const handleQpScanDetected = (scan: DetectedScan) => {
+    const code = scan.barcode.trim();
+    const itemId = scanTargetItemId;
+    if (!itemId) { setShowScanner(false); return; }
+
+    // 1) لو الكود ده مسجل بالفعل كسيريال بالمخزون - امنع الشراء المكرر لنفس القطعة
+    if (existingSerialsSet.has(code.toLowerCase())) {
+      setScanMessage({ type: 'error', text: `⚠️ هذا الكود "${code}" مسجل بالفعل في المخزون كسيريال` });
+      setShowScanner(false);
+      return;
+    }
+
+    // 2) هل الكود ده UPC لمنتج موجود أصلاً في قائمة الأصناف؟
+    const matchedProduct = products.find(p => (p.upc || '').trim() !== '' && (p.upc || '').trim() === code);
+    if (matchedProduct) {
+      selectQpProduct(itemId, matchedProduct);
+      setScanMessage({ type: 'success', text: `✅ تم اختيار المنتج: ${matchedProduct.name} - امسح السيريال الآن` });
+      setShowScanner(false);
+      return;
+    }
+
+    // 3) غير كده، نعتبر الكود ده سيريال/IMEI ونحطه في أول خانة فاضية في البند الحالي
+    setQpItems(prev => prev.map(it => {
+      if (it.id !== itemId) return it;
+      const ns = [...it.serials];
+      const emptyIdx = ns.findIndex(s => !s.serial.trim());
+      if (emptyIdx >= 0) {
+        ns[emptyIdx] = { ...ns[emptyIdx], serial: code };
+      } else {
+        ns.push({ serial: code, imei1: '', imei2: '' });
+      }
+      return { ...it, serials: ns, quantity: ns.length };
+    }));
+    setScanMessage({ type: 'success', text: `✅ تم إدخال السيريال: ${code} - أكمل باقي البيانات` });
+    setShowScanner(false);
+  };
+
+  // موزّع الأحداث: يحدد أي دالة تتنفذ حسب وضع المسح الحالي (بيع/شراء سريع)
+  const handleScanDetected = (scan: DetectedScan) => {
+    if (scanMode === 'sale') handleSaleScanDetected(scan);
+    else handleQpScanDetected(scan);
+  };
+
+  const openScannerForSaleItem = (itemId: string) => {
+    setScanMode('sale');
+    setScanTargetItemId(itemId);
+    setScanMessage(null);
+    setShowScanner(true);
+  };
+
+  const openScannerForQpItem = (itemId: string) => {
+    setScanMode('quick-purchase');
+    setScanTargetItemId(itemId);
+    setScanMessage(null);
+    setShowScanner(true);
+  };
+
   const filteredQpSuppliers = suppliers.filter(s =>
     s.name.toLowerCase().includes(qpSupplierSearch.toLowerCase()) ||
     (s.phone || '').includes(qpSupplierSearch)
@@ -706,7 +836,6 @@ const validateStock = (): string | null => {
             serial: sl.serial, imei1: sl.imei1 || undefined, imei2: sl.imei2 || undefined,
             status: 'available', purchaseInvoiceId: invoiceId,
             costPrice: item.unitPrice,
-            // ✅ لو السعر صفر = سعر معلّق
             purchasePricePending: item.unitPrice === 0 ? true : false,
             createdAt: new Date().toISOString(),
           });
@@ -840,6 +969,16 @@ const validateStock = (): string | null => {
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
+
+      {/* ✅ رسالة نتيجة المسح - تظهر أعلى الشاشة فوق كل شيء وتختفي تلقائياً */}
+      {scanMessage && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[110] px-4 py-3 rounded-xl shadow-2xl text-sm font-medium max-w-[90%] text-center ${
+          scanMessage.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {scanMessage.text}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">🛒 المبيعات</h2>
@@ -1020,15 +1159,26 @@ const validateStock = (): string | null => {
                         {/* البند - البحث عن منتج */}
                         <div className="col-span-12 md:col-span-4 relative">
                           <label className="form-label text-xs">البند</label>
-                          <input type="text" value={itemSearch[item.id] || ''}
-                            onChange={e => {
-                              setItemSearch(prev => ({ ...prev, [item.id]: e.target.value }));
-                              setShowItemDrop(prev => ({ ...prev, [item.id]: true }));
-                            }}
-                            onFocus={() => setShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
-                            placeholder="ابحث عن منتج..."
-                            className="input-dark w-full text-sm"
-                          />
+                          <div className="flex gap-1">
+                            <input type="text" value={itemSearch[item.id] || ''}
+                              onChange={e => {
+                                setItemSearch(prev => ({ ...prev, [item.id]: e.target.value }));
+                                setShowItemDrop(prev => ({ ...prev, [item.id]: true }));
+                              }}
+                              onFocus={() => setShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
+                              placeholder="ابحث عن منتج..."
+                              className="input-dark w-full text-sm"
+                            />
+                            {/* ✅ زرار مسح الباركود بالكاميرا - يحدد المنتج/السيريال تلقائياً */}
+                            <button
+                              type="button"
+                              onClick={() => openScannerForSaleItem(item.id)}
+                              className="shrink-0 p-2 rounded-lg bg-violet-700/20 border border-violet-700/30 text-violet-300 hover:bg-violet-700/40"
+                              title="مسح بالكاميرا"
+                            >
+                              <Camera size={16} />
+                            </button>
+                          </div>
                           {showItemDrop[item.id] && (
                             <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto">
                               {getFilteredProducts(itemSearch[item.id] || '').map(p => {
@@ -1054,7 +1204,6 @@ const validateStock = (): string | null => {
                                   </button>
                                 );
                               })}
-                              {/* ✅ فقط هذا الزر يبقى - بيع بدون شراء اتشال نهائياً */}
                               {onAddPurchaseInvoice && onAddSerials && (
                                 <button
                                   onClick={() => openQuickPurchase(item.id, itemSearch[item.id] || '')}
@@ -1500,10 +1649,21 @@ const validateStock = (): string | null => {
                       <div className="grid grid-cols-12 gap-2 items-end mb-3">
                         <div className="col-span-12 md:col-span-5 relative">
                           <label className="form-label text-xs">المنتج</label>
-                          <input type="text" value={qpItemSearch[item.id] || ''}
-                            onChange={e => { setQpItemSearch(prev => ({ ...prev, [item.id]: e.target.value })); setQpShowItemDrop(prev => ({ ...prev, [item.id]: true })); }}
-                            onFocus={() => setQpShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
-                            placeholder="ابحث أو اكتب اسم المنتج..." className="input-dark w-full text-sm" />
+                          <div className="flex gap-1">
+                            <input type="text" value={qpItemSearch[item.id] || ''}
+                              onChange={e => { setQpItemSearch(prev => ({ ...prev, [item.id]: e.target.value })); setQpShowItemDrop(prev => ({ ...prev, [item.id]: true })); }}
+                              onFocus={() => setQpShowItemDrop(prev => ({ ...prev, [item.id]: true }))}
+                              placeholder="ابحث أو اكتب اسم المنتج..." className="input-dark w-full text-sm" />
+                            {/* ✅ زرار مسح الباركود بالكاميرا لفاتورة الشراء السريعة */}
+                            <button
+                              type="button"
+                              onClick={() => openScannerForQpItem(item.id)}
+                              className="shrink-0 p-2 rounded-lg bg-orange-700/20 border border-orange-700/30 text-orange-300 hover:bg-orange-700/40"
+                              title="مسح بالكاميرا"
+                            >
+                              <Camera size={16} />
+                            </button>
+                          </div>
                           {qpShowItemDrop[item.id] && (
                             <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
                               {getFilteredProducts(qpItemSearch[item.id] || '').map(p => (
@@ -1747,6 +1907,18 @@ const validateStock = (): string | null => {
               <button onClick={() => { setAddSupplierModal(false); setQpQuickAddError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ==================== Barcode Scanner Modal ==================== */}
+      {/* ✅ نغلفه في div بـ z-index عالي جداً عشان يظهر فوق أي مودال تاني مفتوح (حتى لو كان فاتورة شراء سريعة مفتوحة) */}
+      {showScanner && (
+        <div className="fixed inset-0 z-[100]">
+          <BarcodeScanner
+            title={scanMode === 'sale' ? '📷 مسح باركود للبيع' : '📷 مسح باركود للشراء'}
+            onDetected={handleScanDetected}
+            onClose={() => { setShowScanner(false); setScanTargetItemId(null); }}
+          />
         </div>
       )}
     </div>

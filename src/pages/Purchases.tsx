@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera } from 'lucide-react';
+import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 
 interface Props {
   purchaseInvoices: PurchaseInvoice[];
@@ -16,7 +17,6 @@ interface Props {
   onAddSerials: (serials: SerialItem[]) => void;
   onUpdatePurchaseInvoice: (inv: PurchaseInvoice) => void;
   onDeletePurchaseInvoice: (invoiceId: string) => void;
-  // ✅ استكمال سعر شراء سيريال معلّق
   onCompletePendingPurchase?: (
     serialId: string,
     newCostPrice: number,
@@ -28,7 +28,6 @@ interface Props {
   ) => { success: boolean; message?: string };
   preselectedSupplierId?: string | null;
   onPreselectedHandled?: () => void;
-  // ✅ الجديد: فتح نموذج استكمال السعر مباشرة لسيريال معين
   preselectedPendingSerialId?: string | null;
   onPreselectedPendingSerialHandled?: () => void;
 }
@@ -61,13 +60,12 @@ export default function Purchases({
   const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', type: 'supplier' as Supplier['type'] });
   const [showNewProductModal, setShowNewProductModal] = useState<string | null>(null);
   const [newProductForm, setNewProductForm] = useState({
-    name: '', sku: '', category: 'phones' as Product['category'],
+    name: '', sku: '', upc: '', category: 'phones' as Product['category'],
     brand: 'Apple', productType: 'serial' as Product['productType'],
     costPrice: '', salePrice: ''
   });
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
 
-  // ✅ مودال استكمال سعر سيريال معلّق
   const [showCompletePendingModal, setShowCompletePendingModal] = useState(false);
   const [pendingSerialToComplete, setPendingSerialToComplete] = useState<SerialItem | null>(null);
   const [completePendingForm, setCompletePendingForm] = useState({
@@ -94,6 +92,14 @@ export default function Purchases({
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // ✅ سكانر الباركود: تحديد نوع وهدف المسح الحالي + رسالة التغذية الراجعة أثناء المسح المستمر
+  const [scanTarget, setScanTarget] = useState<
+    | { type: 'product'; itemId: string }
+    | { type: 'serial'; itemId: string }
+    | null
+  >(null);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
 
   const getAvailableStock = useCallback((productId: string): number => {
     return serials.filter(s => s.productId === productId && s.status === 'available').length;
@@ -141,7 +147,6 @@ export default function Purchases({
     setShowForm(true);
   };
 
-  // ✅ فتح مودال استكمال السعر لسيريال معين
   const openCompletePendingModal = useCallback((serialId: string) => {
     const serial = serials.find(s => s.id === serialId);
     if (!serial) return;
@@ -158,7 +163,6 @@ export default function Purchases({
     setShowCompletePendingModal(true);
   }, [serials]);
 
-  // ✅ استقبال طلب من Dashboard لفتح مودال استكمال السعر
   useEffect(() => {
     if (preselectedPendingSerialId) {
       openCompletePendingModal(preselectedPendingSerialId);
@@ -181,7 +185,6 @@ export default function Purchases({
     }
   }, [preselectedSupplierId]);
 
-  // ✅ تنفيذ استكمال السعر
   const handleCompletePending = () => {
     if (!pendingSerialToComplete) return;
     if (!completePendingForm.supplierId) {
@@ -197,7 +200,6 @@ export default function Purchases({
     const paidAmount = parseFloat(completePendingForm.paidAmount) || 0;
     const selectedSupplier = suppliers.find(s => s.id === completePendingForm.supplierId);
 
-    // نولّد رقم فاتورة لو محتاج
     const existingNumbers = purchaseInvoices
       .map(inv => parseInt(inv.invoiceNumber.split('-').pop() || '0', 10))
       .filter(n => !isNaN(n));
@@ -273,10 +275,8 @@ export default function Purchases({
         if (item.serials[i].serial.trim().toLowerCase() === normalized) return true;
       }
     }
-    // ✅ التحقق المحسّن: السيريال الموجود لكن معلّق = مسموح بالتحديث
     if (existingSerialsSet.has(normalized)) {
       const existingSerial = serials.find(s => s.serial.trim().toLowerCase() === normalized);
-      // لو السيريال معلّق → مش مكرر (هيتعامل معه كاستكمال)
       if (existingSerial?.purchasePricePending) return false;
       if (editingInvoice) {
         const wasInThisInvoice = editingInvoice.items.some(it =>
@@ -387,6 +387,57 @@ export default function Purchases({
     setItemSearch(prev => ({ ...prev, [itemId]: product.name }));
     setShowItemDrop(prev => ({ ...prev, [itemId]: false }));
     setValidationError(null);
+  };
+
+  // ✅ البحث عن منتج بالكود الممسوح (UPC أو SKU) - يُستخدم مع سكانر الباركود
+  const findProductByCode = (code: string): Product | undefined => {
+    const normalized = code.trim().toLowerCase();
+    return products.find(p =>
+      (p.upc && p.upc.trim().toLowerCase() === normalized) ||
+      p.sku.trim().toLowerCase() === normalized
+    );
+  };
+
+  // ✅ لما الكاميرا تمسح كود لتحديد منتج (وضع "single" - يقفل نفسه تلقائياً بعد المسح)
+  const handleProductScan = (code: string) => {
+    if (!scanTarget || scanTarget.type !== 'product') return;
+    const product = findProductByCode(code);
+    if (product) {
+      selectProduct(scanTarget.itemId, product);
+    } else {
+      // مفيش منتج مسجل بهذا الكود - نفتح فورم إضافة منتج جديد ونعبي الـ UPC تلقائياً
+      setShowNewProductModal(scanTarget.itemId);
+      setNewProductForm(p => ({ ...p, upc: code }));
+      setQuickAddError(null);
+    }
+  };
+
+  // ✅ لما الكاميرا تمسح سيريال/IMEI (وضع "continuous" - يفضل شغال لحد ما يتقفل يدوياً)
+  const handleSerialScan = (code: string) => {
+    if (!scanTarget || scanTarget.type !== 'serial') return;
+    const itemId = scanTarget.itemId;
+    const item = purchItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    const emptyIndex = item.serials.findIndex(s => !s.serial.trim());
+    const targetIndex = emptyIndex >= 0 ? emptyIndex : item.serials.length;
+
+    if (isDuplicateSerial(code, itemId, targetIndex)) {
+      setScanFeedback({ id: Date.now(), type: 'error', message: `⚠️ السيريال ${code} مكرر أو موجود بالفعل في المخزون` });
+      return;
+    }
+
+    if (emptyIndex >= 0) {
+      updateSerialField(itemId, emptyIndex, 'serial', code);
+    } else {
+      setPurchItems(prev => prev.map(it => {
+        if (it.id !== itemId) return it;
+        const newSerials = [...it.serials, { serial: code, imei1: '', imei2: '' }];
+        return { ...it, serials: newSerials, quantity: newSerials.length, total: Math.max(0, it.unitPrice * newSerials.length - it.discount) };
+      }));
+    }
+
+    setScanFeedback({ id: Date.now(), type: 'success', message: `✅ تمت إضافة السيريال ${code}` });
   };
 
   const getFilteredProducts = (searchStr: string) => {
@@ -509,7 +560,6 @@ export default function Purchases({
             status: 'available',
             purchaseInvoiceId: invoiceId,
             costPrice: item.unitPrice,
-            // ✅ لو السعر صفر = سعر معلّق
             purchasePricePending: item.unitPrice === 0 ? true : false,
             createdAt: new Date().toISOString(),
           });
@@ -591,6 +641,7 @@ export default function Purchases({
       id: generateId(),
       name: newProductForm.name,
       sku: newProductForm.sku,
+      upc: newProductForm.upc || undefined,
       category: newProductForm.category,
       brand: newProductForm.brand,
       productType: newProductForm.productType,
@@ -607,7 +658,7 @@ export default function Purchases({
     selectProduct(itemId, product);
     setShowNewProductModal(null);
     setQuickAddError(null);
-    setNewProductForm({ name: '', sku: '', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: '', salePrice: '' });
+    setNewProductForm({ name: '', sku: '', upc: '', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: '', salePrice: '' });
   };
 
   const printInvoice = (inv: PurchaseInvoice) => {
@@ -793,7 +844,16 @@ export default function Purchases({
                     }`}>
                       <div className="grid grid-cols-12 gap-2 items-end mb-3">
                         <div className="col-span-12 md:col-span-5 relative">
-                          <label className="form-label text-xs">المنتج</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="form-label text-xs !mb-0">المنتج</label>
+                            <button
+                              type="button"
+                              onClick={() => setScanTarget({ type: 'product', itemId: item.id })}
+                              className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
+                            >
+                              <Camera size={12} /> مسح UPC
+                            </button>
+                          </div>
                           <input
                             type="text" value={itemSearch[item.id] || ''}
                             onChange={e => {
@@ -859,7 +919,6 @@ export default function Purchases({
                         </div>
                       </div>
 
-                      {/* تنبيه لو السعر صفر */}
                       {item.productId && item.unitPrice === 0 && (
                         <div className="mb-3 flex items-center gap-2 bg-orange-900/10 border border-orange-700/20 rounded-lg px-3 py-2">
                           <AlertCircle size={14} className="text-orange-400 shrink-0" />
@@ -880,12 +939,21 @@ export default function Purchases({
 
                       {(linkedProduct?.productType === 'serial' || item.serials.length > 0) && (
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="text-xs text-gray-400 font-medium">
                               السيريالات ({item.serials.filter(s => s.serial).length} / {item.quantity}):
                             </div>
-                            <div className="text-xs text-violet-400">
-                              💡 اضغط Enter للانتقال للسيريال التالي
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setScanTarget({ type: 'serial', itemId: item.id })}
+                                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                              >
+                                <Camera size={12} /> مسح بالكاميرا
+                              </button>
+                              <div className="text-xs text-violet-400">
+                                💡 Enter للتالي يدوياً
+                              </div>
                             </div>
                           </div>
                           {item.serials.map((sl, si) => {
@@ -1005,7 +1073,6 @@ export default function Purchases({
               </div>
             </div>
 
-            {/* معلومات السيريال */}
             <div className="bg-orange-900/10 border border-orange-700/20 rounded-xl p-3 mb-4">
               <div className="text-sm font-medium text-white mb-1">{pendingSerialToComplete.productName}</div>
               <div className="text-xs text-gray-400 font-mono">
@@ -1016,7 +1083,6 @@ export default function Purchases({
             </div>
 
             <div className="space-y-3">
-              {/* اختيار المورد */}
               <div className="relative">
                 <label className="form-label">المورد *</label>
                 <input
@@ -1043,7 +1109,6 @@ export default function Purchases({
                 )}
               </div>
 
-              {/* السعر الحقيقي */}
               <div>
                 <label className="form-label">سعر الشراء الحقيقي *</label>
                 <input
@@ -1055,7 +1120,6 @@ export default function Purchases({
                 />
               </div>
 
-              {/* طريقة الدفع */}
               <div>
                 <label className="form-label">طريقة الدفع</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -1073,7 +1137,6 @@ export default function Purchases({
                 </div>
               </div>
 
-              {/* المبلغ المدفوع */}
               {completePendingForm.paymentMethod !== 'credit' && (
                 <div>
                   <label className="form-label">المبلغ المدفوع</label>
@@ -1131,6 +1194,9 @@ export default function Purchases({
               <input type="text" value={newProductForm.sku}
                 onChange={e => setNewProductForm(p => ({ ...p, sku: e.target.value }))}
                 className="input-dark w-full" placeholder="SKU *" />
+              <input type="text" value={newProductForm.upc}
+                onChange={e => setNewProductForm(p => ({ ...p, upc: e.target.value }))}
+                className="input-dark w-full" placeholder="UPC / الباركود (اختياري - أو امسحه بالكاميرا)" />
               <div className="grid grid-cols-2 gap-3">
                 <select value={newProductForm.category}
                   onChange={e => setNewProductForm(p => ({ ...p, category: e.target.value as Product['category'] }))}
@@ -1323,6 +1389,20 @@ export default function Purchases({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ✅ سكانر الباركود - يفتح لتحديد منتج (مسح واحد يقفل نفسه) أو لإدخال عدة سيريالات (مسح مستمر) */}
+      {scanTarget && (
+        <BarcodeScanner
+          title={scanTarget.type === 'product' ? '📷 امسح UPC / باركود المنتج' : '📷 امسح السيريال / IMEI'}
+          mode={scanTarget.type === 'product' ? 'single' : 'continuous'}
+          onDetected={(code) => {
+            if (scanTarget.type === 'product') handleProductScan(code);
+            else handleSerialScan(code);
+          }}
+          onClose={() => { setScanTarget(null); setScanFeedback(null); }}
+          feedback={scanFeedback}
+        />
       )}
     </div>
   );
