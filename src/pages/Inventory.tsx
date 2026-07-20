@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder } from '../types';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder, Customer } from '../types';
 import { formatCurrency, categoryLabel, printElement, getTodayStr } from '../utils/helpers';
-import { Search, Printer, Package, Hash, Eye, CheckCircle2 } from 'lucide-react';
+import { Search, Printer, Package, Hash, Eye, CheckCircle2, X } from 'lucide-react';
 import PasswordConfirmModal from '../components/PasswordConfirmModal';
 
 interface Props {
@@ -10,19 +10,84 @@ interface Props {
   saleInvoices?: SaleInvoice[];
   purchaseInvoices?: PurchaseInvoice[];
   noonOrders?: NoonOrder[];
+  customers?: Customer[];
   onUpdateProduct?: (p: Product) => void;
 }
 
-export default function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], onUpdateProduct }: Props) {
+type UnifiedResultType = 'serial' | 'product' | 'saleInvoice' | 'purchaseInvoice';
+interface UnifiedSuggestion {
+  type: UnifiedResultType;
+  data: SerialItem | Product | SaleInvoice | PurchaseInvoice;
+  title: string;
+  subtitle: string;
+  searchLabel: string;
+  typeLabel: string;
+}
+
+export default function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], onUpdateProduct }: Props) {
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('all');
   const [showSerials, setShowSerials] = useState<string | null>(null);
 
   const [showJrard, setShowJrard] = useState(false);
   const [jrardData, setJrardData] = useState<Record<string, string>>({});
-  const [confirmApplyCorrections, setConfirmApplyCorrections] = useState(false);
-  const [correctionsToast, setCorrectionsToast] = useState<string | null>(null);
 
+  // ==================== بحث موحّد ====================
+  const [unifiedSearch, setUnifiedSearch] = useState('');
+  const [unifiedResult, setUnifiedResult] = useState<UnifiedSuggestion | null>(null);
+  const [showUnifiedSuggestions, setShowUnifiedSuggestions] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowUnifiedSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const unifiedSuggestions = useMemo((): UnifiedSuggestion[] => {
+    const q = unifiedSearch.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const results: UnifiedSuggestion[] = [];
+
+    // سيريالات (بحث بالسيريال أو IMEI)
+    serials.filter(s =>
+      s.serial.toLowerCase().includes(q) ||
+      (s.imei1 || '').toLowerCase().includes(q) ||
+      (s.imei2 || '').toLowerCase().includes(q)
+    ).slice(0, 6).forEach(s => {
+      const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محوّل' : '↩️ مرتجع';
+      results.push({ type: 'serial', data: s, title: s.serial, subtitle: `${s.productName} • ${statusLabel}`, searchLabel: s.serial, typeLabel: 'سيريال' });
+    });
+
+    // منتجات
+    products.filter(p =>
+      p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+    ).slice(0, 4).forEach(p => {
+      results.push({ type: 'product', data: p, title: p.name, subtitle: `${p.sku} • مخزون: ${serials.filter(s => s.productId === p.id && s.status === 'available').length}`, searchLabel: p.name, typeLabel: 'منتج' });
+    });
+
+    // فواتير بيع (برقم الفاتورة أو اسم العميل)
+    saleInvoices.filter(i =>
+      i.invoiceNumber.toLowerCase().includes(q) || i.customerName.toLowerCase().includes(q)
+    ).slice(0, 3).forEach(i => {
+      results.push({ type: 'saleInvoice', data: i, title: i.invoiceNumber, subtitle: `${i.customerName} • ${i.date} • ${formatCurrency(i.total)}`, searchLabel: i.invoiceNumber, typeLabel: 'فاتورة بيع' });
+    });
+
+    // فواتير شراء
+    purchaseInvoices.filter(i =>
+      i.invoiceNumber.toLowerCase().includes(q) || i.supplierName.toLowerCase().includes(q)
+    ).slice(0, 3).forEach(i => {
+      results.push({ type: 'purchaseInvoice', data: i, title: i.invoiceNumber, subtitle: `${i.supplierName} • ${i.date} • ${formatCurrency(i.total)}`, searchLabel: i.invoiceNumber, typeLabel: 'فاتورة شراء' });
+    });
+
+    return results;
+  }, [unifiedSearch, serials, products, saleInvoices, purchaseInvoices]);
+
+  // ==================== بيانات قديمة (مستخدمة في أقسام أخرى) ====================
   const [trackTab, setTrackTab] = useState<'serial' | 'product'>('serial');
   const [serialSearch, setSerialSearch] = useState('');
   const [productTrackId, setProductTrackId] = useState('');
@@ -32,6 +97,9 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
   const [viewSaleInvoice, setViewSaleInvoice] = useState<SaleInvoice | null>(null);
   const [viewPurchaseInvoice, setViewPurchaseInvoice] = useState<PurchaseInvoice | null>(null);
   const [viewNoonOrder, setViewNoonOrder] = useState<NoonOrder | null>(null);
+
+  const [confirmApplyCorrections, setConfirmApplyCorrections] = useState(false);
+  const [correctionsToast, setCorrectionsToast] = useState<string | null>(null);
 
   const serialSuggestions = serialSearch.trim().length > 0
     ? serials.filter(s =>
@@ -46,22 +114,13 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
   const trackedSerial = selectedSerialId
     ? serials.find(s => s.id === selectedSerialId)
-    : serialSuggestions.length === 1
-    ? serialSuggestions[0]
-    : null;
+    : serialSuggestions.length === 1 ? serialSuggestions[0] : null;
 
-  const getSerialHistory = (serial: SerialItem) => {
-    const purchase = serial.purchaseInvoiceId
-      ? purchaseInvoices.find(i => i.id === serial.purchaseInvoiceId)
-      : null;
-    const sale = serial.saleInvoiceId
-      ? saleInvoices.find(i => i.id === serial.saleInvoiceId)
-      : null;
-    const noonOrder = serial.noonOrderId
-      ? noonOrders.find(o => o.id === serial.noonOrderId)
-      : null;
-    return { purchase, sale, noonOrder };
-  };
+  const getSerialHistory = (serial: SerialItem) => ({
+    purchase: serial.purchaseInvoiceId ? purchaseInvoices.find(i => i.id === serial.purchaseInvoiceId) ?? null : null,
+    sale: serial.saleInvoiceId ? saleInvoices.find(i => i.id === serial.saleInvoiceId) ?? null : null,
+    noonOrder: serial.noonOrderId ? noonOrders.find(o => o.id === serial.noonOrderId) ?? null : null,
+  });
 
   const productSuggestions = productTrackSearch.trim().length > 0
     ? products.filter(p =>
@@ -72,18 +131,11 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
   const selectedProduct = productTrackId ? products.find(p => p.id === productTrackId) : null;
 
-  const getProductHistory = (productId: string) => {
-    const purchases = purchaseInvoices.filter(inv =>
-      inv.items.some(item => item.productId === productId)
-    );
-    const sales = saleInvoices.filter(inv =>
-      inv.items.some(item => item.productId === productId)
-    );
-    const noon = noonOrders.filter(o =>
-      o.items.some(item => item.productId === productId) && o.status !== 'canceled'
-    );
-    return { purchases, sales, noon };
-  };
+  const getProductHistory = (productId: string) => ({
+    purchases: purchaseInvoices.filter(inv => inv.items.some(item => item.productId === productId)),
+    sales: saleInvoices.filter(inv => inv.items.some(item => item.productId === productId)),
+    noon: noonOrders.filter(o => o.items.some(item => item.productId === productId) && o.status !== 'canceled'),
+  });
 
   const filtered = products.filter(p => {
     const matchSearch =
@@ -316,433 +368,538 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
   return (
     <div className="p-4 lg:p-6 space-y-6">
 
-      {/* ==================== قسم تتبع المنتجات ==================== */}
+      {/* ==================== قسم تتبع المنتجات (محدّث) ==================== */}
       <div className="bg-[#1a1a35] border border-violet-700/40 rounded-2xl p-4 space-y-4">
         <h3 className="text-base font-bold text-violet-300 flex items-center gap-2">
-          🔍 تتبع المنتجات
+          🔍 تتبع الأجهزة
+          <span className="text-xs text-gray-500 font-normal">ابحث بالسيريال أو IMEI أو اسم المنتج أو رقم الفاتورة</span>
         </h3>
 
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTrackTab('serial')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm border transition-colors ${
-              trackTab === 'serial'
-                ? 'bg-violet-700/40 border-violet-500/50 text-violet-300'
-                : 'border-white/10 text-gray-400 hover:border-white/20'
-            }`}
-          >
-            <Hash size={14} /> بحث بالسيريال
-          </button>
-          <button
-            onClick={() => setTrackTab('product')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm border transition-colors ${
-              trackTab === 'product'
-                ? 'bg-violet-700/40 border-violet-500/50 text-violet-300'
-                : 'border-white/10 text-gray-400 hover:border-white/20'
-            }`}
-          >
-            <Package size={14} /> بحث بالمنتج
-          </button>
+        {/* ===== حقل بحث موحّد ===== */}
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+          <input
+            type="text"
+            value={unifiedSearch}
+            onChange={e => {
+              setUnifiedSearch(e.target.value);
+              setUnifiedResult(null);
+              setShowUnifiedSuggestions(true);
+            }}
+            onFocus={() => setShowUnifiedSuggestions(true)}
+            placeholder="سيريال / IMEI / اسم المنتج / رقم فاتورة..."
+            className="input-dark w-full pr-9 font-mono"
+          />
+          {unifiedSearch.trim() && showUnifiedSuggestions && unifiedSuggestions.length > 0 && (
+            <div className="absolute top-full right-0 left-0 z-50 bg-[#1a1a35] border border-violet-700/40 rounded-xl mt-1 shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+              {unifiedSuggestions.map((s, i) => (
+                <button key={i} onClick={() => { setUnifiedResult(s); setUnifiedSearch(s.searchLabel); setShowUnifiedSuggestions(false); }}
+                  className="w-full text-right px-4 py-2.5 hover:bg-violet-900/30 border-b border-white/5 last:border-0 flex items-center gap-3">
+                  <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
+                    s.type === 'serial' ? 'bg-blue-900/40 text-blue-300' :
+                    s.type === 'product' ? 'bg-violet-900/40 text-violet-300' :
+                    s.type === 'saleInvoice' ? 'bg-green-900/40 text-green-300' :
+                    'bg-orange-900/40 text-orange-300'
+                  }`}>{s.typeLabel}</span>
+                  <div className="min-w-0">
+                    <div className="text-white text-sm font-mono truncate">{s.title}</div>
+                    <div className="text-gray-500 text-xs truncate">{s.subtitle}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {unifiedSearch.trim() && !showUnifiedSuggestions && !unifiedResult && (
+            <button onClick={() => setShowUnifiedSuggestions(true)} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">▼</button>
+          )}
         </div>
 
-        {/* ===== بحث بالسيريال ===== */}
-        {trackTab === 'serial' && (
-          <div className="space-y-3">
-            <div className="relative">
-              <input
-                type="text"
-                value={serialSearch}
-                onChange={e => {
-                  setSerialSearch(e.target.value);
-                  setSelectedSerialId(null);
-                  setShowSerialSuggestions(true);
-                }}
-                onFocus={() => setShowSerialSuggestions(true)}
-                placeholder="اكتب جزء من السيريال أو IMEI..."
-                className="input-dark w-full font-mono"
-              />
-              {showSerialSuggestions && serialSearch.trim() && serialSuggestions.length > 1 && (
-                <div className="absolute top-full right-0 left-0 z-50 bg-[#1a1a35] border border-violet-700/40 rounded-xl mt-1 shadow-xl overflow-hidden max-h-48 overflow-y-auto">
-                  {serialSuggestions.map(s => (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        setSelectedSerialId(s.id);
-                        setSerialSearch(s.serial);
-                        setShowSerialSuggestions(false);
-                      }}
-                      className="w-full text-right px-4 py-2.5 hover:bg-violet-900/30 border-b border-white/5 last:border-0"
-                    >
-                      <div className="font-mono text-violet-300 text-sm">{s.serial}</div>
-                      <div className="text-xs text-gray-500">{s.productName} •
-                        <span className={`mr-1 ${
-                          s.status === 'available' ? 'text-green-400' :
-                          s.status === 'sold' ? 'text-purple-400' : 'text-blue-400'
-                        }`}>
-                          {s.status === 'available' ? 'متاح' : s.status === 'sold' ? 'مباع' : 'محول'}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+        {/* ===== نتيجة: سيريال ===== */}
+        {unifiedResult?.type === 'serial' && (() => {
+          const serial = unifiedResult.data as SerialItem;
+          const { purchase, sale, noonOrder } = getSerialHistory(serial);
+          const saleItem = sale?.items.find(i => i.productId === serial.productId || i.serials?.some(s => s.serial === serial.serial));
+          const salePrice = saleItem?.unitPrice ?? 0;
+          const profit = sale ? salePrice - serial.costPrice
+            : noonOrder?.settledAmount ? (noonOrder.settledAmount / Math.max(noonOrder.items.length, 1)) - serial.costPrice
+            : null;
+          const customer = sale ? customers?.find(c => c.id === sale.customerId) : null;
 
-            {serialSearch.trim() && (
-              <div>
-                {trackedSerial ? (() => {
-                  const { purchase, sale, noonOrder } = getSerialHistory(trackedSerial);
-                  const profit = sale
-                    ? (sale.items.find(i => i.productId === trackedSerial.productId)?.unitPrice ?? 0) - trackedSerial.costPrice
-                    : noonOrder?.settledAmount
-                    ? noonOrder.settledAmount / noonOrder.items.length - trackedSerial.costPrice
-                    : null;
-
-                  return (
-                    <div className="bg-[#12122a] border border-violet-900/40 rounded-xl p-4 space-y-3">
-                      <div className="flex items-center gap-2 pb-2 border-b border-white/10 flex-wrap">
-                        <span className="text-white font-bold">{trackedSerial.productName}</span>
-                        <span className="font-mono text-violet-400 text-sm bg-violet-900/30 px-2 py-0.5 rounded">
-                          {trackedSerial.serial}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ml-auto ${
-                          trackedSerial.status === 'available' ? 'bg-green-900/40 text-green-400' :
-                          trackedSerial.status === 'sold' ? 'bg-purple-900/40 text-purple-400' :
-                          trackedSerial.status === 'transferred' ? 'bg-blue-900/40 text-blue-400' :
-                          'bg-gray-900/40 text-gray-400'
-                        }`}>
-                          {trackedSerial.status === 'available' ? '✅ متاح' :
-                           trackedSerial.status === 'sold' ? '🛒 مباع' :
-                           trackedSerial.status === 'transferred' ? '📦 محول' : '↩️ مرتجع'}
-                        </span>
-                      </div>
-
-                      {(trackedSerial.imei1 || trackedSerial.imei2) && (
-                        <div className="flex gap-4 text-xs text-gray-400 font-mono">
-                          {trackedSerial.imei1 && <span>IMEI1: {trackedSerial.imei1}</span>}
-                          {trackedSerial.imei2 && <span>IMEI2: {trackedSerial.imei2}</span>}
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 space-y-1.5">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-blue-400 font-bold text-sm">📦 الشراء</div>
-                            {purchase && (
-                              <button
-                                onClick={() => setViewPurchaseInvoice(purchase)}
-                                className="text-xs text-blue-300 hover:text-blue-200 flex items-center gap-1 bg-blue-900/30 px-2 py-0.5 rounded-lg">
-                                <Eye size={11} /> فتح الفاتورة
-                              </button>
-                            )}
-                          </div>
-                          {purchase ? (
-                            <>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">المورد</span>
-                                <span className="text-white">{purchase.supplierName}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">الفاتورة</span>
-                                <span className="text-violet-300 font-mono">{purchase.invoiceNumber}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">التاريخ</span>
-                                <span className="text-gray-300">{purchase.date}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">سعر الشراء</span>
-                                <span className="text-blue-300 font-bold">{formatCurrency(trackedSerial.costPrice)}</span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-gray-500 text-sm">لا توجد بيانات شراء</div>
-                          )}
-                        </div>
-
-                        <div className={`border rounded-xl p-3 space-y-1.5 ${
-                          noonOrder ? 'bg-orange-900/20 border-orange-700/30' : 'bg-green-900/20 border-green-700/30'
-                        }`}>
-                          <div className="flex items-center justify-between mb-2">
-                            <div className={`font-bold text-sm ${noonOrder ? 'text-orange-400' : 'text-green-400'}`}>
-                              {noonOrder ? '🛍️ نون / أمازون' : '🛒 البيع'}
-                            </div>
-                            {sale && (
-                              <button
-                                onClick={() => setViewSaleInvoice(sale)}
-                                className="text-xs text-green-300 hover:text-green-200 flex items-center gap-1 bg-green-900/30 px-2 py-0.5 rounded-lg">
-                                <Eye size={11} /> فتح الفاتورة
-                              </button>
-                            )}
-                            {noonOrder && (
-                              <button
-                                onClick={() => setViewNoonOrder(noonOrder)}
-                                className="text-xs text-orange-300 hover:text-orange-200 flex items-center gap-1 bg-orange-900/30 px-2 py-0.5 rounded-lg">
-                                <Eye size={11} /> فتح الأوردر
-                              </button>
-                            )}
-                          </div>
-
-                          {sale && (
-                            <>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">العميل</span>
-                                <span className="text-white">{sale.customerName}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">الفاتورة</span>
-                                <span className="text-violet-300 font-mono">{sale.invoiceNumber}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">التاريخ</span>
-                                <span className="text-gray-300">{sale.date}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">سعر البيع</span>
-                                <span className="text-green-300 font-bold">
-                                  {formatCurrency(sale.items.find(i => i.productId === trackedSerial.productId)?.unitPrice ?? 0)}
-                                </span>
-                              </div>
-                            </>
-                          )}
-
-                          {noonOrder && (
-                            <>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">المنصة</span>
-                                <span className="text-white capitalize">{noonOrder.platform}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">رقم الأوردر</span>
-                                <span className="text-orange-300 font-mono text-xs">{noonOrder.orderNumber}</span>
-                              </div>
-                              {noonOrder.shipmentNumber && (
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-gray-400">رقم الشحنة</span>
-                                  <span className="text-orange-300 font-mono text-xs">{noonOrder.shipmentNumber}</span>
-                                </div>
-                              )}
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">التاريخ</span>
-                                <span className="text-gray-300">{noonOrder.date}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">الحالة</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                  noonOrder.status === 'settled' ? 'bg-green-900/40 text-green-400' :
-                                  noonOrder.status === 'delivered' ? 'bg-blue-900/40 text-blue-400' :
-                                  'bg-yellow-900/40 text-yellow-400'
-                                }`}>
-                                  {noonOrder.status === 'settled' ? 'محول بنكياً' :
-                                   noonOrder.status === 'delivered' ? 'مسلّم' :
-                                   noonOrder.status === 'shipped' ? 'شحن' : 'قيد الانتظار'}
-                                </span>
-                              </div>
-                              {noonOrder.settledAmount && (
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-gray-400">المبلغ المحول</span>
-                                  <span className="text-green-300 font-bold">{formatCurrency(noonOrder.settledAmount)}</span>
-                                </div>
-                              )}
-                            </>
-                          )}
-
-                          {!sale && !noonOrder && (
-                            <div className="text-gray-500 text-sm">لم يُباع بعد</div>
-                          )}
-                        </div>
-                      </div>
-
-                      {profit !== null && profit !== undefined && (
-                        <div className={`flex items-center justify-between p-3 rounded-xl border ${
-                          profit >= 0 ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'
-                        }`}>
-                          <span className="text-gray-400 text-sm">💰 الربح</span>
-                          <span className={`font-black text-lg ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {profit >= 0 ? '+' : ''}{formatCurrency(profit)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })() : (
-                  serialSuggestions.length > 1 ? (
-                    <div className="bg-[#12122a] border border-violet-900/30 rounded-xl p-3 text-center text-violet-400 text-sm">
-                      وجدنا {serialSuggestions.length} نتيجة - اختر من القائمة أعلاه
-                    </div>
-                  ) : (
-                    <div className="bg-[#12122a] border border-red-900/30 rounded-xl p-4 text-center text-red-400 text-sm">
-                      ❌ لم يتم العثور على سيريال يحتوي على: <span className="font-mono">{serialSearch}</span>
-                    </div>
-                  )
-                )}
+          const printSerialReport = () => {
+            printElement(`
+              <div style="font-family:Arial,sans-serif;direction:rtl;padding:20px">
+                <h2 style="text-align:center;margin-bottom:4px">ONE — تقرير تتبع الجهاز</h2>
+                <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ الطباعة: ${getTodayStr()}</p>
+                <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                  <tr style="background:#f3f4f6"><td colspan="2" style="padding:8px;font-weight:bold">بيانات الجهاز</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">المنتج</td><td style="padding:6px;border:1px solid #eee">${serial.productName}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">السيريال</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${serial.serial}</td></tr>
+                  ${serial.imei1 ? `<tr><td style="padding:6px;border:1px solid #eee;color:#666">IMEI 1</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${serial.imei1}</td></tr>` : ''}
+                  ${serial.imei2 ? `<tr><td style="padding:6px;border:1px solid #eee;color:#666">IMEI 2</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${serial.imei2}</td></tr>` : ''}
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">الحالة</td><td style="padding:6px;border:1px solid #eee">${serial.status === 'available' ? '✅ متاح' : serial.status === 'sold' ? '🛒 مباع' : serial.status === 'transferred' ? '📦 محوّل' : '↩️ مرتجع'}</td></tr>
+                </table>
+                ${purchase ? `
+                <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                  <tr style="background:#eff6ff"><td colspan="2" style="padding:8px;font-weight:bold;color:#1d4ed8">📦 بيانات الشراء</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">المورد</td><td style="padding:6px;border:1px solid #eee">${purchase.supplierName}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">رقم الفاتورة</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${purchase.invoiceNumber}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">التاريخ</td><td style="padding:6px;border:1px solid #eee">${purchase.date}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">سعر الشراء</td><td style="padding:6px;border:1px solid #eee;font-weight:bold">${formatCurrency(serial.costPrice)}</td></tr>
+                </table>` : ''}
+                ${sale ? `
+                <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                  <tr style="background:#f0fdf4"><td colspan="2" style="padding:8px;font-weight:bold;color:#166534">🛒 بيانات البيع</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">العميل</td><td style="padding:6px;border:1px solid #eee">${sale.customerName}</td></tr>
+                  ${customer?.phone ? `<tr><td style="padding:6px;border:1px solid #eee;color:#666">التليفون</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${customer.phone}</td></tr>` : ''}
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">رقم الفاتورة</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${sale.invoiceNumber}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">التاريخ</td><td style="padding:6px;border:1px solid #eee">${sale.date}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">سعر البيع</td><td style="padding:6px;border:1px solid #eee;font-weight:bold">${formatCurrency(salePrice)}</td></tr>
+                  ${profit !== null ? `<tr style="background:#f0fdf4"><td style="padding:6px;border:1px solid #eee;color:#666">الربح</td><td style="padding:6px;border:1px solid #eee;font-weight:bold;color:${profit >= 0 ? '#16a34a' : '#dc2626'}">${profit >= 0 ? '+' : ''}${formatCurrency(profit)}</td></tr>` : ''}
+                </table>` : ''}
+                ${noonOrder ? `
+                <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                  <tr style="background:#fff7ed"><td colspan="2" style="padding:8px;font-weight:bold;color:#c2410c">🛍️ بيانات نون/أمازون</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">المنصة</td><td style="padding:6px;border:1px solid #eee">${noonOrder.platform}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">رقم الأوردر</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${noonOrder.orderNumber}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">التاريخ</td><td style="padding:6px;border:1px solid #eee">${noonOrder.date}</td></tr>
+                </table>` : ''}
               </div>
-            )}
-          </div>
-        )}
+            `);
+          };
 
-        {/* ===== بحث بالمنتج ===== */}
-        {trackTab === 'product' && (
-          <div className="space-y-3">
-            <div className="relative">
-              <input
-                type="text"
-                value={productTrackSearch}
-                onChange={e => {
-                  setProductTrackSearch(e.target.value);
-                  setProductTrackId('');
-                  setShowProductSuggestions(true);
-                }}
-                onFocus={() => setShowProductSuggestions(true)}
-                placeholder="اكتب اسم المنتج أو SKU..."
-                className="input-dark w-full"
-              />
-              {showProductSuggestions && productSuggestions.length > 0 && (
-                <div className="absolute top-full right-0 left-0 z-50 bg-[#1a1a35] border border-violet-700/40 rounded-xl mt-1 shadow-xl overflow-hidden">
-                  {productSuggestions.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setProductTrackId(p.id);
-                        setProductTrackSearch(p.name);
-                        setShowProductSuggestions(false);
-                      }}
-                      className="w-full text-right px-4 py-2.5 hover:bg-violet-900/30 text-sm border-b border-white/5 last:border-0"
-                    >
-                      <span className="text-white">{p.name}</span>
-                      <span className="text-gray-500 text-xs mr-2">{p.sku}</span>
-                    </button>
-                  ))}
+          return (
+            <div className="space-y-3">
+              {/* Header */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-white font-bold">{serial.productName}</span>
+                  <span className="font-mono text-violet-400 text-sm bg-violet-900/30 px-2 py-0.5 rounded">{serial.serial}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    serial.status === 'available' ? 'bg-green-900/40 text-green-400' :
+                    serial.status === 'sold' ? 'bg-purple-900/40 text-purple-400' :
+                    serial.status === 'transferred' ? 'bg-blue-900/40 text-blue-400' :
+                    'bg-gray-900/40 text-gray-400'
+                  }`}>
+                    {serial.status === 'available' ? '✅ متاح' : serial.status === 'sold' ? '🛒 مباع' :
+                     serial.status === 'transferred' ? '📦 محوّل' : '↩️ مرتجع'}
+                  </span>
+                  {serial.purchasePricePending && (
+                    <span className="text-xs bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full">⏳ سعر معلّق</span>
+                  )}
+                </div>
+                <button onClick={printSerialReport} className="btn-secondary text-xs flex items-center gap-1">
+                  <Printer size={13} /> طباعة التقرير
+                </button>
+              </div>
+
+              {(serial.imei1 || serial.imei2) && (
+                <div className="flex gap-4 text-xs text-gray-400 font-mono bg-[#12122a] px-3 py-2 rounded-xl">
+                  {serial.imei1 && <span>IMEI1: <span className="text-gray-300">{serial.imei1}</span></span>}
+                  {serial.imei2 && <span>IMEI2: <span className="text-gray-300">{serial.imei2}</span></span>}
                 </div>
               )}
-            </div>
 
-            {selectedProduct && (() => {
-              const { purchases, sales, noon } = getProductHistory(selectedProduct.id);
-              const totalPurchased = purchases.reduce((sum, inv) =>
-                sum + inv.items.filter(i => i.productId === selectedProduct.id).reduce((s, i) => s + i.quantity, 0), 0);
-              const totalSold = sales.reduce((sum, inv) =>
-                sum + inv.items.filter(i => i.productId === selectedProduct.id).reduce((s, i) => s + i.quantity, 0), 0);
-              const totalNoon = noon.reduce((sum, o) =>
-                sum + o.items.filter(i => i.productId === selectedProduct.id).length, 0);
+              {/* Timeline مرئي */}
+              <div className="relative pr-6">
+                {/* خط عمودي */}
+                <div className="absolute right-2.5 top-4 bottom-4 w-0.5 bg-violet-900/50" />
 
-              return (
-                <div className="space-y-3">
-                  <div className="bg-[#12122a] border border-violet-900/40 rounded-xl p-4">
-                    <div className="font-bold text-white mb-3">{selectedProduct.name}</div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="text-center bg-blue-900/20 rounded-xl p-2">
-                        <div className="text-blue-400 font-black text-xl">{totalPurchased}</div>
-                        <div className="text-xs text-gray-500">إجمالي الشراء</div>
+                {/* حدث الشراء */}
+                <div className="relative mb-4">
+                  <div className="absolute right-0 top-1 w-5 h-5 rounded-full bg-blue-700 border-2 border-[#1a1a35] flex items-center justify-center -translate-x-0.5">
+                    <span className="text-[9px]">📦</span>
+                  </div>
+                  <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 mr-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-blue-400 font-bold text-sm">الشراء</div>
+                      {purchase && (
+                        <button onClick={() => setViewPurchaseInvoice(purchase)}
+                          className="text-xs text-blue-300 flex items-center gap-1 bg-blue-900/30 px-2 py-0.5 rounded-lg">
+                          <Eye size={11} /> {purchase.invoiceNumber}
+                        </button>
+                      )}
+                    </div>
+                    {purchase ? (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <div className="text-gray-400">المورد</div><div className="text-white">{purchase.supplierName}</div>
+                        <div className="text-gray-400">التاريخ</div><div className="text-gray-300">{purchase.date}</div>
+                        <div className="text-gray-400">سعر الشراء</div>
+                        <div className="text-blue-300 font-bold">
+                          {serial.purchasePricePending ? <span className="text-yellow-400">معلّق ⏳</span> : formatCurrency(serial.costPrice)}
+                        </div>
                       </div>
-                      <div className="text-center bg-green-900/20 rounded-xl p-2">
-                        <div className="text-green-400 font-black text-xl">{totalSold + totalNoon}</div>
-                        <div className="text-xs text-gray-500">إجمالي المبيعات</div>
+                    ) : (
+                      <div className="text-gray-500 text-sm flex items-center gap-2">
+                        <span className="text-red-400">⚠️</span> لا توجد فاتورة شراء مسجّلة لهذا السيريال
                       </div>
-                      <div className="text-center bg-violet-900/20 rounded-xl p-2">
-                        <div className="text-violet-400 font-black text-xl">{getRealStock(selectedProduct)}</div>
-                        <div className="text-xs text-gray-500">المخزون الحالي</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* حالة المخزون */}
+                {serial.status === 'available' && (
+                  <div className="relative mb-4">
+                    <div className="absolute right-0 top-1 w-5 h-5 rounded-full bg-green-700 border-2 border-[#1a1a35] flex items-center justify-center -translate-x-0.5">
+                      <span className="text-[9px]">✅</span>
+                    </div>
+                    <div className="bg-green-900/10 border border-green-700/20 rounded-xl p-3 mr-6">
+                      <div className="text-green-400 text-sm font-medium">متاح في المخزون حالياً</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* حدث البيع (فاتورة مباشرة) */}
+                {sale && (
+                  <div className="relative mb-4">
+                    <div className="absolute right-0 top-1 w-5 h-5 rounded-full bg-green-600 border-2 border-[#1a1a35] flex items-center justify-center -translate-x-0.5">
+                      <span className="text-[9px]">🛒</span>
+                    </div>
+                    <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 mr-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-green-400 font-bold text-sm">البيع — فاتورة مباشرة</div>
+                        <button onClick={() => setViewSaleInvoice(sale)}
+                          className="text-xs text-green-300 flex items-center gap-1 bg-green-900/30 px-2 py-0.5 rounded-lg">
+                          <Eye size={11} /> {sale.invoiceNumber}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <div className="text-gray-400">العميل</div>
+                        <div className="text-white font-medium">{sale.customerName}</div>
+                        {customer?.phone && (
+                          <><div className="text-gray-400">التليفون</div>
+                          <div className="text-gray-300 font-mono">{customer.phone}</div></>
+                        )}
+                        {customer?.address && (
+                          <><div className="text-gray-400">العنوان</div>
+                          <div className="text-gray-300 text-xs">{customer.address}</div></>
+                        )}
+                        <div className="text-gray-400">التاريخ</div><div className="text-gray-300">{sale.date}</div>
+                        <div className="text-gray-400">سعر البيع</div><div className="text-green-300 font-bold">{formatCurrency(salePrice)}</div>
                       </div>
                     </div>
                   </div>
+                )}
 
-                  {purchases.length > 0 && (
-                    <div className="bg-[#12122a] border border-blue-900/30 rounded-xl p-3">
-                      <div className="text-blue-400 font-bold text-sm mb-2">📦 فواتير الشراء ({purchases.length})</div>
-                      <div className="space-y-2">
-                        {purchases.map(inv => {
-                          const item = inv.items.find(i => i.productId === selectedProduct.id)!;
-                          return (
-                            <div key={inv.id} className="bg-blue-900/10 rounded-lg px-3 py-2">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <span className="text-violet-300 font-mono text-sm">{inv.invoiceNumber}</span>
-                                  <span className="text-gray-500 text-xs mr-2">{inv.date}</span>
-                                  <span className="text-gray-400 text-xs mr-2">{inv.supplierName}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-blue-300 text-sm">×{item.quantity} @ {formatCurrency(item.unitPrice)}</span>
-                                  <button onClick={() => setViewPurchaseInvoice(inv)}
-                                    className="p-1 rounded-lg text-blue-400 hover:bg-blue-900/30">
-                                    <Eye size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
+                {/* حدث نون/أمازون */}
+                {noonOrder && (
+                  <div className="relative mb-4">
+                    <div className="absolute right-0 top-1 w-5 h-5 rounded-full bg-orange-600 border-2 border-[#1a1a35] flex items-center justify-center -translate-x-0.5">
+                      <span className="text-[9px]">🛍️</span>
+                    </div>
+                    <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-3 mr-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-orange-400 font-bold text-sm capitalize">البيع — {noonOrder.platform}</div>
+                        <button onClick={() => setViewNoonOrder(noonOrder)}
+                          className="text-xs text-orange-300 flex items-center gap-1 bg-orange-900/30 px-2 py-0.5 rounded-lg">
+                          <Eye size={11} /> {noonOrder.orderNumber}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <div className="text-gray-400">التاريخ</div><div className="text-gray-300">{noonOrder.date}</div>
+                        {noonOrder.shipmentNumber && (
+                          <><div className="text-gray-400">الشحنة</div><div className="font-mono text-orange-300 text-xs">{noonOrder.shipmentNumber}</div></>
+                        )}
+                        <div className="text-gray-400">الحالة</div>
+                        <div className={`text-xs px-2 py-0.5 rounded-full w-fit ${
+                          noonOrder.status === 'settled' ? 'bg-green-900/40 text-green-400' :
+                          noonOrder.status === 'delivered' ? 'bg-blue-900/40 text-blue-400' :
+                          'bg-yellow-900/40 text-yellow-400'
+                        }`}>
+                          {noonOrder.status === 'settled' ? 'محوّل بنكياً' : noonOrder.status === 'delivered' ? 'مسلّم' : 'قيد التنفيذ'}
+                        </div>
+                        {noonOrder.settledAmount && (
+                          <><div className="text-gray-400">المبلغ المحوّل</div><div className="text-green-300 font-bold">{formatCurrency(noonOrder.settledAmount)}</div></>
+                        )}
                       </div>
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  {sales.length > 0 && (
-                    <div className="bg-[#12122a] border border-green-900/30 rounded-xl p-3">
-                      <div className="text-green-400 font-bold text-sm mb-2">🛒 فواتير البيع ({sales.length})</div>
-                      <div className="space-y-2">
-                        {sales.map(inv => {
-                          const item = inv.items.find(i => i.productId === selectedProduct.id)!;
-                          return (
-                            <div key={inv.id} className="bg-green-900/10 rounded-lg px-3 py-2">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <span className="text-violet-300 font-mono text-sm">{inv.invoiceNumber}</span>
-                                  <span className="text-gray-500 text-xs mr-2">{inv.date}</span>
-                                  <span className="text-gray-400 text-xs mr-2">{inv.customerName}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-green-300 text-sm">×{item.quantity} @ {formatCurrency(item.unitPrice)}</span>
-                                  <button onClick={() => setViewSaleInvoice(inv)}
-                                    className="p-1 rounded-lg text-green-400 hover:bg-green-900/30">
-                                    <Eye size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                {/* الربح */}
+                {profit !== null && !serial.purchasePricePending && (
+                  <div className="relative">
+                    <div className={`absolute right-0 top-1 w-5 h-5 rounded-full border-2 border-[#1a1a35] flex items-center justify-center -translate-x-0.5 ${profit >= 0 ? 'bg-green-600' : 'bg-red-600'}`}>
+                      <span className="text-[9px]">💰</span>
                     </div>
-                  )}
+                    <div className={`border rounded-xl p-3 mr-6 flex items-center justify-between ${profit >= 0 ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'}`}>
+                      <span className="text-gray-400 text-sm">الربح الصافي</span>
+                      <span className={`font-black text-xl ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {profit >= 0 ? '+' : ''}{formatCurrency(profit)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
-                  {noon.length > 0 && (
-                    <div className="bg-[#12122a] border border-orange-900/30 rounded-xl p-3">
-                      <div className="text-orange-400 font-bold text-sm mb-2">🛍️ أوردرات نون/أمازون ({noon.length})</div>
-                      <div className="space-y-2">
-                        {noon.map(order => (
-                          <div key={order.id} className="bg-orange-900/10 rounded-lg px-3 py-2">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className="text-orange-300 font-mono text-sm">{order.orderNumber}</span>
-                                <span className="text-gray-500 text-xs mr-2">{order.date}</span>
-                                <span className="capitalize text-gray-400 text-xs mr-2">{order.platform}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                  order.status === 'settled' ? 'bg-green-900/40 text-green-400' :
-                                  order.status === 'delivered' ? 'bg-blue-900/40 text-blue-400' :
-                                  'bg-yellow-900/40 text-yellow-400'
-                                }`}>
-                                  {order.status === 'settled' ? 'محول' :
-                                   order.status === 'delivered' ? 'مسلّم' : 'قيد التنفيذ'}
-                                </span>
-                                <button onClick={() => setViewNoonOrder(order)}
-                                  className="p-1 rounded-lg text-orange-400 hover:bg-orange-900/30">
-                                  <Eye size={13} />
-                                </button>
-                              </div>
+        {/* ===== نتيجة: منتج ===== */}
+        {unifiedResult?.type === 'product' && (() => {
+          const product = unifiedResult.data as Product;
+          const { purchases, sales, noon } = getProductHistory(product.id);
+          const productSerials = serials.filter(s => s.productId === product.id);
+          const availableCount = productSerials.filter(s => s.status === 'available').length;
+          const soldCount = productSerials.filter(s => s.status === 'sold').length;
+          const transferredCount = productSerials.filter(s => s.status === 'transferred').length;
+          const pendingCount = productSerials.filter(s => s.purchasePricePending).length;
+
+          const totalRevenue = sales.reduce((sum, inv) => {
+            const item = inv.items.find(i => i.productId === product.id);
+            return sum + (item ? item.unitPrice * item.quantity : 0);
+          }, 0);
+          const totalCost = productSerials.filter(s => s.status !== 'available').reduce((sum, s) => sum + (s.costPrice || 0), 0);
+
+          // كشف الفجوات: سيريالات بدون فاتورة شراء أو بدون فاتورة بيع رغم انها "مباعة"
+          const gapSerials = productSerials.filter(s =>
+            !s.purchaseInvoiceId || (s.status === 'sold' && !s.saleInvoiceId) || (s.status === 'transferred' && !s.noonOrderId)
+          );
+
+          return (
+            <div className="space-y-3">
+              {/* Header */}
+              <div className="bg-[#12122a] border border-violet-900/40 rounded-xl p-4">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                  <div>
+                    <div className="font-bold text-white text-base">{product.name}</div>
+                    <div className="text-xs text-gray-500">{product.sku} • {product.brand}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-green-900/20 rounded-xl p-2">
+                    <div className="text-green-400 font-black text-lg">{availableCount}</div>
+                    <div className="text-xs text-gray-500">متاح</div>
+                  </div>
+                  <div className="bg-purple-900/20 rounded-xl p-2">
+                    <div className="text-purple-400 font-black text-lg">{soldCount}</div>
+                    <div className="text-xs text-gray-500">مباع</div>
+                  </div>
+                  <div className="bg-blue-900/20 rounded-xl p-2">
+                    <div className="text-blue-400 font-black text-lg">{transferredCount}</div>
+                    <div className="text-xs text-gray-500">محوّل</div>
+                  </div>
+                  <div className="bg-yellow-900/20 rounded-xl p-2">
+                    <div className="text-yellow-400 font-black text-lg">{pendingCount}</div>
+                    <div className="text-xs text-gray-500">سعر معلّق</div>
+                  </div>
+                </div>
+                {(soldCount + transferredCount) > 0 && (
+                  <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/10">
+                    <span className="text-gray-400 text-sm">إجمالي الربح المحقق</span>
+                    <span className={`font-black text-lg ${totalRevenue - totalCost >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatCurrency(totalRevenue - totalCost)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* كشف الفجوات */}
+              {gapSerials.length > 0 && (
+                <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3">
+                  <div className="text-red-400 font-bold text-sm mb-2">⚠️ فجوات مكتشفة ({gapSerials.length})</div>
+                  <div className="space-y-1">
+                    {gapSerials.map(s => (
+                      <div key={s.id} className="text-xs bg-red-900/20 rounded-lg px-3 py-1.5 flex items-center justify-between">
+                        <span className="font-mono text-red-300">{s.serial}</span>
+                        <span className="text-red-400">
+                          {!s.purchaseInvoiceId ? 'بدون فاتورة شراء' :
+                           s.status === 'sold' && !s.saleInvoiceId ? 'مباع بدون فاتورة بيع' :
+                           s.status === 'transferred' && !s.noonOrderId ? 'محوّل بدون أوردر' : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* كل السيريالات */}
+              {productSerials.length > 0 && (
+                <div className="bg-[#12122a] border border-violet-900/30 rounded-xl p-3">
+                  <div className="text-violet-300 font-bold text-sm mb-2">📋 كل السيريالات ({productSerials.length})</div>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {productSerials.map(s => {
+                      const sPurchase = s.purchaseInvoiceId ? purchaseInvoices.find(i => i.id === s.purchaseInvoiceId) : null;
+                      const sSale = s.saleInvoiceId ? saleInvoices.find(i => i.id === s.saleInvoiceId) : null;
+                      const sNoon = s.noonOrderId ? noonOrders.find(o => o.id === s.noonOrderId) : null;
+                      return (
+                        <button key={s.id}
+                          onClick={() => { setUnifiedResult({ type: 'serial', data: s, title: s.serial, searchLabel: s.serial, subtitle: s.productName, typeLabel: 'سيريال' }); setUnifiedSearch(s.serial); }}
+                          className="w-full text-right bg-[#1a1a35] hover:bg-violet-900/20 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            s.status === 'available' ? 'bg-green-400' :
+                            s.status === 'sold' ? 'bg-purple-400' :
+                            s.status === 'transferred' ? 'bg-blue-400' : 'bg-gray-400'
+                          }`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-mono text-sm text-white">{s.serial}</div>
+                            <div className="text-xs text-gray-500 truncate">
+                              {sPurchase ? `شراء: ${sPurchase.supplierName} ${sPurchase.date}` : '⚠️ بدون شراء'}
+                              {sSale ? ` ← بيع: ${sSale.customerName}` : sNoon ? ` ← ${sNoon.platform}: ${sNoon.orderNumber}` : ''}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {purchases.length === 0 && sales.length === 0 && noon.length === 0 && (
-                    <div className="text-center text-gray-500 text-sm py-4">لا توجد حركات لهذا المنتج</div>
-                  )}
+                          <div className="text-xs text-gray-600">
+                            {s.purchasePricePending ? '⏳' : formatCurrency(s.costPrice)}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              );
-            })()}
+              )}
+
+              {/* حركة فواتير الشراء */}
+              {purchases.length > 0 && (
+                <div className="bg-[#12122a] border border-blue-900/30 rounded-xl p-3">
+                  <div className="text-blue-400 font-bold text-sm mb-2">📦 فواتير الشراء ({purchases.length})</div>
+                  <div className="space-y-1.5">
+                    {purchases.map(inv => {
+                      const item = inv.items.find(i => i.productId === product.id)!;
+                      return (
+                        <div key={inv.id} className="flex items-center justify-between bg-blue-900/10 rounded-lg px-3 py-2 text-sm">
+                          <div>
+                            <span className="text-violet-300 font-mono">{inv.invoiceNumber}</span>
+                            <span className="text-gray-500 text-xs mr-2">{inv.date}</span>
+                            <span className="text-gray-400 text-xs">{inv.supplierName}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-blue-300">×{item.quantity} @ {formatCurrency(item.unitPrice)}</span>
+                            <button onClick={() => setViewPurchaseInvoice(inv)} className="p-1 rounded text-blue-400 hover:bg-blue-900/30"><Eye size={13} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* حركة فواتير البيع */}
+              {sales.length > 0 && (
+                <div className="bg-[#12122a] border border-green-900/30 rounded-xl p-3">
+                  <div className="text-green-400 font-bold text-sm mb-2">🛒 فواتير البيع ({sales.length})</div>
+                  <div className="space-y-1.5">
+                    {sales.map(inv => {
+                      const item = inv.items.find(i => i.productId === product.id)!;
+                      return (
+                        <div key={inv.id} className="flex items-center justify-between bg-green-900/10 rounded-lg px-3 py-2 text-sm">
+                          <div>
+                            <span className="text-violet-300 font-mono">{inv.invoiceNumber}</span>
+                            <span className="text-gray-500 text-xs mr-2">{inv.date}</span>
+                            <span className="text-gray-400 text-xs">{inv.customerName}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-green-300">×{item.quantity} @ {formatCurrency(item.unitPrice)}</span>
+                            <button onClick={() => setViewSaleInvoice(inv)} className="p-1 rounded text-green-400 hover:bg-green-900/30"><Eye size={13} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* أوردرات نون/أمازون */}
+              {noon.length > 0 && (
+                <div className="bg-[#12122a] border border-orange-900/30 rounded-xl p-3">
+                  <div className="text-orange-400 font-bold text-sm mb-2">🛍️ أوردرات نون/أمازون ({noon.length})</div>
+                  <div className="space-y-1.5">
+                    {noon.map(order => (
+                      <div key={order.id} className="flex items-center justify-between bg-orange-900/10 rounded-lg px-3 py-2 text-sm">
+                        <div>
+                          <span className="text-orange-300 font-mono">{order.orderNumber}</span>
+                          <span className="text-gray-500 text-xs mr-2">{order.date}</span>
+                          <span className="capitalize text-gray-400 text-xs">{order.platform}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${order.status === 'settled' ? 'bg-green-900/40 text-green-400' : order.status === 'delivered' ? 'bg-blue-900/40 text-blue-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
+                            {order.status === 'settled' ? 'محوّل' : order.status === 'delivered' ? 'مسلّم' : 'جاري'}
+                          </span>
+                          <button onClick={() => setViewNoonOrder(order)} className="p-1 rounded text-orange-400 hover:bg-orange-900/30"><Eye size={13} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ===== نتيجة: فاتورة بيع ===== */}
+        {unifiedResult?.type === 'saleInvoice' && (() => {
+          const inv = unifiedResult.data as SaleInvoice;
+          const customer = customers?.find(c => c.id === inv.customerId);
+          return (
+            <div className="bg-[#12122a] border border-green-900/40 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-white">{inv.invoiceNumber}</div>
+                  <div className="text-gray-400 text-sm">{inv.customerName} • {inv.date}</div>
+                  {customer?.phone && <div className="text-gray-500 text-xs font-mono">{customer.phone}</div>}
+                </div>
+                <button onClick={() => setViewSaleInvoice(inv)} className="btn-secondary text-xs flex items-center gap-1"><Eye size={13} /> فتح الفاتورة</button>
+              </div>
+              <div className="space-y-2">
+                {inv.items.map(item => {
+                  const itemSerials = item.serials?.map(sl => serials.find(s => s.serial === sl.serial)).filter(Boolean) as SerialItem[];
+                  return (
+                    <div key={item.id} className="bg-[#1a1a35] rounded-lg px-3 py-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-white">{item.productName}</span>
+                        <span className="text-green-300">{formatCurrency(item.unitPrice)} × {item.quantity}</span>
+                      </div>
+                      {itemSerials.map(s => s && (
+                        <button key={s.id} onClick={() => { setUnifiedResult({ type: 'serial', data: s, title: s.serial, searchLabel: s.serial, subtitle: s.productName, typeLabel: 'سيريال' }); setUnifiedSearch(s.serial); }}
+                          className="text-xs font-mono text-violet-400 hover:text-violet-300 hover:underline mr-2">
+                          {s.serial}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ===== نتيجة: فاتورة شراء ===== */}
+        {unifiedResult?.type === 'purchaseInvoice' && (() => {
+          const inv = unifiedResult.data as PurchaseInvoice;
+          return (
+            <div className="bg-[#12122a] border border-blue-900/40 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-white">{inv.invoiceNumber}</div>
+                  <div className="text-gray-400 text-sm">{inv.supplierName} • {inv.date}</div>
+                </div>
+                <button onClick={() => setViewPurchaseInvoice(inv)} className="btn-secondary text-xs flex items-center gap-1"><Eye size={13} /> فتح الفاتورة</button>
+              </div>
+              <div className="space-y-2">
+                {inv.items.map(item => {
+                  const itemSerials = item.serials?.map(sl => serials.find(s => s.serial === sl.serial)).filter(Boolean) as SerialItem[];
+                  return (
+                    <div key={item.id} className="bg-[#1a1a35] rounded-lg px-3 py-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-white">{item.productName}</span>
+                        <span className="text-blue-300">{formatCurrency(item.unitPrice)} × {item.quantity}</span>
+                      </div>
+                      {itemSerials.map(s => s && (
+                        <button key={s.id} onClick={() => { setUnifiedResult({ type: 'serial', data: s, title: s.serial, searchLabel: s.serial, subtitle: s.productName, typeLabel: 'سيريال' }); setUnifiedSearch(s.serial); }}
+                          className="text-xs font-mono text-violet-400 hover:text-violet-300 hover:underline mr-2">
+                          {s.serial}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ===== لا توجد نتائج ===== */}
+        {unifiedSearch.trim() && !showUnifiedSuggestions && !unifiedResult && unifiedSuggestions.length === 0 && (
+          <div className="bg-[#12122a] border border-red-900/30 rounded-xl p-4 text-center text-red-400 text-sm">
+            ❌ لم يتم العثور على نتيجة لـ: <span className="font-mono">{unifiedSearch}</span>
           </div>
         )}
       </div>

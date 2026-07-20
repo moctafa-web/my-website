@@ -159,6 +159,7 @@ export default function App() {
             saleInvoices={state.saleInvoices}
             purchaseInvoices={state.purchaseInvoices}
             noonOrders={state.noonOrders}
+            customers={state.customers}
             onUpdateProduct={store.updateProduct}
           />
         );
