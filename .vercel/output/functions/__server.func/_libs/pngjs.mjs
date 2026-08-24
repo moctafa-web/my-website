@@ -1,4 +1,4 @@
-import { r as __require, t as __commonJSMin } from "../_runtime.mjs";
+import { i as __require, t as __commonJSMin } from "../_runtime.mjs";
 //#region node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var util$5 = __require("util");

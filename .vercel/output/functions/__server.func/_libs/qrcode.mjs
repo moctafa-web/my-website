@@ -1,4 +1,4 @@
-import { r as __require, t as __commonJSMin } from "../_runtime.mjs";
+import { i as __require, t as __commonJSMin } from "../_runtime.mjs";
 import { t as require_dijkstra } from "./dijkstrajs.mjs";
 import { t as require_png$1 } from "./pngjs.mjs";
 //#region node_modules/qrcode/lib/can-promise.js
