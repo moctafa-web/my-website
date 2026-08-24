@@ -14,6 +14,11 @@ export interface ScanFeedback {
   message: string;
 }
 
+export interface DetectedScan {
+  barcode: string;
+  format: string;
+}
+
 interface Props {
   title: string;
   // single: يقفل نفسه تلقائياً بعد أول قراءة ناجحة (مناسب لتحديد منتج واحد)
@@ -102,7 +107,7 @@ export default function BarcodeScanner({
     const scanner = scannerRef.current;
     if (!scanner) return;
     try {
-      const caps = scanner.getRunningTrackCapabilities();
+      const caps = scanner.getRunningTrackCapabilities() as any;
       if (caps.torchFeature && caps.torchFeature().isSupported()) {
         setTorchSupported(true);
       }
@@ -142,7 +147,7 @@ export default function BarcodeScanner({
     scanner
       .start(
         { facingMode: 'environment' },
-        { fps: 10, formatsToSupport: SUPPORTED_FORMATS },
+        { fps: 10, formatsToSupport: SUPPORTED_FORMATS } as any,
         (decodedText, result) => {
           const formatName =
             (result as any)?.result?.format?.formatName ||
@@ -173,7 +178,7 @@ export default function BarcodeScanner({
     const scanner = scannerRef.current;
     if (!scanner) return;
     try {
-      const caps = scanner.getRunningTrackCapabilities();
+      const caps = scanner.getRunningTrackCapabilities() as any;
       const torchFeature = caps.torchFeature();
       const next = !torchOn;
       await torchFeature.apply(next);
@@ -188,7 +193,7 @@ export default function BarcodeScanner({
     const scanner = scannerRef.current;
     if (!scanner) return;
     try {
-      const caps = scanner.getRunningTrackCapabilities();
+      const caps = scanner.getRunningTrackCapabilities() as any;
       const zoomFeature = caps.zoomFeature();
       if (zoomFeature.isSupported()) {
         await zoomFeature.apply(value);
@@ -201,7 +206,7 @@ export default function BarcodeScanner({
 
   return (
     <div className="fixed inset-0 z-[80] flex flex-col bg-black text-white">
-      <div className="flex items-center justify-between p-4 bg-[#1a1a35] border-b border-violet-900/40">
+      <div className="flex items-center justify-between p-4 bg-elevated border-b border-violet-900/40">
         <h3 className="text-base font-bold text-violet-300 flex items-center gap-2">
           <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse" />
           {title}
@@ -244,7 +249,7 @@ export default function BarcodeScanner({
         </p>
       </div>
 
-      <div className="p-4 bg-[#1a1a35] border-t border-violet-900/40 space-y-3">
+      <div className="p-4 bg-elevated border-t border-violet-900/40 space-y-3">
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-400">🔍−</span>
           <input

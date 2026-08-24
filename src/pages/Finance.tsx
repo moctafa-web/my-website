@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TreasuryTransaction, DailyClosing, Partner, ProfitDistribution, SaleInvoice, PurchaseInvoice, Expense, NoonOrder } from '../types';
-import { formatCurrency, formatDateTime, generateId } from '../utils/helpers';
-import { Plus, Edit, Trash2, X, Check, Users, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
+import { formatCurrency, formatDateTime, generateId, printElement, getTodayStr } from '../utils/helpers';
+import { Plus, Edit, Trash2, X, Check, Users, TrendingUp, ChevronDown, ChevronUp, Printer, Calendar } from 'lucide-react';
 
 interface Props {
   cashBalance: number;
@@ -57,6 +57,67 @@ export default function Finance({
   // ── حسابات الخزينة ──
   const cashTrans = transactions.filter(t => t.treasury === 'cash').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const bankTrans = transactions.filter(t => t.treasury === 'bank').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  // ── فلتر فترة زمنية لكشف حساب الخزينة (كاش/بنك) ──
+  const [treasuryDateFrom, setTreasuryDateFrom] = useState('');
+  const [treasuryDateTo, setTreasuryDateTo] = useState('');
+
+  // ✅ كشف حساب كامل بترتيب زمني تصاعدي + رصيد جاري، بيتحسب من الرصيد الحالي رجوعًا للخلف
+  // عشان نضمن إن الرصيد النهائي في الكشف يطابق الرصيد الفعلي المعروض فوق دايمًا
+  const getTreasuryStatement = (type: 'cash' | 'bank') => {
+    const allTrans = (type === 'cash' ? cashTrans : bankTrans)
+      .slice()
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const currentBalance = type === 'cash' ? cashBalance : bankBalance;
+    const totalDelta = allTrans.reduce((s, t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
+    const openingBalance = currentBalance - totalDelta;
+    let running = openingBalance;
+    const rows = allTrans.map(t => {
+      running += t.direction === 'in' ? t.amount : -t.amount;
+      return { ...t, runningBalance: running };
+    });
+    const filtered = (!treasuryDateFrom && !treasuryDateTo)
+      ? rows
+      : rows.filter(r => (!treasuryDateFrom || r.date >= treasuryDateFrom) && (!treasuryDateTo || r.date <= treasuryDateTo));
+    return { rows: filtered, openingBalance, currentBalance };
+  };
+
+  const printTreasuryStatement = (type: 'cash' | 'bank') => {
+    const { rows, openingBalance, currentBalance } = getTreasuryStatement(type);
+    const label = type === 'cash' ? 'خزنة الكاش' : 'خزنة البنك';
+    const periodLabel = (treasuryDateFrom || treasuryDateTo) ? `من ${treasuryDateFrom || '...'} إلى ${treasuryDateTo || getTodayStr()}` : `حتى تاريخ: ${getTodayStr()}`;
+    const openingForPeriod = (treasuryDateFrom || treasuryDateTo) ? (rows[0] ? rows[0].runningBalance - (rows[0].direction === 'in' ? rows[0].amount : -rows[0].amount) : openingBalance) : openingBalance;
+    const totalIn = rows.reduce((s, r) => s + (r.direction === 'in' ? r.amount : 0), 0);
+    const totalOut = rows.reduce((s, r) => s + (r.direction === 'out' ? r.amount : 0), 0);
+    const finalBalance = rows.length > 0 ? rows[rows.length - 1].runningBalance : currentBalance;
+
+    const bodyRows = rows.map(r => `
+      <tr>
+        <td>${r.date}</td>
+        <td>${r.description}</td>
+        <td style="text-align:center;color:#16a34a">${r.direction === 'in' ? r.amount.toLocaleString('ar-EG') : '-'}</td>
+        <td style="text-align:center;color:#dc2626">${r.direction === 'out' ? r.amount.toLocaleString('ar-EG') : '-'}</td>
+        <td style="text-align:center;font-weight:bold">${r.runningBalance.toLocaleString('ar-EG')}</td>
+      </tr>
+    `).join('');
+
+    printElement(`
+      <div class="header">
+        <div><div class="company-name">ONE</div></div>
+        <div class="invoice-info"><div><strong>كشف حساب ${label}</strong></div><div>${periodLabel}</div></div>
+      </div>
+      <p style="margin-bottom:10px;font-size:13px">الرصيد ${(treasuryDateFrom || treasuryDateTo) ? 'قبل الفترة المحددة' : 'الافتتاحي'}: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>
+      <table>
+        <thead><tr><th>التاريخ</th><th>البيان</th><th>دخول (إيداع)</th><th>خروج (سحب)</th><th>الرصيد الجاري</th></tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="5" style="text-align:center;color:#9ca3af">لا توجد حركات</td></tr>'}</tbody>
+      </table>
+      <div class="totals"><table>
+        <tr><td>إجمالي الدخول في الفترة</td><td>${totalIn.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>إجمالي الخروج في الفترة</td><td>${totalOut.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr class="total-row"><td>الرصيد ${(treasuryDateFrom || treasuryDateTo) ? 'في نهاية الفترة' : 'الحالي'}</td><td>${finalBalance.toLocaleString('ar-EG')} ج.م</td></tr>
+      </table></div>
+    `, `كشف حساب ${label}`);
+  };
 
   // ── حسابات الشركاء ──
   const activePartners = partners.filter(p => p.isActive);
@@ -272,17 +333,36 @@ export default function Finance({
       {/* ==================== تاب الخزينة ==================== */}
       {activeTab === 'treasury' && (
         <div>
-          <div className="flex gap-2 mb-4">
-            <button onClick={() => setTreasuryType('cash')}
-              className={`px-4 py-2 rounded-xl text-sm border transition-colors ${treasuryType === 'cash' ? 'bg-green-900/30 border-green-700/40 text-green-300' : 'border-white/10 text-gray-400'}`}>
-              💵 الكاش ({cashTrans.length})
-            </button>
-            <button onClick={() => setTreasuryType('bank')}
-              className={`px-4 py-2 rounded-xl text-sm border transition-colors ${treasuryType === 'bank' ? 'bg-blue-900/30 border-blue-700/40 text-blue-300' : 'border-white/10 text-gray-400'}`}>
-              🏦 البنك ({bankTrans.length})
+          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+            <div className="flex gap-2">
+              <button onClick={() => setTreasuryType('cash')}
+                className={`px-4 py-2 rounded-xl text-sm border transition-colors ${treasuryType === 'cash' ? 'bg-green-900/30 border-green-700/40 text-green-300' : 'border-white/10 text-gray-400'}`}>
+                💵 الكاش ({cashTrans.length})
+              </button>
+              <button onClick={() => setTreasuryType('bank')}
+                className={`px-4 py-2 rounded-xl text-sm border transition-colors ${treasuryType === 'bank' ? 'bg-blue-900/30 border-blue-700/40 text-blue-300' : 'border-white/10 text-gray-400'}`}>
+                🏦 البنك ({bankTrans.length})
+              </button>
+            </div>
+            <button onClick={() => printTreasuryStatement(treasuryType)}
+              className="btn-secondary text-sm flex items-center gap-1">
+              <Printer size={14} /> طباعة كشف حساب {treasuryType === 'cash' ? 'الكاش' : 'البنك'}
             </button>
           </div>
-          <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+
+          {/* فلتر فترة زمنية لكشف حساب الخزينة */}
+          <div className="bg-muted-bg rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1 text-violet-300 text-sm font-medium"><Calendar size={14} /> فترة محددة:</div>
+            <input type="date" value={treasuryDateFrom} onChange={e => setTreasuryDateFrom(e.target.value)} className="input-dark text-sm" placeholder="من تاريخ" />
+            <span className="text-gray-500 text-sm">إلى</span>
+            <input type="date" value={treasuryDateTo} onChange={e => setTreasuryDateTo(e.target.value)} className="input-dark text-sm" placeholder="إلى تاريخ" />
+            {(treasuryDateFrom || treasuryDateTo) && (
+              <button onClick={() => { setTreasuryDateFrom(''); setTreasuryDateTo(''); }} className="text-xs text-red-400 hover:underline">إلغاء الفلتر (عرض الكل)</button>
+            )}
+            <span className="text-xs text-gray-500 mr-auto">سيتم تطبيق هذه الفترة على العرض والطباعة معًا</span>
+          </div>
+
+          <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-violet-900/20">
                 <tr>
@@ -290,12 +370,13 @@ export default function Finance({
                   <th className="text-right py-3 px-4 text-gray-400 font-medium">البيان</th>
                   <th className="text-center py-3 px-4 text-gray-400 font-medium">النوع</th>
                   <th className="text-center py-3 px-4 text-gray-400 font-medium">المبلغ</th>
+                  <th className="text-center py-3 px-4 text-gray-400 font-medium">الرصيد الجاري</th>
                 </tr>
               </thead>
               <tbody>
-                {(treasuryType === 'cash' ? cashTrans : bankTrans).length === 0 ? (
-                  <tr><td colSpan={4} className="text-center py-12 text-gray-500">لا توجد حركات بعد</td></tr>
-                ) : (treasuryType === 'cash' ? cashTrans : bankTrans).map(t => (
+                {getTreasuryStatement(treasuryType).rows.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-12 text-gray-500">لا توجد حركات {(treasuryDateFrom || treasuryDateTo) ? 'في هذه الفترة' : 'بعد'}</td></tr>
+                ) : getTreasuryStatement(treasuryType).rows.slice().reverse().map(t => (
                   <tr key={t.id} className="border-t border-white/5 hover:bg-white/5">
                     <td className="py-3 px-4 text-gray-400 text-xs">{t.date}</td>
                     <td className="py-3 px-4 text-white">{t.description}</td>
@@ -307,6 +388,7 @@ export default function Finance({
                     <td className={`py-3 px-4 text-center font-bold ${t.direction === 'in' ? 'text-green-400' : 'text-red-400'}`}>
                       {t.direction === 'in' ? '+' : '-'}{formatCurrency(t.amount)}
                     </td>
+                    <td className="py-3 px-4 text-center font-medium text-white">{formatCurrency(t.runningBalance)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -315,9 +397,10 @@ export default function Finance({
         </div>
       )}
 
+
       {/* ==================== تاب التقفيلات ==================== */}
       {activeTab === 'closings' && (
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-violet-900/20">
               <tr>
@@ -393,7 +476,7 @@ export default function Finance({
 
           {/* قائمة الشركاء */}
           {partners.length === 0 ? (
-            <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-12 text-center">
+            <div className="bg-elevated border border-violet-900/30 rounded-2xl p-12 text-center">
               <div className="text-4xl mb-3">👥</div>
               <div className="text-gray-400">لا يوجد شركاء بعد</div>
               <div className="text-gray-600 text-sm mt-1">اضغط "إضافة شريك" لإضافة أول شريك</div>
@@ -404,7 +487,7 @@ export default function Finance({
                 const percent = totalCapital > 0 ? (partner.capitalAmount / totalCapital) * 100 : 0;
                 return (
                   <div key={partner.id}
-                    className={`bg-[#1a1a35] border rounded-2xl p-4 ${
+                    className={`bg-elevated border rounded-2xl p-4 ${
                       partner.isActive ? 'border-violet-900/30' : 'border-white/5 opacity-60'
                     }`}>
                     <div className="flex items-center justify-between">
@@ -478,7 +561,7 @@ export default function Finance({
         <div className="space-y-4">
 
           {/* اختيار الشهر */}
-          <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+          <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
             <h3 className="font-bold text-white mb-4 flex items-center gap-2">
               <TrendingUp size={18} className="text-violet-400" />
               حساب نتيجة الشهر
@@ -618,7 +701,7 @@ export default function Finance({
 
           {/* سجل التوزيعات السابقة */}
           {profitDistributions.length > 0 && (
-            <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+            <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
               <h3 className="font-bold text-white mb-4">📋 سجل التوزيعات السابقة</h3>
               <div className="space-y-3">
                 {[...profitDistributions]
@@ -712,7 +795,7 @@ export default function Finance({
       {/* ══ مودال تعديل الخزينة ══ */}
       {showAdjust && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-4">💰 إضافة حركة للخزينة</h3>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
@@ -753,7 +836,7 @@ export default function Finance({
       {/* ══ مودال إضافة/تعديل شريك ══ */}
       {showPartnerForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-4">
               {editingPartner ? '✏️ تعديل بيانات الشريك' : '👤 إضافة شريك جديد'}
             </h3>
@@ -819,7 +902,7 @@ export default function Finance({
       {/* ══ تأكيد حذف شريك ══ */}
       {confirmDeletePartner && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-2">🗑️ حذف شريك</h3>
             <p className="text-gray-400 text-sm mb-4">
               هل أنت متأكد من حذف الشريك{' '}
@@ -844,7 +927,7 @@ export default function Finance({
       {/* ══ تأكيد حذف توزيع ══ */}
       {confirmDeleteDist && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-2">🗑️ حذف توزيع الشهر</h3>
             <p className="text-gray-400 text-sm mb-4">
               هل تريد حذف توزيع شهر{' '}

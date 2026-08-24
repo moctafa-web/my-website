@@ -147,7 +147,7 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-start justify-center pt-20 px-4" onClick={onClose}>
-      <div className="bg-[#1a1a35] border border-violet-700/40 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-elevated border border-violet-700/40 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
           <Search size={18} className="text-gray-400 flex-shrink-0" />

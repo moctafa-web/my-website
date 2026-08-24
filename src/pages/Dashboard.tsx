@@ -1,12 +1,13 @@
 // src/pages/Dashboard.tsx
 import React, { useState } from 'react';
 import { AppState } from '../types';
-import { formatCurrency, getTodayStr } from '../utils/helpers';
+import { formatCurrency, getTodayStr, printElement } from '../utils/helpers';
+import { formatDailySummaryForWhatsApp, getDailyClosingChecklist, getPartyBalances } from '../store/domains/accounting.store';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer
 } from 'recharts';
-import { X, TrendingUp, TrendingDown, Copy, Printer, Check } from 'lucide-react';
+import { X, TrendingUp, TrendingDown, Copy, Printer, Check, ShoppingCart, ShoppingBag, BookOpen, Wallet, Landmark, Banknote, AlertTriangle, Package } from 'lucide-react';
 
 interface Props {
   state: AppState;
@@ -20,6 +21,10 @@ interface Props {
     dir: 'in' | 'out',
     desc: string
   ) => void;
+  // ✅ فتح كشف حساب شخص معيّن مباشرة (عميل/مورد) - يُستخدم من دفتر الديون
+  onOpenStatement?: (type: 'customer' | 'supplier', id: string) => void;
+  // ✅ الانتقال لصفحة المبيعات/المشتريات مع فلترة على فواتير اليوم بس
+  onViewTodayInvoices?: (kind: 'sales' | 'purchases') => void;
 }
 
 export default function Dashboard({
@@ -29,6 +34,8 @@ export default function Dashboard({
   onNewPurchase,
   onCompletePendingSerial,
   adjustTreasury,
+  onOpenStatement,
+  onViewTodayInvoices,
 }: Props) {
   const [showTreasury, setShowTreasury] = useState(false);
   const [showDebtBook, setShowDebtBook] = useState(false);
@@ -54,6 +61,23 @@ export default function Dashboard({
     p => p.stock > 0 && p.stock <= (p.minStock || 2)
   );
 
+  const closingChecklist = getDailyClosingChecklist(state, today);
+  const dailySummaryText = formatDailySummaryForWhatsApp(closingChecklist.summary, state.settings.companyName || 'ONE');
+
+  const copyDailySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(dailySummaryText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      alert('تعذر نسخ الملخص. استخدم الطباعة أو افتح واتساب يدوياً.');
+    }
+  };
+
+  const printDailySummary = () => {
+    printElement(`<div style="direction:rtl;font-family:Arial;padding:20px;white-space:pre-wrap"><h2>ملخص نهاية اليوم — ${state.settings.companyName || 'ONE'}</h2><p>${dailySummaryText.replace(/\n/g, '<br/>')}</p></div>`, 'ملخص نهاية اليوم');
+  };
+
   /* ─── السيريالات المعلّقة (سعر الشراء غير معروف) ─── */
 const pendingSerials = state.serials
   .filter(s =>
@@ -62,54 +86,17 @@ const pendingSerials = state.serials
   )
   .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
-  /* ─── دفتر الديون ─── */
-  // ✅ نحسب الرصيد مباشرة من الفواتير الفعلية (مش من الحقول المخزنة على العميل/المورد)
-  // عشان نضمن إنه يطابق دايمًا كشف الحساب التفصيلي، حتى لو الحقول المخزنة اتأخرت لأي سبب
-  const getCustomerBalance = (customerId: string, opening: number) => {
-    const invs = state.saleInvoices.filter(i => i.customerId === customerId);
-    return invs.reduce((s, i) => s + i.total, 0) + opening - invs.reduce((s, i) => s + i.paid, 0);
-  };
-  const getSupplierBalance = (supplierId: string, opening: number) => {
-    const invs = state.purchaseInvoices.filter(i => i.supplierId === supplierId);
-    return invs.reduce((s, i) => s + i.total, 0) + opening - invs.reduce((s, i) => s + i.paid, 0);
-  };
+  /* ─── دفتر الديون (مصدر موحّد من accounting domain) ─── */
+  const partyBalances = getPartyBalances(state);
+  const customersOwing = partyBalances.customersOwing;
+  const suppliersWithCredit = partyBalances.suppliersWithCredit;
+  const suppliersOwed = partyBalances.suppliersOwed;
+  const customersWithDebit = partyBalances.customersWithDebit;
+  const totalOwing = partyBalances.totalOwing;
+  const totalOwed = partyBalances.totalOwed;
+  const allOwingUs = [...customersOwing, ...suppliersWithCredit].sort((a, b) => b.balance - a.balance);
+  const allWeOwe = [...suppliersOwed, ...customersWithDebit].sort((a, b) => b.balance - a.balance);
 
-  const customersOwing = state.customers
-    .map(c => {
-      const balance = getCustomerBalance(c.id, c.openingBalance || 0);
-      return { id: c.id, name: c.name, phone: c.phone || '', balance, type: 'customer' as const };
-    })
-    .filter(c => c.balance > 0);
-
-  const suppliersWithCredit = state.suppliers
-    .map(s => {
-      const balance = getSupplierBalance(s.id, s.openingBalance || 0);
-      return { id: s.id, name: s.name, phone: s.phone || '', balance: -balance, type: 'supplier' as const };
-    })
-    .filter(s => s.balance > 0);
-
-  const allOwingUs = [...customersOwing, ...suppliersWithCredit]
-    .sort((a, b) => b.balance - a.balance);
-
-  const suppliersOwed = state.suppliers
-    .map(s => {
-      const balance = getSupplierBalance(s.id, s.openingBalance || 0);
-      return { id: s.id, name: s.name, phone: s.phone || '', balance, type: 'supplier' as const };
-    })
-    .filter(s => s.balance > 0);
-
-  const customersWithDebit = state.customers
-    .map(c => {
-      const balance = getCustomerBalance(c.id, c.openingBalance || 0);
-      return { id: c.id, name: c.name, phone: c.phone || '', balance: -balance, type: 'customer' as const };
-    })
-    .filter(c => c.balance > 0);
-
-  const allWeOwe = [...suppliersOwed, ...customersWithDebit]
-    .sort((a, b) => b.balance - a.balance);
-
-  const totalOwing = allOwingUs.reduce((s, c) => s + c.balance, 0);
-  const totalOwed = allWeOwe.reduce((s, c) => s + c.balance, 0);
   const netBalance = totalOwing - totalOwed;
 
   /* ─── بيانات الرسم البياني ─── */
@@ -175,8 +162,8 @@ const pendingSerials = state.serials
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; color: #1a1a2e; }
           .header { display: flex; justify-content: space-between; align-items: center;
-                    border-bottom: 3px solid #7c3aed; padding-bottom: 16px; margin-bottom: 20px; }
-          .company { font-size: 26px; font-weight: 900; color: #7c3aed; }
+                    border-bottom: 3px solid #9aabba; padding-bottom: 16px; margin-bottom: 20px; }
+          .company { font-size: 26px; font-weight: 900; color: #9aabba; }
           .title { font-size: 18px; font-weight: 700; color: #1a1a2e; }
           .date { font-size: 12px; color: #666; margin-top: 4px; }
           .summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
@@ -309,51 +296,50 @@ const pendingSerials = state.serials
   return (
     <div className="p-4 lg:p-6 space-y-6">
 
+
+
       {/* ① Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={onNewSale}
-          className="bg-gradient-to-br from-violet-700 to-purple-900 hover:from-violet-600 hover:to-purple-800
-                     border border-violet-500/40 rounded-2xl p-5 text-right transition-all
-                     hover:scale-105 hover:shadow-xl hover:shadow-violet-900/40 group"
+          className="bg-elevated hover:bg-muted-bg border border-border rounded-xl p-5 text-right transition-colors group"
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl
-                            group-hover:scale-110 transition-transform">🛒</div>
-            <span className="text-violet-300 text-xs">سريع</span>
+            <div className="w-11 h-11 rounded-md bg-accent text-accent-fg flex items-center justify-center">
+              <ShoppingCart size={20} />
+            </div>
+            <span className="text-muted text-xs">سريع</span>
           </div>
-          <div className="text-xl font-bold text-white">فاتورة بيع</div>
-          <div className="text-violet-300 text-sm mt-1">إنشاء فاتورة مبيعات جديدة</div>
+          <div className="text-lg font-semibold text-fg">فاتورة بيع</div>
+          <div className="text-muted text-sm mt-1">إنشاء فاتورة مبيعات جديدة</div>
         </button>
 
         <button
           onClick={onNewPurchase}
-          className="bg-gradient-to-br from-blue-800 to-indigo-900 hover:from-blue-700 hover:to-indigo-800
-                     border border-blue-500/40 rounded-2xl p-5 text-right transition-all
-                     hover:scale-105 hover:shadow-xl hover:shadow-blue-900/40 group"
+          className="bg-elevated hover:bg-muted-bg border border-border rounded-xl p-5 text-right transition-colors group"
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl
-                            group-hover:scale-110 transition-transform">📦</div>
-            <span className="text-blue-300 text-xs">شراء</span>
+            <div className="w-11 h-11 rounded-md bg-muted-bg text-fg flex items-center justify-center border border-border">
+              <ShoppingBag size={20} />
+            </div>
+            <span className="text-muted text-xs">شراء</span>
           </div>
-          <div className="text-xl font-bold text-white">فاتورة شراء</div>
-          <div className="text-blue-300 text-sm mt-1">استلام شحنة من مورد</div>
+          <div className="text-lg font-semibold text-fg">فاتورة شراء</div>
+          <div className="text-muted text-sm mt-1">استلام شحنة من مورد</div>
         </button>
 
         <button
           onClick={() => onNavigate('journal')}
-          className="bg-gradient-to-br from-slate-700 to-gray-900 hover:from-slate-600 hover:to-gray-800
-                     border border-gray-600/40 rounded-2xl p-5 text-right transition-all
-                     hover:scale-105 hover:shadow-xl group"
+          className="bg-elevated hover:bg-muted-bg border border-border rounded-xl p-5 text-right transition-colors group"
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-2xl
-                            group-hover:scale-110 transition-transform">🔒</div>
-            <span className="text-gray-400 text-xs">يومي</span>
+            <div className="w-11 h-11 rounded-md bg-muted-bg text-fg flex items-center justify-center border border-border">
+              <BookOpen size={20} />
+            </div>
+            <span className="text-muted text-xs">يومي</span>
           </div>
-          <div className="text-xl font-bold text-white">تقفيل اليومية</div>
-          <div className="text-gray-400 text-sm mt-1">مراجعة وتقفيل حسابات اليوم</div>
+          <div className="text-lg font-semibold text-fg">تقفيل اليومية</div>
+          <div className="text-muted text-sm mt-1">مراجعة وتقفيل حسابات اليوم</div>
         </button>
       </div>
 
@@ -368,8 +354,9 @@ const pendingSerials = state.serials
                      hover:border-amber-500/50 hover:scale-[1.02] transition-all group"
         >
           <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center
-                            text-2xl group-hover:scale-110 transition-transform">📒</div>
+            <div className="w-12 h-12 rounded-md bg-warn/10 flex items-center justify-center">
+              <BookOpen className="text-warn" size={22} />
+            </div>
             <span className="text-amber-400 text-xs bg-amber-900/30 px-2 py-1 rounded-lg">
               اضغط للتفاصيل
             </span>
@@ -402,10 +389,10 @@ const pendingSerials = state.serials
             : 'bg-gradient-to-br from-green-900/10 to-emerald-900/5 border-green-700/20'
         }`}>
           <div className="flex items-center justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${
-              pendingSerials.length > 0 ? 'bg-orange-500/10' : 'bg-green-500/10'
+            <div className={`w-12 h-12 rounded-md flex items-center justify-center ${
+              pendingSerials.length > 0 ? 'bg-warn/10 text-warn' : 'bg-good/10 text-good'
             }`}>
-              {pendingSerials.length > 0 ? '⏳' : '✅'}
+              {pendingSerials.length > 0 ? <AlertTriangle size={22} /> : <Package size={22} />}
             </div>
             {pendingSerials.length > 0 && (
               <span className="text-xs text-orange-400 bg-orange-900/30 px-2 py-1 rounded-lg animate-pulse font-bold">
@@ -458,51 +445,82 @@ const pendingSerials = state.serials
         </div>
       </div>
 
-      {/* ③ Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard title="مبيعات اليوم" value={formatCurrency(todaySalesTotal)}
-          sub={`${todaySales.length} فاتورة`} icon="💰" color="green" />
-        <StatCard title="مشتريات اليوم" value={formatCurrency(todayPurchasesTotal)}
-          sub={`${todayPurchases.length} فاتورة`} icon="📦" color="blue" />
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard title="الكاش" value={formatCurrency(state.cashBalance)}
-            sub="الرصيد الحالي" icon="💵" color="violet" onClick={() => setShowTreasury(true)} />
-          <StatCard title="البنك" value={formatCurrency(state.bankBalance)}
-            sub="الرصيد الحالي" icon="🏦" color="cyan" onClick={() => setShowTreasury(true)} />
+      {/* ③ Checklist قبل تقفيل اليوم */}
+      <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4 mb-5">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🔐</span><h3 className="text-base font-bold text-white">Checklist قبل تقفيل اليوم</h3>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">النظام يراجع المشاكل المتوقعة قبل ما تعتبر اليومية مقفولة.</p>
+          </div>
+          <button onClick={() => onNavigate('health')} className="btn-secondary text-xs">فحص صحة الحسابات</button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-4">
+          <div className={`rounded-xl border p-3 ${closingChecklist.pendingCosts.length ? 'bg-yellow-900/10 border-yellow-700/30' : 'bg-emerald-900/10 border-emerald-700/30'}`}>
+            <div className="text-xs text-gray-500">أسعار شراء معلقة</div><div className="font-bold text-white mt-1">{closingChecklist.pendingCosts.length || 'لا يوجد'}</div>
+          </div>
+          <div className={`rounded-xl border p-3 ${closingChecklist.oldUnpaid.length ? 'bg-yellow-900/10 border-yellow-700/30' : 'bg-emerald-900/10 border-emerald-700/30'}`}>
+            <div className="text-xs text-gray-500">فواتير قديمة غير مدفوعة</div><div className="font-bold text-white mt-1">{closingChecklist.oldUnpaid.length || 'لا يوجد'}</div>
+          </div>
+          <div className={`rounded-xl border p-3 ${closingChecklist.hasCashDifference ? 'bg-red-900/10 border-red-700/30' : 'bg-emerald-900/10 border-emerald-700/30'}`}>
+            <div className="text-xs text-gray-500">فرق الكاش النظري/الفعلي</div><div className="font-bold text-white mt-1">{closingChecklist.cashDifference == null ? 'لم يُسجل فعلي' : formatCurrency(closingChecklist.cashDifference)}</div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <button onClick={copyDailySummary} className="btn-primary text-xs flex items-center gap-2"><Copy size={13}/>{copied ? 'تم النسخ' : 'نسخ ملخص واتساب'}</button>
+          <button onClick={printDailySummary} className="btn-secondary text-xs flex items-center gap-2"><Printer size={13}/>طباعة الملخص</button>
+          <span className="text-xs text-gray-500 mr-auto">صافي الكاش اليوم: <b className="text-white">{formatCurrency(closingChecklist.summary.cashNet)}</b> • صافي البنك: <b className="text-white">{formatCurrency(closingChecklist.summary.bankNet)}</b></span>
         </div>
       </div>
 
-      {/* ④ Chart + Stock Alerts */}
+      {/* ④ Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard title="مبيعات اليوم" value={formatCurrency(todaySalesTotal)}
+          sub={`${todaySales.length} فاتورة`} icon={<Banknote size={18} />} color="green"
+          onClick={() => (onViewTodayInvoices ? onViewTodayInvoices('sales') : onNavigate('sales'))} />
+        <StatCard title="مشتريات اليوم" value={formatCurrency(todayPurchasesTotal)}
+          sub={`${todayPurchases.length} فاتورة`} icon={<Package size={18} />} color="blue"
+          onClick={() => (onViewTodayInvoices ? onViewTodayInvoices('purchases') : onNavigate('purchases'))} />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard title="الكاش" value={formatCurrency(state.cashBalance)}
+            sub="الرصيد الحالي" icon={<Wallet size={18} />} color="violet" onClick={() => setShowTreasury(true)} />
+          <StatCard title="البنك" value={formatCurrency(state.bankBalance)}
+            sub="الرصيد الحالي" icon={<Landmark size={18} />} color="cyan" onClick={() => setShowTreasury(true)} />
+        </div>
+      </div>
+
+      {/* ⑤ Chart + Stock Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
-          <h3 className="font-bold text-white mb-4">📊 المبيعات والمشتريات - آخر 7 أيام</h3>
+        <div className="lg:col-span-2 bg-elevated border border-violet-900/30 rounded-2xl p-5">
+          <h3 className="font-semibold text-fg mb-4">المبيعات والمشتريات — آخر 7 أيام</h3>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={last7Days} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <defs>
                 <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#c9cfc8" stopOpacity={0.28} />
+                  <stop offset="95%" stopColor="#c9cfc8" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="purchGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#7f93a8" stopOpacity={0.28} />
+                  <stop offset="95%" stopColor="#7f93a8" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
               <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 11 }} />
               <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} />
               <Tooltip
-                contentStyle={{ background: '#1a1a35', border: '1px solid #7c3aed40', borderRadius: 8, color: '#fff' }}
+                contentStyle={{ background: '#1a1c20', border: '1px solid #2a2c32', borderRadius: 8, color: '#ecece8' }}
                 formatter={(v: unknown) => [`${Number(v).toLocaleString('ar-EG')} ج.م`, '']}
               />
-              <Area type="monotone" dataKey="مبيعات" stroke="#7c3aed" fill="url(#salesGrad)" strokeWidth={2} />
-              <Area type="monotone" dataKey="مشتريات" stroke="#3b82f6" fill="url(#purchGrad)" strokeWidth={2} />
+              <Area type="monotone" dataKey="مبيعات" stroke="#c9cfc8" fill="url(#salesGrad)" strokeWidth={2} />
+              <Area type="monotone" dataKey="مشتريات" stroke="#7f93a8" fill="url(#purchGrad)" strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
-          <h3 className="font-bold text-white mb-4">⚠️ تنبيهات المخزون</h3>
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
+          <h3 className="font-semibold text-fg mb-4">تنبيهات المخزون</h3>
           <div className="space-y-3 max-h-[220px] overflow-y-auto">
             {outOfStock.length === 0 && lowStock.length === 0 ? (
               <div className="text-center text-gray-500 py-8">✅ المخزون ممتاز</div>
@@ -534,9 +552,9 @@ const pendingSerials = state.serials
         </div>
       </div>
 
-      {/* ⑤ Recent Activity */}
+      {/* ⑥ Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-white">🧾 آخر المبيعات</h3>
             <button onClick={() => onNavigate('sales')} className="text-xs text-violet-400 hover:text-violet-300">
@@ -568,7 +586,7 @@ const pendingSerials = state.serials
           </div>
         </div>
 
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-white">📦 آخر المشتريات</h3>
             <button onClick={() => onNavigate('purchases')} className="text-xs text-violet-400 hover:text-violet-300">
@@ -605,7 +623,7 @@ const pendingSerials = state.serials
       {showDebtBook && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
           onClick={() => setShowDebtBook(false)}>
-          <div className="bg-[#12122a] border border-amber-700/30 rounded-2xl w-full max-w-2xl
+          <div className="bg-surface border border-amber-700/30 rounded-2xl w-full max-w-2xl
                          max-h-[85vh] flex flex-col shadow-2xl"
             onClick={e => e.stopPropagation()}>
 
@@ -709,7 +727,8 @@ const pendingSerials = state.serials
                           <button
                             onClick={() => {
                               setShowDebtBook(false);
-                              onNavigate(c.type === 'supplier' ? 'suppliers' : 'customers');
+                              if (onOpenStatement) onOpenStatement(c.type, c.id);
+                              else onNavigate(c.type === 'supplier' ? 'suppliers' : 'customers');
                             }}
                             className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
                                        hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
@@ -772,7 +791,8 @@ const pendingSerials = state.serials
                           <button
                             onClick={() => {
                               setShowDebtBook(false);
-                              onNavigate(s.type === 'customer' ? 'customers' : 'suppliers');
+                              if (onOpenStatement) onOpenStatement(s.type, s.id);
+                              else onNavigate(s.type === 'customer' ? 'customers' : 'suppliers');
                             }}
                             className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
                                        hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
@@ -817,7 +837,7 @@ const pendingSerials = state.serials
       {showTreasury && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
           onClick={() => setShowTreasury(false)}>
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-md"
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-md"
             onClick={e => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-white mb-5">💰 إضافة حركة للخزنة</h2>
             <div className="space-y-4">
@@ -869,28 +889,28 @@ const pendingSerials = state.serials
 
 /* ══ StatCard ══ */
 function StatCard({ title, value, sub, icon, color, onClick }: {
-  title: string; value: string; sub: string; icon: string; color: string; onClick?: () => void;
+  title: string; value: string; sub: string; icon: React.ReactNode; color: string; onClick?: () => void;
 }) {
   const colors: Record<string, string> = {
-    green: 'from-green-900/40  to-green-900/10  border-green-700/30',
-    blue: 'from-blue-900/40   to-blue-900/10   border-blue-700/30',
-    violet: 'from-violet-900/40 to-violet-900/10 border-violet-700/30',
-    cyan: 'from-cyan-900/40   to-cyan-900/10   border-cyan-700/30',
-    orange: 'from-orange-900/40 to-orange-900/10 border-orange-700/30',
-    red: 'from-red-900/40    to-red-900/10    border-red-700/30',
+    green: 'border-good/30',
+    blue: 'border-info/30',
+    violet: 'border-border',
+    cyan: 'border-info/30',
+    orange: 'border-warn/30',
+    red: 'border-bad/30',
   };
   return (
     <div onClick={onClick}
-      className={`bg-gradient-to-br ${colors[color]} border rounded-2xl p-4 ${
-        onClick ? 'cursor-pointer hover:scale-105 transition-transform' : ''
+      className={`bg-elevated ${colors[color] || 'border-border'} border rounded-xl p-4 ${
+        onClick ? 'cursor-pointer hover:bg-muted-bg transition-colors' : ''
       }`}>
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="text-xs text-gray-400 mb-1">{title}</div>
-          <div className="text-lg font-bold text-white leading-tight">{value}</div>
-          <div className="text-xs text-gray-500 mt-1">{sub}</div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-muted mb-1">{title}</div>
+          <div className="text-lg font-semibold text-fg leading-tight tabular-nums">{value}</div>
+          <div className="text-xs text-subtle mt-1">{sub}</div>
         </div>
-        <div className="text-2xl">{icon}</div>
+        <div className="text-muted shrink-0">{icon}</div>
       </div>
     </div>
   );

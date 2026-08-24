@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Supplier, PurchaseInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
+import { calculateSupplierBalance } from '../store/domains/accounting.store';
 import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar } from 'lucide-react';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 
@@ -14,9 +15,12 @@ interface Props {
   onAddPayment: (p: Payment) => void;
   onUpdatePurchaseInvoice: (inv: PurchaseInvoice) => void;
   onNavigateToPurchases?: (supplierId: string) => void;
+  // ✅ لفتح كشف حساب مورد/تاجر معيّن مباشرة (مثلاً من دفتر الديون في الرئيسية)
+  preselectedStatementSupplierId?: string | null;
+  onPreselectedStatementHandled?: () => void;
 }
 
-export default function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases }: Props) {
+export default function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }: Props) {
   const [viewMode, setViewMode] = useViewMode('suppliers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -36,6 +40,20 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // ✅ فتح كشف حساب مورد/تاجر تلقائيًا لو جاي طلب من صفحة تانية (زي دفتر الديون بالرئيسية)
+  React.useEffect(() => {
+    if (preselectedStatementSupplierId) {
+      const s = suppliers.find(x => x.id === preselectedStatementSupplierId);
+      if (s) {
+        setViewSupplier(s);
+        setDateFrom('');
+        setDateTo('');
+      }
+      onPreselectedStatementHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedStatementSupplierId]);
+
   const filtered = suppliers.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     (s.phone || '').includes(search)
@@ -44,11 +62,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
   const getSupplierInvoices = (id: string) => purchaseInvoices.filter(i => i.supplierId === id);
   const getSupplierPayments = (id: string) => payments.filter(p => p.type === 'purchase' && p.referenceId === id);
 
-  const getBalance = (s: Supplier) => {
-    const totalInv = getSupplierInvoices(s.id).reduce((x, i) => x + i.total, 0) + s.openingBalance;
-    const totalPaid = getSupplierInvoices(s.id).reduce((x, i) => x + i.paid, 0);
-    return totalInv - totalPaid;
-  };
+  const getBalance = (s: Supplier) => calculateSupplierBalance(purchaseInvoices, s);
 
   // ✅ لو الرصيد موجب: لسه إحنا مديونين للمورد (متبقي له عندنا)
   // ✅ لو الرصيد سالب: يبقى دفعنا له أكتر من المستحق (متبقي عليه هو - فرق حساب لصالحنا)
@@ -172,6 +186,40 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
     `);
   };
 
+  // ✅ طباعة فاتورة شراء منفردة (من كشف الحساب أو من قائمة الفواتير)
+  const printPurchaseInvoice = (inv: PurchaseInvoice) => {
+    const rows = inv.items.map(item => `
+      <tr>
+        <td>${item.productName}${item.serials && item.serials.length ? `<br/><span style="font-size:11px;color:#666">${item.serials.map(s => s.serial).join(', ')}</span>` : ''}</td>
+        <td style="text-align:center">${item.quantity}</td>
+        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
+        <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
+      </tr>
+    `).join('');
+    printElement(`
+      <div class="header">
+        <div><div class="company-name">ONE</div></div>
+        <div class="invoice-info">
+          <div><strong>فاتورة مشتريات ${inv.invoiceNumber}</strong></div>
+          <div>${inv.supplierName}</div>
+          <div>${inv.date}</div>
+          <div>طريقة الدفع: ${inv.paymentMethod === 'cash' ? 'كاش' : inv.paymentMethod === 'bank' ? 'بنك' : inv.paymentMethod}</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="totals"><table>
+        <tr><td>المجموع</td><td>${inv.subtotal.toLocaleString('ar-EG')} ج.م</td></tr>
+        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>${inv.discount.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
+        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+      </table></div>
+    `, `فاتورة ${inv.invoiceNumber}`);
+  };
+
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -180,15 +228,15 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#1a1a35] border border-blue-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-blue-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-blue-400">{suppliers.length}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي الموردين</div>
         </div>
-        <div className="bg-[#1a1a35] border border-green-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-green-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-green-400">{formatCurrency(purchaseInvoices.reduce((s, i) => s + i.total, 0))}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المشتريات</div>
         </div>
-        <div className="bg-[#1a1a35] border border-red-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-red-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-red-400">{formatCurrency(suppliers.reduce((s, sup) => s + Math.max(0, getBalance(sup)), 0))}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المستحق للموردين</div>
         </div>
@@ -209,7 +257,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
             const balance = getBalance(s);
             const invCount = getSupplierInvoices(s.id).length;
             return (
-              <div key={s.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
+              <div key={s.id} className="bg-elevated border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className="w-10 h-10 rounded-xl bg-blue-900/40 flex items-center justify-center text-lg font-bold text-blue-300">
@@ -226,7 +274,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="bg-[#252545] rounded-xl p-2 text-center">
+                  <div className="bg-muted-bg rounded-xl p-2 text-center">
                     <div className="text-xs text-gray-500">الفواتير</div>
                     <div className="font-bold text-white">{invCount}</div>
                   </div>
@@ -256,7 +304,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
             const balance = getBalance(s);
             const invCount = getSupplierInvoices(s.id).length;
             return (
-              <div key={s.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all flex-wrap gap-3">
+              <div key={s.id} className="bg-elevated border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all flex-wrap gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-blue-900/40 flex items-center justify-center text-sm font-bold text-blue-300">{s.name.charAt(0)}</div>
                   <div>
@@ -283,7 +331,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
 
       {/* Compact View */}
       {viewMode === 'compact' && (
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-violet-900/20">
               <tr>
@@ -326,7 +374,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       {/* Supplier Statement Modal - عرض كامل بالشاشة بدون الحاجة للطباعة */}
       {viewSupplier && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-xl font-bold text-white">📊 كشف حساب - {viewSupplier.name}</h2>
               <div className="flex gap-2">
@@ -337,7 +385,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
               </div>
             </div>
 
-            <div className="bg-[#252545] rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-sm">
+            <div className="bg-muted-bg rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-sm">
               <span className="text-gray-400">📞 {viewSupplier.phone || '-'}</span>
               {viewSupplier.email && <span className="text-gray-400">✉️ {viewSupplier.email}</span>}
               {viewSupplier.address && <span className="text-gray-400">📍 {viewSupplier.address}</span>}
@@ -345,14 +393,14 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
             </div>
 
             <div className="grid grid-cols-4 gap-3 mb-4">
-              <div className="bg-[#252545] rounded-xl p-3 text-center"><div className="text-xs text-gray-500">الرصيد الافتتاحي</div><div className="font-bold text-white">{viewSupplier.openingBalance.toLocaleString('ar-EG')}</div></div>
-              <div className="bg-[#252545] rounded-xl p-3 text-center"><div className="text-xs text-gray-500">إجمالي الفواتير</div><div className="font-bold text-blue-400">{formatCurrency(getSupplierInvoices(viewSupplier.id).reduce((s, i) => s + i.total, 0))}</div></div>
-              <div className="bg-[#252545] rounded-xl p-3 text-center"><div className="text-xs text-gray-500">المدفوع</div><div className="font-bold text-green-400">{formatCurrency(getSupplierInvoices(viewSupplier.id).reduce((s, i) => s + i.paid, 0))}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">الرصيد الافتتاحي</div><div className="font-bold text-white">{viewSupplier.openingBalance.toLocaleString('ar-EG')}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">إجمالي الفواتير</div><div className="font-bold text-blue-400">{formatCurrency(getSupplierInvoices(viewSupplier.id).reduce((s, i) => s + i.total, 0))}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">المدفوع</div><div className="font-bold text-green-400">{formatCurrency(getSupplierInvoices(viewSupplier.id).reduce((s, i) => s + i.paid, 0))}</div></div>
               <div className={`${balanceLabel(getBalance(viewSupplier)).bgClass} border ${getBalance(viewSupplier) > 0 ? 'border-red-700/30' : 'border-green-700/30'} rounded-xl p-3 text-center`}><div className="text-xs text-gray-500">{balanceLabel(getBalance(viewSupplier)).text}</div><div className={`font-bold ${balanceLabel(getBalance(viewSupplier)).colorClass}`}>{formatCurrency(balanceLabel(getBalance(viewSupplier)).amount)}</div></div>
             </div>
 
             {/* فلتر فترة زمنية لحركة الحساب */}
-            <div className="bg-[#252545] rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
+            <div className="bg-muted-bg rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-1 text-violet-300 text-sm font-medium"><Calendar size={14} /> فترة محددة:</div>
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input-dark text-sm" placeholder="من تاريخ" />
               <span className="text-gray-500 text-sm">إلى</span>
@@ -413,7 +461,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
             <h3 className="text-sm font-bold text-violet-300 mb-2">🧾 جميع فواتير الشراء ({getSupplierInvoices(viewSupplier.id).length})</h3>
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {getSupplierInvoices(viewSupplier.id).map(inv => (
-                <button key={inv.id} onClick={() => setViewInvoice(inv)} className="w-full text-right bg-[#252545] hover:bg-[#2d2d5a] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2 transition-colors">
+                <button key={inv.id} onClick={() => setViewInvoice(inv)} className="w-full text-right bg-muted-bg hover:bg-[#2d2d5a] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2 transition-colors">
                   <div>
                     <div className="font-medium text-white text-sm font-mono">{inv.invoiceNumber}</div>
                     <div className="text-xs text-gray-500">{inv.date} • {inv.items.length} منتج</div>
@@ -436,10 +484,13 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       {/* Invoice Detail Modal - عرض تفاصيل فاتورة الشراء كاملة بدل النص فقط */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-black/90 z-[60] flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📄 فاتورة {viewInvoice.invoiceNumber}</h2>
-              <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => printPurchaseInvoice(viewInvoice)} className="btn-secondary text-sm flex items-center gap-1"><Printer size={14} /> طباعة</button>
+                <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
               <div><div className="text-xs text-gray-500">المورد</div><div className="font-bold text-white">{viewInvoice.supplierName}</div></div>
@@ -448,7 +499,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
             </div>
             <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
               {viewInvoice.items.map(item => (
-                <div key={item.id} className="bg-[#252545] rounded-xl p-3 flex items-center justify-between">
+                <div key={item.id} className="bg-muted-bg rounded-xl p-3 flex items-center justify-between">
                   <div>
                     <div className="font-medium text-white text-sm">{item.productName}</div>
                     <div className="text-xs text-gray-500">{item.sku} • الكمية: {item.quantity} × {formatCurrency(item.unitPrice)}</div>
@@ -474,7 +525,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       {/* Payment Modal */}
       {showPayment && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-1">💰 دفع للمورد</h3>
             <p className="text-gray-400 text-sm mb-4">{showPayment.name} • {balanceLabel(getBalance(showPayment)).text}: {formatCurrency(balanceLabel(getBalance(showPayment)).amount)}</p>
             <div className="space-y-3">
@@ -501,7 +552,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       {/* Add/Edit Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
             <h3 className="font-bold text-white mb-4">{editSupplier ? '✏️ تعديل مورد' : '➕ إضافة مورد'}</h3>
             <div className="space-y-3">
               <input type="text" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="input-dark w-full" placeholder="اسم المورد *" />
@@ -531,7 +582,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       {/* Delete Confirmation */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-2">🗑️ حذف المورد</h3>
             <p className="text-gray-400 text-sm mb-4">هل أنت متأكد من حذف <span className="text-white font-medium">{confirmDelete.name}</span>؟ لن يتم حذف الفواتير المرتبطة به، لكن لن تتمكن من الرجوع لهذا الإجراء.</p>
             <div className="flex gap-2">

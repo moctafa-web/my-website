@@ -61,7 +61,7 @@ export default function ProductQRModal({ product, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-      <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-sm">
+      <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-white">🏷️ ملصق QR للمنتج</h3>
           <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>

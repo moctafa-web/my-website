@@ -43,7 +43,7 @@ export default function Reports({ state }: Props) {
     };
   }).filter(c => c.value > 0);
 
-  const COLORS = ['#7c3aed', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+  const COLORS = ['#9aabba', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
   // ✅ ربح المحل (offline) الصافي = مبيعات - تكلفة المنتجات المباعة فعليًا (costPrice وقت البيع، وليس فقط مبيعات - مشتريات بشكل عام)
   const calcOfflineProfit = (invoices: typeof state.saleInvoices) => {
@@ -179,14 +179,14 @@ export default function Reports({ state }: Props) {
       </div>
 
       {/* Sales Chart */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
         <h3 className="font-bold text-white mb-4">📈 المبيعات والمشتريات (آخر {Math.min(days, 30)} يوم)</h3>
         <ResponsiveContainer width="100%" height={250}>
           <AreaChart data={chartData}>
             <defs>
               <linearGradient id="sGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                <stop offset="5%" stopColor="#9aabba" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#9aabba" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="pGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -196,8 +196,8 @@ export default function Reports({ state }: Props) {
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
             <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
             <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} />
-            <Tooltip contentStyle={{ background: '#1a1a35', border: '1px solid #7c3aed40', borderRadius: 8, color: '#fff', fontSize: 12 }} />
-            <Area type="monotone" dataKey="مبيعات" stroke="#7c3aed" fill="url(#sGrad)" strokeWidth={2} />
+            <Tooltip contentStyle={{ background: '#1a1a35', border: '1px solid #9aabba40', borderRadius: 8, color: '#fff', fontSize: 12 }} />
+            <Area type="monotone" dataKey="مبيعات" stroke="#9aabba" fill="url(#sGrad)" strokeWidth={2} />
             <Area type="monotone" dataKey="مشتريات" stroke="#3b82f6" fill="url(#pGrad)" strokeWidth={2} />
           </AreaChart>
         </ResponsiveContainer>
@@ -205,7 +205,7 @@ export default function Reports({ state }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Category Pie */}
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">🗂️ توزيع المبيعات بالفئة</h3>
           {categoryData.length > 0 ? (
             <div className="flex items-center gap-4">
@@ -236,7 +236,7 @@ export default function Reports({ state }: Props) {
         </div>
 
         {/* Top Products */}
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">🏆 أكثر المنتجات مبيعاً</h3>
           {topProducts.length === 0 ? (
             <div className="text-center text-gray-500 py-8">لا توجد مبيعات بعد</div>
@@ -260,7 +260,7 @@ export default function Reports({ state }: Props) {
       </div>
 
       {/* Top Customers */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
         <h3 className="font-bold text-white mb-4">👥 أكثر العملاء شراءً</h3>
         {topCustomers.filter(c => c.total > 0).length === 0 ? (
           <div className="text-center text-gray-500 py-6">لا توجد مبيعات بعد</div>
@@ -284,15 +284,15 @@ export default function Reports({ state }: Props) {
         <h3 className="font-bold text-white mb-1">📆 ربح اليوم</h3>
         <p className="text-xs text-gray-500 mb-4">ربح المحل (أوفلاين) + ربح أوردرات نون وأمازون المحوّلة بنكيًا اليوم، كل قناة على حدة</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-blue-300">{formatCurrency(todaySummary.offlineProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">ربح المحل (أوفلاين)</div>
           </div>
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-yellow-300">{formatCurrency(todaySummary.noonProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">ربح نون</div>
           </div>
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-orange-300">{formatCurrency(todaySummary.amazonProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">ربح أمازون</div>
           </div>
@@ -308,28 +308,28 @@ export default function Reports({ state }: Props) {
         <h3 className="font-bold text-white mb-1">📅 ربح شهر {monthLabel(currentMonthKey)}</h3>
         <p className="text-xs text-gray-500 mb-4">ربح كل قناة بيع على حدة، عشان تعرف فين بتكسب أكتر وقد إيه</p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-blue-300">{formatCurrency(currentMonthSummary.offlineProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">ربح المحل (أوفلاين)</div>
             <div className="text-xs text-gray-600 mt-0.5">من {formatCurrency(currentMonthSummary.offlineSales)} مبيعات</div>
           </div>
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-yellow-300">{formatCurrency(currentMonthSummary.noonProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">ربح نون</div>
             <div className="text-xs text-gray-600 mt-0.5">من {formatCurrency(currentMonthSummary.noonAmount)} محوّل</div>
           </div>
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-orange-300">{formatCurrency(currentMonthSummary.amazonProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">ربح أمازون</div>
             <div className="text-xs text-gray-600 mt-0.5">من {formatCurrency(currentMonthSummary.amazonAmount)} محوّل</div>
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-cyan-300">{formatCurrency(currentMonthSummary.onlineProfit)}</div>
             <div className="text-xs text-gray-500 mt-1">إجمالي ربح الأونلاين (نون+أمازون)</div>
           </div>
-          <div className="bg-[#252545] rounded-xl p-3 text-center">
+          <div className="bg-muted-bg rounded-xl p-3 text-center">
             <div className="text-lg font-black text-orange-400">{formatCurrency(currentMonthSummary.expenses)}</div>
             <div className="text-xs text-gray-500 mt-1">مصروفات الشهر</div>
           </div>
@@ -341,7 +341,7 @@ export default function Reports({ state }: Props) {
       </div>
 
       {/* جدول مقارنة آخر 6 شهور - مفصّل بين المحل ونون وأمازون */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5 overflow-x-auto">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5 overflow-x-auto">
         <h3 className="font-bold text-white mb-4">📊 مقارنة آخر 6 شهور</h3>
         <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-violet-900/20">
@@ -370,7 +370,7 @@ export default function Reports({ state }: Props) {
       </div>
 
       {/* Noon Stats */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
         <h3 className="font-bold text-white mb-4">🏪 أوردرات المنصات</h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
@@ -380,7 +380,7 @@ export default function Reports({ state }: Props) {
             { label: 'تم التوصيل', value: state.noonOrders.filter(o => o.status === 'delivered').length, color: 'text-green-400' },
             { label: 'محول بنكيًا', value: state.noonOrders.filter(o => o.status === 'settled').length, color: 'text-violet-400' },
           ].map((s, i) => (
-            <div key={i} className="bg-[#252545] rounded-xl p-3 text-center">
+            <div key={i} className="bg-muted-bg rounded-xl p-3 text-center">
               <div className={`text-2xl font-black ${s.color}`}>{s.value}</div>
               <div className="text-xs text-gray-500 mt-1">{s.label}</div>
             </div>

@@ -1,8 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Customer, SaleInvoice, Payment } from '../types';
+import { Customer, SaleInvoice, Payment, StatementRow, AccountStatement } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
 import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar } from 'lucide-react';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
+import StatementModal from '../components/StatementModal';
+import TransactionDetail from '../components/TransactionDetail';
+import PaymentMethodBadge from '../components/PaymentMethodBadge';
+import { StatementService } from '../services/statementService';
+import { calculateCustomerBalance } from '../store/domains/accounting.store';
+import { PDFService } from '../services/pdfService';
 
 interface Props {
   customers: Customer[];
@@ -16,9 +22,12 @@ interface Props {
   onAddPayment: (p: Payment) => void;
   onUpdateSaleInvoice: (inv: SaleInvoice) => void;
   onNavigateToSales?: (customerId: string) => void;
+  // ✅ لفتح كشف حساب عميل معيّن مباشرة (مثلاً من دفتر الديون في الرئيسية)
+  preselectedStatementCustomerId?: string | null;
+  onPreselectedStatementHandled?: () => void;
 }
 
-export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales }: Props) {
+export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales, preselectedStatementCustomerId, onPreselectedStatementHandled }: Props) {
   const [viewMode, setViewMode] = useViewMode('customers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -27,7 +36,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   const [showPayment, setShowPayment] = useState<Customer | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank' | 'card' | 'transfer' | 'check'>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', type: 'individual' as Customer['type'], notes: '', openingBalance: 0 });
@@ -37,6 +46,25 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   // فلتر الفترة الزمنية لحركة الحساب
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // ✅ الكشف المتقدم
+  const [showAdvancedStatement, setShowAdvancedStatement] = useState(false);
+  const [currentStatement, setCurrentStatement] = useState<AccountStatement | null>(null);
+  const [selectedTransactionRow, setSelectedTransactionRow] = useState<StatementRow | null>(null);
+  const [showTransactionDetail, setShowTransactionDetail] = useState(false);
+
+  // ✅ فتح كشف حساب عميل تلقائيًا لو جاي طلب من صفحة تانية (زي دفتر الديون بالرئيسية)
+  React.useEffect(() => {
+    if (preselectedStatementCustomerId) {
+      const c = customers.find(x => x.id === preselectedStatementCustomerId);
+      if (c) {
+        setViewCustomer(c);
+        setDateFrom('');
+        setDateTo('');
+      }
+      onPreselectedStatementHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedStatementCustomerId]);
 
   const filtered = customers.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -95,6 +123,46 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     setShowPayment(c);
   };
 
+  // ✅ فتح الكشف المتقدم
+  const openAdvancedStatement = (c: Customer) => {
+    const statement = StatementService.calculateStatement(
+      c,
+      saleInvoices,
+      payments,
+      dateFrom,
+      dateTo
+    );
+    setCurrentStatement(statement);
+    setViewCustomer(null);
+    setShowAdvancedStatement(true);
+  };
+
+  // ✅ طباعة الكشف
+  const handlePrintStatement = (c: Customer, stmt: AccountStatement) => {
+    const html = PDFService.generateStatementHTML(
+      c,
+      stmt,
+      'شركتنا', // TODO: استبدال بـ company name من الإعدادات
+      undefined, // TODO: استبدال بـ company logo
+      '00201000000000', // TODO: من الإعدادات
+      'القاهرة, مصر' // TODO: من الإعدادات
+    );
+    PDFService.printHTML(html, `كشف-حساب-${c.name}`);
+  };
+
+  // ✅ تحميل PDF
+  const handleExportPDF = async (c: Customer, stmt: AccountStatement) => {
+    const html = PDFService.generateStatementHTML(
+      c,
+      stmt,
+      'شركتنا',
+      undefined,
+      '00201000000000',
+      'القاهرة, مصر'
+    );
+    await PDFService.downloadPDF(html, `كشف-حساب-${c.name}.pdf`);
+  };
+
   // تعديل تاريخ فاتورة مباشرة من كشف الحساب (مفيد لإغلاق حساب شهر أو تصحيح تاريخ منسي)
   const startEditInvoiceDate = (inv: SaleInvoice) => {
     setEditingInvoiceDate(inv.id);
@@ -108,11 +176,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   const getCustomerInvoices = (customerId: string) => saleInvoices.filter(inv => inv.customerId === customerId);
   const getCustomerPayments = (customerId: string) => payments.filter(p => p.type === 'sale' && p.referenceId === customerId);
 
-  const getBalance = (c: Customer) => {
-    const totalInv = getCustomerInvoices(c.id).reduce((s, i) => s + i.total, 0) + c.openingBalance;
-    const totalPaid = getCustomerInvoices(c.id).reduce((s, i) => s + i.paid, 0);
-    return totalInv - totalPaid;
-  };
+  const getBalance = (c: Customer) => calculateCustomerBalance(saleInvoices, c);
 
   // ✅ لو الرصيد موجب: العميل لسه عليه فلوس (مستحق منه)
   // ✅ لو الرصيد سالب: العميل دفع أكتر من المطلوب (متبقي له عندنا - فرق حساب لصالحه)
@@ -177,6 +241,40 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     `);
   };
 
+  // ✅ طباعة فاتورة بيع منفردة (من كشف الحساب أو من قائمة الفواتير)
+  const printSaleInvoice = (inv: SaleInvoice) => {
+    const rows = inv.items.map(item => `
+      <tr>
+        <td>${item.productName}${item.serials && item.serials.length ? `<br/><span style="font-size:11px;color:#666">${item.serials.map(s => s.serial).join(', ')}</span>` : ''}</td>
+        <td style="text-align:center">${item.quantity}</td>
+        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
+        <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
+      </tr>
+    `).join('');
+    printElement(`
+      <div class="header">
+        <div><div class="company-name">ONE</div></div>
+        <div class="invoice-info">
+          <div><strong>فاتورة مبيعات ${inv.invoiceNumber}</strong></div>
+          <div>${inv.customerName}</div>
+          <div>${inv.date}</div>
+          <div>طريقة الدفع: ${inv.paymentMethod === 'cash' ? 'كاش' : inv.paymentMethod === 'bank' ? 'بنك' : inv.paymentMethod}</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="totals"><table>
+        <tr><td>المجموع</td><td>${inv.subtotal.toLocaleString('ar-EG')} ج.م</td></tr>
+        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>${inv.discount.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
+        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+      </table></div>
+    `, `فاتورة ${inv.invoiceNumber}`);
+  };
+
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -185,15 +283,15 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#1a1a35] border border-violet-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-violet-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-violet-400">{customers.length}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي العملاء</div>
         </div>
-        <div className="bg-[#1a1a35] border border-green-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-green-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-green-400">{formatCurrency(customers.reduce((s, c) => s + (getCustomerInvoices(c.id).reduce((x, i) => x + i.total, 0)), 0))}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المبيعات</div>
         </div>
-        <div className="bg-[#1a1a35] border border-red-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-red-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-red-400">{formatCurrency(customers.reduce((s, c) => s + Math.max(0, getBalance(c)), 0))}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المديونيات</div>
         </div>
@@ -214,7 +312,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             const balance = getBalance(c);
             const invCount = getCustomerInvoices(c.id).length;
             return (
-              <div key={c.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
+              <div key={c.id} className="bg-elevated border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className="w-10 h-10 rounded-xl bg-violet-900/40 flex items-center justify-center text-lg font-bold text-violet-300">
@@ -230,7 +328,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="bg-[#252545] rounded-xl p-2 text-center">
+                  <div className="bg-muted-bg rounded-xl p-2 text-center">
                     <div className="text-xs text-gray-500">عدد الفواتير</div>
                     <div className="font-bold text-white">{invCount}</div>
                   </div>
@@ -240,7 +338,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="flex-1 py-1.5 text-xs bg-violet-900/20 border border-violet-700/30 rounded-xl text-violet-300 hover:bg-violet-900/40 flex items-center justify-center gap-1"><Eye size={12} /> كشف حساب</button>
+                  <button onClick={() => openAdvancedStatement(c)} className="flex-1 py-1.5 text-xs bg-violet-900/20 border border-violet-700/30 rounded-xl text-violet-300 hover:bg-violet-900/40 flex items-center justify-center gap-1"><Eye size={12} /> كشف حساب</button>
                   <button onClick={() => openPaymentModal(c)} className="flex-1 py-1.5 text-xs bg-green-900/20 border border-green-700/30 rounded-xl text-green-300 hover:bg-green-900/40 flex items-center justify-center gap-1"><DollarSign size={12} /> تحصيل</button>
                   <button onClick={() => openEdit(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-violet-400"><Edit size={12} /></button>
                   <button onClick={() => setConfirmDelete(c)} className="py-1.5 px-2 text-xs bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-red-400"><Trash2 size={12} /></button>
@@ -259,7 +357,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             const balance = getBalance(c);
             const invCount = getCustomerInvoices(c.id).length;
             return (
-              <div key={c.id} className="bg-[#1a1a35] border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all flex-wrap gap-3">
+              <div key={c.id} className="bg-elevated border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all flex-wrap gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-violet-900/40 flex items-center justify-center text-sm font-bold text-violet-300">{c.name.charAt(0)}</div>
                   <div>
@@ -271,7 +369,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                   <div className="text-center"><div className="text-xs text-gray-500">الفواتير</div><div className="text-sm font-bold text-white">{invCount}</div></div>
                   <div className="text-center"><div className="text-xs text-gray-500">{balanceLabel(balance).text}</div><div className={`text-sm font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div></div>
                   <div className="flex gap-1">
-                    <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
+                    <button onClick={() => openAdvancedStatement(c)} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
                     <button onClick={() => openPaymentModal(c)} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20"><DollarSign size={14} /></button>
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400"><Edit size={14} /></button>
                     <button onClick={() => setConfirmDelete(c)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400"><Trash2 size={14} /></button>
@@ -286,7 +384,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
 
       {/* Compact View */}
       {viewMode === 'compact' && (
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-violet-900/20">
               <tr>
@@ -311,7 +409,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
                     <td className={`py-2.5 px-3 text-center font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</td>
                     <td className="py-2.5 px-3">
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => { setViewCustomer(c); setDateFrom(''); setDateTo(''); }} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
+                        <button onClick={() => openAdvancedStatement(c)} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
                         <button onClick={() => openPaymentModal(c)} className="p-1 rounded text-green-400 hover:bg-green-900/20"><DollarSign size={13} /></button>
                         <button onClick={() => openEdit(c)} className="p-1 rounded text-gray-400 hover:text-violet-400"><Edit size={13} /></button>
                         <button onClick={() => setConfirmDelete(c)} className="p-1 rounded text-gray-400 hover:text-red-400"><Trash2 size={13} /></button>
@@ -329,7 +427,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       {/* Customer Statement Modal - عرض كامل بالشاشة */}
       {viewCustomer && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-xl font-bold text-white">📊 كشف حساب - {viewCustomer.name}</h2>
               <div className="flex gap-2">
@@ -341,7 +439,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             </div>
 
             {/* بيانات أساسية */}
-            <div className="bg-[#252545] rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-sm">
+            <div className="bg-muted-bg rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-sm">
               <span className="text-gray-400">📞 {viewCustomer.phone || '-'}</span>
               {viewCustomer.email && <span className="text-gray-400">✉️ {viewCustomer.email}</span>}
               {viewCustomer.address && <span className="text-gray-400">📍 {viewCustomer.address}</span>}
@@ -349,15 +447,15 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             </div>
 
             <div className="grid grid-cols-4 gap-3 mb-4">
-              <div className="bg-[#252545] rounded-xl p-3 text-center">
+              <div className="bg-muted-bg rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">الرصيد الافتتاحي</div>
                 <div className="font-bold text-white">{viewCustomer.openingBalance.toLocaleString('ar-EG')}</div>
               </div>
-              <div className="bg-[#252545] rounded-xl p-3 text-center">
+              <div className="bg-muted-bg rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">إجمالي الفواتير</div>
                 <div className="font-bold text-green-400">{formatCurrency(getCustomerInvoices(viewCustomer.id).reduce((s, i) => s + i.total, 0))}</div>
               </div>
-              <div className="bg-[#252545] rounded-xl p-3 text-center">
+              <div className="bg-muted-bg rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">المدفوع</div>
                 <div className="font-bold text-blue-400">{formatCurrency(getCustomerInvoices(viewCustomer.id).reduce((s, i) => s + i.paid, 0))}</div>
               </div>
@@ -368,7 +466,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             </div>
 
             {/* فلتر فترة زمنية لحركة الحساب - مفيد لو حابب تطبع/تعرض جزء معين من الحساب بس */}
-            <div className="bg-[#252545] rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
+            <div className="bg-muted-bg rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-1 text-violet-300 text-sm font-medium"><Calendar size={14} /> فترة محددة:</div>
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input-dark text-sm" placeholder="من تاريخ" />
               <span className="text-gray-500 text-sm">إلى</span>
@@ -429,7 +527,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             <h3 className="text-sm font-bold text-violet-300 mb-2">🧾 جميع فواتير المبيعات ({getCustomerInvoices(viewCustomer.id).length})</h3>
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {getCustomerInvoices(viewCustomer.id).map(inv => (
-                <button key={inv.id} onClick={() => setViewInvoice(inv)} className="w-full text-right bg-[#252545] hover:bg-[#2d2d5a] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2 transition-colors">
+                <button key={inv.id} onClick={() => setViewInvoice(inv)} className="w-full text-right bg-muted-bg hover:bg-[#2d2d5a] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2 transition-colors">
                   <div>
                     <div className="font-medium text-white text-sm font-mono">{inv.invoiceNumber}</div>
                     <div className="text-xs text-gray-500">{inv.date} • {inv.items.length} منتج</div>
@@ -452,10 +550,13 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       {/* Invoice Detail Modal - عرض تفاصيل الفاتورة كاملة بدل النص فقط */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-black/90 z-[60] flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📄 فاتورة {viewInvoice.invoiceNumber}</h2>
-              <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => printSaleInvoice(viewInvoice)} className="btn-secondary text-sm flex items-center gap-1"><Printer size={14} /> طباعة</button>
+                <button onClick={() => setViewInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
               <div><div className="text-xs text-gray-500">العميل</div><div className="font-bold text-white">{viewInvoice.customerName}</div></div>
@@ -464,7 +565,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
             </div>
             <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
               {viewInvoice.items.map(item => (
-                <div key={item.id} className="bg-[#252545] rounded-xl p-3 flex items-center justify-between">
+                <div key={item.id} className="bg-muted-bg rounded-xl p-3 flex items-center justify-between">
                   <div>
                     <div className="font-medium text-white text-sm">{item.productName}</div>
                     <div className="text-xs text-gray-500">{item.sku} • الكمية: {item.quantity} × {formatCurrency(item.unitPrice)}</div>
@@ -490,7 +591,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       {/* Payment Modal */}
       {showPayment && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-1">💰 تحصيل دفعة</h3>
             <p className="text-gray-400 text-sm mb-4">{showPayment.name} • {balanceLabel(getBalance(showPayment)).text}: {formatCurrency(balanceLabel(getBalance(showPayment)).amount)}</p>
             <div className="space-y-3">
@@ -517,7 +618,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       {/* Add/Edit Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
             <h3 className="font-bold text-white mb-4">{editCustomer ? '✏️ تعديل عميل' : '➕ إضافة عميل'}</h3>
             <div className="space-y-3">
               <input type="text" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="input-dark w-full" placeholder="اسم العميل *" />
@@ -549,16 +650,48 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       {/* Delete Confirmation */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-2">🗑️ حذف العميل</h3>
             <p className="text-gray-400 text-sm mb-4">هل أنت متأكد من حذف <span className="text-white font-medium">{confirmDelete.name}</span>؟ لن يتم حذف الفواتير المرتبطة به، لكن لن تتمكن من الرجوع لهذا الإجراء.</p>
             <div className="flex gap-2">
               <button onClick={handleDelete} className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">🗑️ تأكيد الحذف</button>
-              <button onClick={() => setConfirmDelete(null)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 text-sm font-medium">إلغاء</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ✅ Advanced Statement Modal */}
+      {showAdvancedStatement && currentStatement && (
+        <StatementModal
+          isOpen={showAdvancedStatement}
+          customer={viewCustomer || customers.find(c => c.id === currentStatement.customerId) || null}
+          statement={currentStatement}
+          onClose={() => {
+            setShowAdvancedStatement(false);
+            setCurrentStatement(null);
+          }}
+          onPrint={handlePrintStatement}
+          onExportPDF={handleExportPDF}
+          onSendEmail={(c, stmt) => {
+            console.log('[v0] سيتم إضافة إرسال البريد الإلكتروني في المرحلة القادمة');
+          }}
+          onShowTransactionDetail={(row) => {
+            setSelectedTransactionRow(row);
+            setShowTransactionDetail(true);
+          }}
+        />
+      )}
+
+      {/* ✅ Transaction Detail Modal */}
+      <TransactionDetail
+        isOpen={showTransactionDetail}
+        row={selectedTransactionRow}
+        onClose={() => {
+          setShowTransactionDetail(false);
+          setSelectedTransactionRow(null);
+        }}
+      />
     </div>
   );
 }

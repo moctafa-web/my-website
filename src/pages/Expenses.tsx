@@ -55,15 +55,15 @@ export default function Expenses({ expenses, onAddExpense }: Props) {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#1a1a35] border border-red-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-red-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-red-400">{formatCurrency(totalExpenses)}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المصروفات</div>
         </div>
-        <div className="bg-[#1a1a35] border border-green-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-green-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-green-400">{formatCurrency(cashExpenses)}</div>
           <div className="text-xs text-gray-500 mt-1">مصروفات كاش</div>
         </div>
-        <div className="bg-[#1a1a35] border border-blue-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-blue-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-blue-400">{formatCurrency(bankExpenses)}</div>
           <div className="text-xs text-gray-500 mt-1">مصروفات بنك</div>
         </div>
@@ -74,7 +74,7 @@ export default function Expenses({ expenses, onAddExpense }: Props) {
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث في المصروفات..." className="input-dark w-full pr-9" />
       </div>
 
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-violet-900/20">
             <tr>
@@ -108,7 +108,7 @@ export default function Expenses({ expenses, onAddExpense }: Props) {
       {/* Add Expense Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
             <h3 className="font-bold text-white mb-4">💸 إضافة مصروف جديد</h3>
             <div className="space-y-3">
               <input type="text" value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} className="input-dark w-full" placeholder="وصف المصروف *" />

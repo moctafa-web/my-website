@@ -293,7 +293,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
 
       {/* الأيام المحفوظة */}
       {showHistory && (
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4">
           <h3 className="font-bold text-white mb-3">🗂️ الأيام المحفوظة</h3>
           {savedDates.length === 0 ? (
             <div className="text-center text-gray-500 py-4">لا توجد أيام محفوظة بعد</div>
@@ -312,7 +312,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
                     key={d}
                     onClick={() => { setDate(d); setShowHistory(false); }}
                     className={`text-right p-3 rounded-xl border transition-colors ${
-                      isSelected ? 'bg-violet-700/20 border-violet-500/40' : 'bg-[#12122a] border-white/10 hover:border-violet-700/40'
+                      isSelected ? 'bg-violet-700/20 border-violet-500/40' : 'bg-surface border-white/10 hover:border-violet-700/40'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -344,7 +344,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
       )}
 
       {/* التاريخ + رصيد أول اليوم (تلقائي) */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="form-label">📅 تاريخ اليوم</label>
@@ -376,7 +376,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
           const calc = autoCalc[treasury];
           const hasMovement = Object.keys(calc.byType).length > 0;
           return (
-            <div key={treasury} className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 space-y-2">
+            <div key={treasury} className="bg-elevated border border-violet-900/30 rounded-2xl p-4 space-y-2">
               <h3 className="font-bold text-white flex items-center gap-2">
                 {treasury === 'cash' ? '💵 حركة الكاش اليوم (تلقائي)' : '🏦 حركة البنك اليوم (تلقائي)'}
               </h3>
@@ -413,7 +413,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* الداخل */}
-        <div className="bg-[#1a1a35] border border-green-900/30 rounded-2xl p-4 space-y-3">
+        <div className="bg-elevated border border-green-900/30 rounded-2xl p-4 space-y-3">
           <h3 className="font-bold text-green-400">📥 بند إضافي داخل (استثنائي)</h3>
           <div className="space-y-2">
             {inEntries.map((entry, idx) => (
@@ -441,7 +441,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
         </div>
 
         {/* الخارج */}
-        <div className="bg-[#1a1a35] border border-red-900/30 rounded-2xl p-4 space-y-3">
+        <div className="bg-elevated border border-red-900/30 rounded-2xl p-4 space-y-3">
           <h3 className="font-bold text-red-400">📤 بند إضافي خارج (استثنائي)</h3>
           <div className="space-y-2">
             {outEntries.map((entry, idx) => (
@@ -470,7 +470,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
       </div>
 
       {/* ملخص التقفيل - كاش */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 space-y-3">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4 space-y-3">
         <h3 className="font-bold text-white">📊 ملخص تقفيل الكاش</h3>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1">
@@ -501,7 +501,7 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
           </div>
         </div>
 
-        <div className="bg-[#12122a] rounded-xl p-3">
+        <div className="bg-surface rounded-xl p-3">
           <label className="form-label">🪙 رصيد الدرج الفعلي (اللي عدّيته)</label>
           <input type="number" value={actualBalance} onChange={e => setActualBalance(e.target.value)} className="input-dark w-full text-lg font-mono" placeholder="اكتب الرصيد الفعلي..." />
         </div>
@@ -542,13 +542,13 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
       </div>
 
       {/* ملخص تقفيل البنك */}
-      <div className="bg-[#1a1a35] border border-blue-900/30 rounded-2xl p-4 space-y-3">
+      <div className="bg-elevated border border-blue-900/30 rounded-2xl p-4 space-y-3">
         <h3 className="font-bold text-white">🏦 ملخص تقفيل البنك</h3>
         <div className="flex justify-between py-2 text-sm font-bold">
           <span className="text-white">المفروض يتبقى في البنك</span>
           <span className="text-blue-400 text-lg">{formatCurrency(autoCalc.bank.expectedClosing)}</span>
         </div>
-        <div className="bg-[#12122a] rounded-xl p-3">
+        <div className="bg-surface rounded-xl p-3">
           <label className="form-label">🏦 رصيد البنك الفعلي (من كشف الحساب/التطبيق)</label>
           <input type="number" value={actualBalanceBank} onChange={e => setActualBalanceBank(e.target.value)} className="input-dark w-full text-lg font-mono" placeholder="اكتب رصيد البنك الفعلي..." />
         </div>

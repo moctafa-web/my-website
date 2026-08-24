@@ -227,7 +227,7 @@ export default function Products({
 
       {/* ==================== جرد المخزون ==================== */}
       {showJrard && (
-        <div className="bg-[#1a1a35] border border-yellow-700/30 rounded-2xl p-4">
+        <div className="bg-elevated border border-yellow-700/30 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-yellow-300">
               📋 جرد المخزون - مقارنة النظام بالواقع
@@ -324,7 +324,7 @@ export default function Products({
                             onChange={e => setJrardData(prev => ({
                               ...prev, [p.id]: e.target.value,
                             }))}
-                            className="w-20 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
+                            className="w-20 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
                             placeholder="?"
                           />
                         </td>
@@ -356,7 +356,7 @@ export default function Products({
       )}
 
       {/* Filters */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 space-y-3">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => { setFilterCat('all'); setFilterSub(''); setOpenCat(null); }}
             className={catBtnClass('all')}>🌐 الكل</button>
@@ -373,7 +373,7 @@ export default function Products({
                 <ChevronDown size={12} />
               </button>
               {openCat === cat && (
-                <div className="absolute top-full mt-1 right-0 bg-[#252545] border border-violet-900/40 rounded-xl p-2 z-20 min-w-[160px]">
+                <div className="absolute top-full mt-1 right-0 bg-muted-bg border border-violet-900/40 rounded-xl p-2 z-20 min-w-[160px]">
                   {CAT_SUB[cat].map(sub => (
                     <button key={sub}
                       onClick={() => { setFilterCat(cat); setFilterSub(sub); setOpenCat(null); }}
@@ -399,7 +399,7 @@ export default function Products({
               className="input-dark w-full pr-9"
             />
           </div>
-          <div className="flex items-center gap-1 bg-[#252545] border border-violet-900/30 rounded-xl p-1">
+          <div className="flex items-center gap-1 bg-muted-bg border border-violet-900/30 rounded-xl p-1">
             {(['grid', 'list', 'compact'] as ViewMode[]).map(v => (
               <button key={v} onClick={() => setView(v)}
                 className={`p-2 rounded-lg transition-colors ${
@@ -440,7 +440,7 @@ export default function Products({
       )}
 
       {viewMode === 'compact' && (
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-violet-900/20">
               <tr>
@@ -514,7 +514,7 @@ export default function Products({
       {showForm && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto"
           onClick={() => setShowForm(false)}>
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4"
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4"
             onClick={e => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-white mb-5">
               {editProduct ? '✏️ تعديل منتج' : '➕ إضافة منتج جديد'}
@@ -724,7 +724,7 @@ function ProductCard({
   const stock = product.productType === 'serial' ? availableSerials : product.stock;
   const stockColor = stock === 0 ? 'text-red-400' : stock <= 2 ? 'text-yellow-400' : 'text-green-400';
   return (
-    <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
+    <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
       <div className="flex items-start justify-between mb-3">
         <div className="w-10 h-10 rounded-xl bg-violet-900/30 flex items-center justify-center text-xl">
           {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' :
@@ -786,7 +786,7 @@ function ProductListRow({
   const stock = product.productType === 'serial' ? availableSerials : product.stock;
   const stockColor = stock === 0 ? 'text-red-400' : stock <= 2 ? 'text-yellow-400' : 'text-green-400';
   return (
-    <div className="bg-[#1a1a35] border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all">
+    <div className="bg-elevated border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all">
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-violet-900/30 flex items-center justify-center text-lg">
           {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' :

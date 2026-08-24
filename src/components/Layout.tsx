@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
-import { useAuth } from '../auth';
+import React, { useState } from "react";
 import {
   LayoutDashboard,
   Users,
   ShoppingCart,
   Package,
   DollarSign,
-  BookOpen,
   BarChart3,
   Settings,
   ChevronLeft,
@@ -17,31 +15,33 @@ import {
   ShoppingBag,
   Store,
   CreditCard,
-  TrendingUp,
-  LogOut,
+  Boxes,
   Search,
-} from 'lucide-react';
+  BookOpen,
+  Banknote,
+  Landmark,
+} from "lucide-react";
 
 interface NavItem {
   id: string;
   label: string;
   icon: React.ReactNode;
-  badge?: number;
 }
 
 const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} /> },
-  { id: 'customers', label: 'العملاء', icon: <Users size={20} /> },
-  { id: 'sales', label: 'المبيعات', icon: <ShoppingCart size={20} /> },
-  { id: 'purchases', label: 'المشتريات', icon: <ShoppingBag size={20} /> },
-  { id: 'inventory', label: 'المخزون', icon: <Package size={20} /> },
-  { id: 'suppliers', label: 'الموردون', icon: <Truck size={20} /> },
-  { id: 'noon', label: 'نون / أمازون', icon: <Store size={20} /> },
-  { id: 'finance', label: 'المالية', icon: <DollarSign size={20} /> },
-  { id: 'reports', label: 'التقارير', icon: <BarChart3 size={20} /> },
-  { id: 'expenses', label: 'المصروفات', icon: <CreditCard size={20} /> },
-  { id: 'products', label: 'المنتجات', icon: <TrendingUp size={20} /> },
-  { id: 'settings', label: 'الإعدادات', icon: <Settings size={20} /> },
+  { id: "dashboard", label: "الرئيسية", icon: <LayoutDashboard size={18} /> },
+  { id: "sales", label: "المبيعات", icon: <ShoppingCart size={18} /> },
+  { id: "purchases", label: "المشتريات", icon: <ShoppingBag size={18} /> },
+  { id: "inventory", label: "المخزون", icon: <Package size={18} /> },
+  { id: "products", label: "المنتجات", icon: <Boxes size={18} /> },
+  { id: "customers", label: "العملاء", icon: <Users size={18} /> },
+  { id: "suppliers", label: "الموردون", icon: <Truck size={18} /> },
+  { id: "noon", label: "نون / أمازون", icon: <Store size={18} /> },
+  { id: "finance", label: "المالية", icon: <DollarSign size={18} /> },
+  { id: "expenses", label: "المصروفات", icon: <CreditCard size={18} /> },
+  { id: "journal", label: "اليومية", icon: <BookOpen size={18} /> },
+  { id: "reports", label: "التقارير", icon: <BarChart3 size={18} /> },
+  { id: "settings", label: "الإعدادات", icon: <Settings size={18} /> },
 ];
 
 interface LayoutProps {
@@ -51,6 +51,7 @@ interface LayoutProps {
   cashBalance: number;
   bankBalance: number;
   onOpenSearch?: () => void;
+  companyName?: string;
 }
 
 export default function Layout({
@@ -60,16 +61,14 @@ export default function Layout({
   cashBalance,
   bankBalance,
   onOpenSearch,
+  companyName = "ONE",
 }: LayoutProps) {
-  const { logout, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-
   const currentNav = navItems.find((n) => n.id === currentPage);
 
   return (
-    <div className="flex h-screen bg-[#0f0f1a] text-white overflow-hidden" dir="rtl">
-      {/* Mobile Overlay */}
+    <div className="flex h-dvh bg-bg text-fg overflow-hidden" dir="rtl">
       {mobileOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-40 lg:hidden"
@@ -77,200 +76,174 @@ export default function Layout({
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`
-          ${collapsed ? 'w-16' : 'w-64'}
-          ${mobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
-          fixed lg:relative right-0 top-0 bottom-0 z-50
-          bg-[#12122a] border-l border-violet-900/30
-          flex flex-col transition-all duration-300 ease-in-out
-          shadow-2xl
+          w-64 shrink-0 bg-surface border-l border-border flex-col
+          ${collapsed ? "lg:w-[72px]" : "lg:w-64"}
+          ${mobileOpen ? "flex" : "hidden"}
+          lg:flex
+          max-lg:fixed max-lg:right-0 max-lg:top-0 max-lg:bottom-0 max-lg:z-50
+          lg:relative
+          transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]
         `}
       >
-        {/* Logo */}
         <div
           className={`flex items-center ${
-            collapsed ? 'justify-center' : 'justify-between'
-          } p-4 border-b border-violet-900/30`}
+            collapsed ? "justify-center" : "justify-between"
+          } px-3 py-4 border-b border-border`}
         >
           {!collapsed && (
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-purple-800 flex items-center justify-center font-black text-white text-sm shadow-lg shadow-violet-900/50">
-                ONE
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-md bg-accent text-accent-fg flex items-center justify-center font-semibold text-sm tracking-tight shrink-0">
+                1
               </div>
-              <div>
-                <div className="font-black text-white text-lg leading-none">ONE</div>
-                <div className="text-violet-400 text-xs">نظام الإدارة</div>
+              <div className="min-w-0">
+                <div className="font-semibold text-fg text-[15px] leading-none truncate">
+                  {companyName}
+                </div>
+                <div className="text-subtle text-[11px] mt-1">نظام المبيعات والمحاسبة</div>
               </div>
             </div>
           )}
 
           {collapsed && (
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-purple-800 flex items-center justify-center font-black text-white text-xs shadow-lg">
-              O
+            <div className="w-9 h-9 rounded-md bg-accent text-accent-fg flex items-center justify-center font-semibold text-sm">
+              1
             </div>
           )}
 
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="hidden lg:flex p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/30 hover:text-white transition-colors"
+            className="hidden lg:flex p-1.5 rounded-sm text-muted hover:bg-elevated hover:text-fg transition-colors"
+            aria-label={collapsed ? "توسيع القائمة" : "طي القائمة"}
           >
             {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
           </button>
 
           <button
             onClick={() => setMobileOpen(false)}
-            className="lg:hidden p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/30"
+            className="lg:hidden p-1.5 rounded-sm text-muted hover:bg-elevated"
+            aria-label="إغلاق القائمة"
           >
             <X size={16} />
           </button>
         </div>
 
-        {/* Balance Pills */}
         {!collapsed && (
-          <div className="px-3 py-3 border-b border-violet-900/20 space-y-2">
-            <div className="flex items-center justify-between bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2">
-              <span className="text-xs text-green-400 font-medium">💵 كاش</span>
-              <span className="text-xs font-bold text-green-300">
-                {cashBalance.toLocaleString('ar-EG')} ج.م
+          <div className="px-3 py-3 border-b border-border space-y-2">
+            <div className="flex items-center justify-between bg-elevated border border-border rounded-md px-3 py-2">
+              <span className="text-[11px] text-muted flex items-center gap-1.5">
+                <Banknote size={12} />
+                كاش
+              </span>
+              <span className="text-xs font-semibold text-good-fg tabular-nums">
+                {cashBalance.toLocaleString("ar-EG")} ج.م
               </span>
             </div>
-            <div className="flex items-center justify-between bg-blue-900/20 border border-blue-700/30 rounded-xl px-3 py-2">
-              <span className="text-xs text-blue-400 font-medium">🏦 بنك</span>
-              <span className="text-xs font-bold text-blue-300">
-                {bankBalance.toLocaleString('ar-EG')} ج.م
+            <div className="flex items-center justify-between bg-elevated border border-border rounded-md px-3 py-2">
+              <span className="text-[11px] text-muted flex items-center gap-1.5">
+                <Landmark size={12} />
+                بنك
+              </span>
+              <span className="text-xs font-semibold text-info-fg tabular-nums">
+                {bankBalance.toLocaleString("ar-EG")} ج.م
               </span>
             </div>
           </div>
         )}
 
-        {/* Nav Items */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-1">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                onNavigate(item.id);
-                setMobileOpen(false);
-              }}
-              className={`
-                w-full flex items-center gap-3 rounded-xl transition-all duration-200
-                ${collapsed ? 'justify-center p-3' : 'px-3 py-2.5'}
-                ${
-                  currentPage === item.id
-                    ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40 shadow-lg shadow-violet-900/20'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                }
-              `}
-              title={collapsed ? item.label : ''}
-            >
-              <span className={currentPage === item.id ? 'text-violet-400' : ''}>
-                {item.icon}
-              </span>
-              {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
-              {!collapsed && item.badge && (
-                <span className="mr-auto bg-violet-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          ))}
+        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+          {navItems.map((item) => {
+            const active = currentPage === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  onNavigate(item.id);
+                  setMobileOpen(false);
+                }}
+                className={`
+                  w-full flex items-center gap-3 rounded-md transition-colors duration-150
+                  ${collapsed ? "justify-center p-3" : "px-3 py-2.5"}
+                  ${
+                    active
+                      ? "bg-elevated text-fg border border-border"
+                      : "text-muted hover:bg-elevated/70 hover:text-fg border border-transparent"
+                  }
+                `}
+                title={collapsed ? item.label : undefined}
+              >
+                <span className={active ? "text-accent" : ""}>{item.icon}</span>
+                {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
+              </button>
+            );
+          })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-3 border-t border-violet-900/30">
+        <div className="p-3 border-t border-border">
           {!collapsed ? (
-            <div className="space-y-3">
-              <div className="text-xs text-gray-400 truncate">
-                {user?.email || 'Guest'}
-              </div>
-
-              <button
-                onClick={logout}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 border border-red-500/20 px-3 py-2 text-sm transition-colors"
-              >
-                <LogOut size={16} />
-                <span>تسجيل الخروج</span>
-              </button>
-
-              <div className="text-center text-xs text-gray-600">ONE ERP v1.0</div>
-            </div>
+            <div className="text-[11px] text-subtle text-center">ONE ERP</div>
           ) : (
-            <div className="flex justify-center">
-              <button
-                onClick={logout}
-                className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300"
-                title="تسجيل الخروج"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
+            <div className="h-4" />
           )}
         </div>
       </aside>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="bg-[#12122a]/80 backdrop-blur border-b border-violet-900/30 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header className="bg-surface/90 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setMobileOpen(true)}
-              className="lg:hidden p-2 rounded-lg text-gray-400 hover:bg-white/10"
+              className="lg:hidden p-2 rounded-md text-muted hover:bg-elevated"
+              aria-label="فتح القائمة"
             >
               <Menu size={20} />
             </button>
-
-            <div>
-              <h1 className="font-bold text-white text-lg">
-                {currentNav?.label || 'ONE'}
+            <div className="min-w-0">
+              <h1 className="font-semibold text-fg text-base truncate">
+                {currentNav?.label || companyName}
               </h1>
-              <p className="text-xs text-gray-500">
-                {new Date().toLocaleDateString('ar-EG', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
+              <p className="text-[11px] text-subtle truncate">
+                {new Date().toLocaleDateString("ar-EG", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
                 })}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* زرار البحث الشامل - يفتح بحث في كل النظام (منتجات، عملاء، فواتير، سيريالات) أو Ctrl+K */}
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={onOpenSearch}
-              className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-3 py-2 text-gray-400 transition-colors"
+              className="flex items-center gap-2 bg-elevated hover:bg-muted-bg border border-border rounded-md px-3 py-2 text-muted transition-colors min-h-11"
             >
               <Search size={16} />
-              <span className="hidden md:inline text-sm">بحث شامل...</span>
-              <kbd className="hidden md:inline text-xs bg-white/10 px-1.5 py-0.5 rounded">Ctrl+K</kbd>
+              <span className="hidden md:inline text-sm">بحث شامل</span>
+              <kbd className="hidden md:inline text-[10px] bg-muted-bg px-1.5 py-0.5 rounded-sm text-subtle">
+                Ctrl+K
+              </kbd>
             </button>
 
-            <div className="hidden md:flex items-center gap-3">
-              <div className="bg-green-900/30 border border-green-700/40 rounded-lg px-3 py-1.5 text-xs">
-                <span className="text-green-400">💵</span>
-                <span className="text-green-300 font-bold mr-1">
-                  {cashBalance.toLocaleString('ar-EG')} ج.م
+            <div className="hidden md:flex items-center gap-2">
+              <div className="bg-elevated border border-border rounded-md px-3 py-1.5 text-xs">
+                <span className="text-muted">كاش</span>
+                <span className="text-good-fg font-semibold mr-1.5 tabular-nums">
+                  {cashBalance.toLocaleString("ar-EG")}
                 </span>
               </div>
-              <div className="bg-blue-900/30 border border-blue-700/40 rounded-lg px-3 py-1.5 text-xs">
-                <span className="text-blue-400">🏦</span>
-                <span className="text-blue-300 font-bold mr-1">
-                  {bankBalance.toLocaleString('ar-EG')} ج.م
+              <div className="bg-elevated border border-border rounded-md px-3 py-1.5 text-xs">
+                <span className="text-muted">بنك</span>
+                <span className="text-info-fg font-semibold mr-1.5 tabular-nums">
+                  {bankBalance.toLocaleString("ar-EG")}
                 </span>
               </div>
-            </div>
-
-            <div className="w-8 h-8 rounded-full bg-violet-700 flex items-center justify-center text-sm font-bold">
-              O
             </div>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-y-auto bg-[#0f0f1a]">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-bg">{children}</main>
       </div>
     </div>
   );

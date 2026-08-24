@@ -34,7 +34,7 @@ export default function PasswordConfirmModal({ title, message, confirmLabel = 'Ø
 
   return (
     <div className="fixed inset-0 bg-black/85 z-[70] flex items-center justify-center p-4">
-      <div className="bg-[#1a1a35] border border-red-700/50 rounded-2xl p-6 w-full max-w-sm text-center">
+      <div className="bg-elevated border border-red-700/50 rounded-2xl p-6 w-full max-w-sm text-center">
         <div className="w-14 h-14 rounded-2xl bg-red-900/30 border border-red-700/40 flex items-center justify-center mx-auto mb-3">
           <ShieldAlert className="text-red-400" size={26} />
         </div>

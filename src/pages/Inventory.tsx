@@ -1,8 +1,15 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder, Customer } from '../types';
+import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder, Customer, WeeklyInventoryCount, StockTransfer as StockTransferType } from '../types';
 import { formatCurrency, categoryLabel, printElement, getTodayStr } from '../utils/helpers';
 import { Search, Printer, Package, Hash, Eye, CheckCircle2, X } from 'lucide-react';
 import PasswordConfirmModal from '../components/PasswordConfirmModal';
+import InventoryReports from './InventoryReports';
+import PhysicalInventoryCount from './PhysicalInventoryCount';
+import StockTransfer from './StockTransfer';
+import LocationReport from './LocationReport';
+import InventoryLedger from './InventoryLedger';
+import SerialTimeline from './SerialTimeline';
+import DailyInventoryScanner from './DailyInventoryScanner';
 
 interface Props {
   products: Product[];
@@ -12,6 +19,16 @@ interface Props {
   noonOrders?: NoonOrder[];
   customers?: Customer[];
   onUpdateProduct?: (p: Product) => void;
+  weeklyInventoryCounts?: WeeklyInventoryCount[];
+  onAddCount?: (count: WeeklyInventoryCount) => void;
+  onUpdateCount?: (count: WeeklyInventoryCount) => void;
+  stockTransfers?: StockTransferType[];
+  onAddTransfer?: (transfer: StockTransferType) => void;
+  onUpdateTransfer?: (transfer: StockTransferType) => void;
+  dailyOperations?: any[];
+  dailyInventoryScans?: any[];
+  onAddDailyInventoryScan?: (session: any) => void;
+  onUpdateDailyInventoryScan?: (session: any) => void;
 }
 
 type UnifiedResultType = 'serial' | 'product' | 'saleInvoice' | 'purchaseInvoice';
@@ -24,9 +41,19 @@ interface UnifiedSuggestion {
   typeLabel: string;
 }
 
-export default function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], onUpdateProduct }: Props) {
+export default function Inventory({
+  products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], onUpdateProduct,
+  weeklyInventoryCounts = [], onAddCount, onUpdateCount,
+  stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan,
+}: Props) {
+  // ✅ Tab navigation for inventory sub-sections
+  const [inventoryTab, setInventoryTab] = useState<'products' | 'counts' | 'reports' | 'transfers'>('products');
+  const [countTab, setCountTab] = useState<'daily' | 'weekly'>('daily');
+  const [reportTab, setReportTab] = useState<'reports' | 'ledger' | 'locations'>('reports');
+
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'sold' | 'transferred'>('all');
   const [showSerials, setShowSerials] = useState<string | null>(null);
 
   const [showJrard, setShowJrard] = useState(false);
@@ -72,15 +99,15 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
     // فواتير بيع (برقم الفاتورة أو اسم العميل)
     saleInvoices.filter(i =>
-      i.invoiceNumber.toLowerCase().includes(q) || i.customerName.toLowerCase().includes(q)
-    ).slice(0, 3).forEach(i => {
+      i.invoiceNumber.toLowerCase().includes(q) || i.customerName.toLowerCase().includes(q) || i.items.some(item => item.productName.toLowerCase().includes(q) || item.productId.toLowerCase().includes(q))
+    ).slice(0, 6).forEach(i => {
       results.push({ type: 'saleInvoice', data: i, title: i.invoiceNumber, subtitle: `${i.customerName} • ${i.date} • ${formatCurrency(i.total)}`, searchLabel: i.invoiceNumber, typeLabel: 'فاتورة بيع' });
     });
 
     // فواتير شراء
     purchaseInvoices.filter(i =>
-      i.invoiceNumber.toLowerCase().includes(q) || i.supplierName.toLowerCase().includes(q)
-    ).slice(0, 3).forEach(i => {
+      i.invoiceNumber.toLowerCase().includes(q) || i.supplierName.toLowerCase().includes(q) || i.items.some(item => item.productName.toLowerCase().includes(q) || item.productId.toLowerCase().includes(q))
+    ).slice(0, 6).forEach(i => {
       results.push({ type: 'purchaseInvoice', data: i, title: i.invoiceNumber, subtitle: `${i.supplierName} • ${i.date} • ${formatCurrency(i.total)}`, searchLabel: i.invoiceNumber, typeLabel: 'فاتورة شراء' });
     });
 
@@ -137,15 +164,6 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
     noon: noonOrders.filter(o => o.items.some(item => item.productId === productId) && o.status !== 'canceled'),
   });
 
-  const filtered = products.filter(p => {
-    const matchSearch =
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.sku.toLowerCase().includes(search.toLowerCase()) ||
-      p.brand.toLowerCase().includes(search.toLowerCase());
-    const matchCat = filterCat === 'all' || p.category === filterCat;
-    return matchSearch && matchCat;
-  });
-
   const getAvailableSerials = (productId: string) =>
     serials.filter(s => s.productId === productId && s.status === 'available');
   const getSoldSerials = (productId: string) =>
@@ -170,6 +188,20 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
       .filter(o => o.status !== 'canceled')
       .reduce((sum, o) => sum + o.items.filter(item => item.productId === p.id).length, 0);
   };
+
+  const filtered = products.filter(p => {
+    const matchSearch =
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.sku.toLowerCase().includes(search.toLowerCase()) ||
+      p.brand.toLowerCase().includes(search.toLowerCase());
+    const matchCat = filterCat === 'all' || p.category === filterCat;
+    const matchStatus =
+      filterStatus === 'all' ? true :
+      filterStatus === 'available' ? getRealStock(p) > 0 :
+      filterStatus === 'sold' ? getSoldCount(p) > 0 :
+      getTransferredCount(p) > 0; // filterStatus === 'transferred'
+    return matchSearch && matchCat && matchStatus;
+  });
 
   const totalValue = products.reduce((s, p) => s + p.costPrice * getRealStock(p), 0);
   const totalSaleValue = products.reduce((s, p) => s + p.salePrice * getRealStock(p), 0);
@@ -290,8 +322,8 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; color: #111; font-size: 13px; }
           .header { display: flex; justify-content: space-between; align-items: center;
-                    border-bottom: 3px solid #7c3aed; padding-bottom: 16px; margin-bottom: 20px; }
-          .company { font-size: 28px; font-weight: 900; color: #7c3aed; }
+                    border-bottom: 3px solid #9aabba; padding-bottom: 16px; margin-bottom: 20px; }
+          .company { font-size: 28px; font-weight: 900; color: #9aabba; }
           .title-box { text-align: left; }
           .title-box h2 { font-size: 18px; font-weight: 700; }
           .title-box p { font-size: 12px; color: #666; margin-top: 4px; }
@@ -327,7 +359,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         <div class="summary">
           <div class="sum-card blue">
             <div class="num">${filtered.length}</div>
-            <div class="lbl">إجمالي المنتجات</div>
+            <div class="lbl">��جمالي المنتجات</div>
           </div>
           <div class="sum-card green">
             <div class="num">${matchCount}</div>
@@ -365,11 +397,57 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
     w.document.close();
   };
 
+  const printSaleInvoice = (inv: SaleInvoice) => {
+    printElement(`
+      <div style="direction:rtl;font-family:Arial,sans-serif;padding:20px">
+        <h1 style="margin:0 0 6px">فاتورة مبيعات</h1>
+        <div style="color:#666;margin-bottom:18px"># ${inv.invoiceNumber} • ${inv.date}</div>
+        <div style="margin-bottom:14px"><strong>العميل:</strong> ${inv.customerName}</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#111;color:#fff"><th style="padding:8px;text-align:right">المنتج</th><th style="padding:8px">الكمية</th><th style="padding:8px">السعر</th><th style="padding:8px">الإجمالي</th></tr></thead>
+          <tbody>${inv.items.map(item => `<tr><td style="padding:8px;border-bottom:1px solid #ddd">${item.productName}${item.serials?.length ? `<div style="font-size:11px;color:#666;font-family:monospace">${item.serials.map(x=>x.serial).join(' • ')}</div>` : ''}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:center">${item.quantity}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:center">${formatCurrency(item.unitPrice)}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:center">${formatCurrency(item.total)}</td></tr>`).join('')}</tbody>
+        </table>
+        <div style="margin-top:18px;text-align:left"><strong>الإجمالي:</strong> ${formatCurrency(inv.total)}<br/><strong>المدفوع:</strong> ${formatCurrency(inv.paid)}<br/><strong>المتبقي:</strong> ${formatCurrency(inv.remaining)}</div>
+      </div>`);
+  };
+
+  const printPurchaseInvoice = (inv: PurchaseInvoice) => {
+    printElement(`
+      <div style="direction:rtl;font-family:Arial,sans-serif;padding:20px">
+        <h1 style="margin:0 0 6px">فاتورة مشتريات</h1>
+        <div style="color:#666;margin-bottom:18px"># ${inv.invoiceNumber} • ${inv.date}</div>
+        <div style="margin-bottom:14px"><strong>المورد:</strong> ${inv.supplierName}</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#111;color:#fff"><th style="padding:8px;text-align:right">المنتج</th><th style="padding:8px">الكمية</th><th style="padding:8px">السعر</th><th style="padding:8px">الإجمالي</th></tr></thead>
+          <tbody>${inv.items.map(item => `<tr><td style="padding:8px;border-bottom:1px solid #ddd">${item.productName}${item.serials?.length ? `<div style="font-size:11px;color:#666;font-family:monospace">${item.serials.map(x=>x.serial).join(' • ')}</div>` : ''}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:center">${item.quantity}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:center">${formatCurrency(item.unitPrice)}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:center">${formatCurrency(item.total)}</td></tr>`).join('')}</tbody>
+        </table>
+        <div style="margin-top:18px;text-align:left"><strong>الإجمالي:</strong> ${formatCurrency(inv.total)}<br/><strong>المدفوع:</strong> ${formatCurrency(inv.paid)}<br/><strong>المتبقي:</strong> ${formatCurrency(inv.remaining)}</div>
+      </div>`);
+  };
+
   return (
     <div className="p-4 lg:p-6 space-y-6">
+      {/* ==================== Inventory Tabs Navigation ==================== */}
+      <div className="flex gap-2 border-b border-white/10 overflow-x-auto">
+        <button onClick={() => setInventoryTab('products')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${inventoryTab === 'products' ? 'border-violet-500 text-violet-300' : 'border-transparent text-gray-400 hover:text-gray-300'}`}>
+          📦 المنتجات والبحث
+        </button>
+        <button onClick={() => setInventoryTab('counts')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${inventoryTab === 'counts' ? 'border-violet-500 text-violet-300' : 'border-transparent text-gray-400 hover:text-gray-300'}`}>
+          📷 الجرد
+        </button>
+        <button onClick={() => setInventoryTab('reports')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${inventoryTab === 'reports' ? 'border-violet-500 text-violet-300' : 'border-transparent text-gray-400 hover:text-gray-300'}`}>
+          📊 التقارير والحركة
+        </button>
+        <button onClick={() => setInventoryTab('transfers')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${inventoryTab === 'transfers' ? 'border-violet-500 text-violet-300' : 'border-transparent text-gray-400 hover:text-gray-300'}`}>
+          🔄 التحويلات
+        </button>
+      </div>
 
+      {/* ==================== Conditional Content Based on Tab ==================== */}
+      {inventoryTab === 'products' && (
+        <>
       {/* ==================== قسم تتبع المنتجات (محدّث) ==================== */}
-      <div className="bg-[#1a1a35] border border-violet-700/40 rounded-2xl p-4 space-y-4">
+      <div className="bg-elevated border border-violet-700/40 rounded-2xl p-4 space-y-4">
         <h3 className="text-base font-bold text-violet-300 flex items-center gap-2">
           🔍 تتبع الأجهزة
           <span className="text-xs text-gray-500 font-normal">ابحث بالسيريال أو IMEI أو اسم المنتج أو رقم الفاتورة</span>
@@ -391,7 +469,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
             className="input-dark w-full pr-9 font-mono"
           />
           {unifiedSearch.trim() && showUnifiedSuggestions && unifiedSuggestions.length > 0 && (
-            <div className="absolute top-full right-0 left-0 z-50 bg-[#1a1a35] border border-violet-700/40 rounded-xl mt-1 shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+            <div className="absolute top-full right-0 left-0 z-50 bg-elevated border border-violet-700/40 rounded-xl mt-1 shadow-xl overflow-hidden max-h-64 overflow-y-auto">
               {unifiedSuggestions.map((s, i) => (
                 <button key={i} onClick={() => { setUnifiedResult(s); setUnifiedSearch(s.searchLabel); setShowUnifiedSuggestions(false); }}
                   className="w-full text-right px-4 py-2.5 hover:bg-violet-900/30 border-b border-white/5 last:border-0 flex items-center gap-3">
@@ -493,7 +571,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
               </div>
 
               {(serial.imei1 || serial.imei2) && (
-                <div className="flex gap-4 text-xs text-gray-400 font-mono bg-[#12122a] px-3 py-2 rounded-xl">
+                <div className="flex gap-4 text-xs text-gray-400 font-mono bg-surface px-3 py-2 rounded-xl">
                   {serial.imei1 && <span>IMEI1: <span className="text-gray-300">{serial.imei1}</span></span>}
                   {serial.imei2 && <span>IMEI2: <span className="text-gray-300">{serial.imei2}</span></span>}
                 </div>
@@ -658,7 +736,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
           return (
             <div className="space-y-3">
               {/* Header */}
-              <div className="bg-[#12122a] border border-violet-900/40 rounded-xl p-4">
+              <div className="bg-surface border border-violet-900/40 rounded-xl p-4">
                 <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                   <div>
                     <div className="font-bold text-white text-base">{product.name}</div>
@@ -714,7 +792,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
               {/* كل السيريالات */}
               {productSerials.length > 0 && (
-                <div className="bg-[#12122a] border border-violet-900/30 rounded-xl p-3">
+                <div className="bg-surface border border-violet-900/30 rounded-xl p-3">
                   <div className="text-violet-300 font-bold text-sm mb-2">📋 كل السيريالات ({productSerials.length})</div>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
                     {productSerials.map(s => {
@@ -724,7 +802,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                       return (
                         <button key={s.id}
                           onClick={() => { setUnifiedResult({ type: 'serial', data: s, title: s.serial, searchLabel: s.serial, subtitle: s.productName, typeLabel: 'سيريال' }); setUnifiedSearch(s.serial); }}
-                          className="w-full text-right bg-[#1a1a35] hover:bg-violet-900/20 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors">
+                          className="w-full text-right bg-elevated hover:bg-violet-900/20 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors">
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                             s.status === 'available' ? 'bg-green-400' :
                             s.status === 'sold' ? 'bg-purple-400' :
@@ -749,7 +827,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
               {/* حركة فواتير الشراء */}
               {purchases.length > 0 && (
-                <div className="bg-[#12122a] border border-blue-900/30 rounded-xl p-3">
+                <div className="bg-surface border border-blue-900/30 rounded-xl p-3">
                   <div className="text-blue-400 font-bold text-sm mb-2">📦 فواتير الشراء ({purchases.length})</div>
                   <div className="space-y-1.5">
                     {purchases.map(inv => {
@@ -774,7 +852,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
               {/* حركة فواتير البيع */}
               {sales.length > 0 && (
-                <div className="bg-[#12122a] border border-green-900/30 rounded-xl p-3">
+                <div className="bg-surface border border-green-900/30 rounded-xl p-3">
                   <div className="text-green-400 font-bold text-sm mb-2">🛒 فواتير البيع ({sales.length})</div>
                   <div className="space-y-1.5">
                     {sales.map(inv => {
@@ -799,7 +877,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
               {/* أوردرات نون/أمازون */}
               {noon.length > 0 && (
-                <div className="bg-[#12122a] border border-orange-900/30 rounded-xl p-3">
+                <div className="bg-surface border border-orange-900/30 rounded-xl p-3">
                   <div className="text-orange-400 font-bold text-sm mb-2">🛍️ أوردرات نون/أمازون ({noon.length})</div>
                   <div className="space-y-1.5">
                     {noon.map(order => (
@@ -829,7 +907,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
           const inv = unifiedResult.data as SaleInvoice;
           const customer = customers?.find(c => c.id === inv.customerId);
           return (
-            <div className="bg-[#12122a] border border-green-900/40 rounded-xl p-4 space-y-3">
+            <div className="bg-surface border border-green-900/40 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-bold text-white">{inv.invoiceNumber}</div>
@@ -842,7 +920,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                 {inv.items.map(item => {
                   const itemSerials = item.serials?.map(sl => serials.find(s => s.serial === sl.serial)).filter(Boolean) as SerialItem[];
                   return (
-                    <div key={item.id} className="bg-[#1a1a35] rounded-lg px-3 py-2">
+                    <div key={item.id} className="bg-elevated rounded-lg px-3 py-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-white">{item.productName}</span>
                         <span className="text-green-300">{formatCurrency(item.unitPrice)} × {item.quantity}</span>
@@ -865,7 +943,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         {unifiedResult?.type === 'purchaseInvoice' && (() => {
           const inv = unifiedResult.data as PurchaseInvoice;
           return (
-            <div className="bg-[#12122a] border border-blue-900/40 rounded-xl p-4 space-y-3">
+            <div className="bg-surface border border-blue-900/40 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-bold text-white">{inv.invoiceNumber}</div>
@@ -877,7 +955,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                 {inv.items.map(item => {
                   const itemSerials = item.serials?.map(sl => serials.find(s => s.serial === sl.serial)).filter(Boolean) as SerialItem[];
                   return (
-                    <div key={item.id} className="bg-[#1a1a35] rounded-lg px-3 py-2">
+                    <div key={item.id} className="bg-elevated rounded-lg px-3 py-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-white">{item.productName}</span>
                         <span className="text-blue-300">{formatCurrency(item.unitPrice)} × {item.quantity}</span>
@@ -898,7 +976,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
         {/* ===== لا توجد نتائج ===== */}
         {unifiedSearch.trim() && !showUnifiedSuggestions && !unifiedResult && unifiedSuggestions.length === 0 && (
-          <div className="bg-[#12122a] border border-red-900/30 rounded-xl p-4 text-center text-red-400 text-sm">
+          <div className="bg-surface border border-red-900/30 rounded-xl p-4 text-center text-red-400 text-sm">
             ❌ لم يتم العثور على نتيجة لـ: <span className="font-mono">{unifiedSearch}</span>
           </div>
         )}
@@ -927,7 +1005,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
       {/* ✅ جرد المخزون */}
       {showJrard && (
-        <div className="bg-[#1a1a35] border border-yellow-700/30 rounded-2xl p-4">
+        <div className="bg-elevated border border-yellow-700/30 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <h3 className="font-bold text-yellow-300">📋 جرد المخزون - مقارنة النظام بالواقع</h3>
             <div className="flex items-center gap-2">
@@ -976,7 +1054,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                           type="number"
                           value={jrardData[p.id] || ''}
                           onChange={e => setJrardData(prev => ({ ...prev, [p.id]: e.target.value }))}
-                          className="w-20 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
+                          className="w-20 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
                           placeholder="?"
                         />
                       </td>
@@ -1020,15 +1098,15 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
 
       {/* إجمالي المخزون */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#1a1a35] border border-violet-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-violet-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-violet-400">{totalStock}</div>
           <div className="text-xs text-gray-500 mt-1">إجمالي القطع المتاحة</div>
         </div>
-        <div className="bg-[#1a1a35] border border-blue-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-blue-700/30 rounded-xl p-4 text-center">
           <div className="text-xl font-black text-blue-400">{formatCurrency(totalValue)}</div>
           <div className="text-xs text-gray-500 mt-1">قيمة المخزون (شراء)</div>
         </div>
-        <div className="bg-[#1a1a35] border border-green-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-green-700/30 rounded-xl p-4 text-center">
           <div className="text-xl font-black text-green-400">{formatCurrency(totalSaleValue)}</div>
           <div className="text-xs text-gray-500 mt-1">قيمة المخزون (بيع)</div>
         </div>
@@ -1056,8 +1134,27 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
         </div>
       </div>
 
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-gray-500">عرض:</span>
+        {([
+          { id: 'all', label: 'كل المخزون' },
+          { id: 'available', label: 'المتاح فقط' },
+          { id: 'sold', label: 'المباع فقط' },
+          { id: 'transferred', label: 'المحول فقط' },
+        ] as const).map(opt => (
+          <button key={opt.id} onClick={() => setFilterStatus(opt.id)}
+            className={`px-3 py-1.5 rounded-xl text-xs border transition-colors ${
+              filterStatus === opt.id
+                ? 'bg-violet-700/40 border-violet-500/50 text-violet-300'
+                : 'border-white/10 text-gray-400'
+            }`}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* ==================== جدول المخزون ==================== */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-violet-900/20">
             <tr>
@@ -1114,7 +1211,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
                           <h4 className="text-sm font-bold text-violet-300 mb-3">سيريالات المنتج المتاحة</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                             {getAvailableSerials(p.id).map(s => (
-                              <div key={s.id} className="bg-[#252545] rounded-xl p-3">
+                              <div key={s.id} className="bg-muted-bg rounded-xl p-3">
                                 <div className="text-sm font-mono text-white">{s.serial}</div>
                                 {s.imei1 && <div className="text-xs text-gray-500">IMEI1: {s.imei1}</div>}
                                 {s.imei2 && <div className="text-xs text-gray-500">IMEI2: {s.imei2}</div>}
@@ -1139,10 +1236,10 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
       {/* ==================== Modal: عرض فاتورة مبيعات ==================== */}
       {viewSaleInvoice && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">🛒 {viewSaleInvoice.invoiceNumber}</h2>
-              <button onClick={() => setViewSaleInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button>
+              <div className="flex items-center gap-2"><button onClick={() => printSaleInvoice(viewSaleInvoice)} className="btn-secondary text-xs">🖨️ طباعة</button><button onClick={() => setViewSaleInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button></div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
               <div><span className="text-gray-500">العميل: </span><span className="text-white">{viewSaleInvoice.customerName}</span></div>
@@ -1200,10 +1297,10 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
       {/* ==================== Modal: عرض فاتورة مشتريات ==================== */}
       {viewPurchaseInvoice && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-blue-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+          <div className="bg-elevated border border-blue-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📦 {viewPurchaseInvoice.invoiceNumber}</h2>
-              <button onClick={() => setViewPurchaseInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button>
+              <div className="flex items-center gap-2"><button onClick={() => printPurchaseInvoice(viewPurchaseInvoice)} className="btn-secondary text-xs">🖨️ طباعة</button><button onClick={() => setViewPurchaseInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button></div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
               <div><span className="text-gray-500">المورد: </span><span className="text-white">{viewPurchaseInvoice.supplierName}</span></div>
@@ -1261,7 +1358,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
       {/* ==================== Modal: عرض أوردر نون ==================== */}
       {viewNoonOrder && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-orange-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+          <div className="bg-elevated border border-orange-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">🛍️ {viewNoonOrder.orderNumber}</h2>
               <button onClick={() => setViewNoonOrder(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button>
@@ -1278,7 +1375,7 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
             </div>
             <div className="space-y-2 mb-4">
               {viewNoonOrder.items.map((item, i) => (
-                <div key={i} className="bg-[#252545] rounded-xl p-3">
+                <div key={i} className="bg-muted-bg rounded-xl p-3">
                   <div className="font-medium text-white text-sm">{item.productName}</div>
                   <div className="text-xs text-gray-500 mt-1 font-mono">
                     {item.serial && <span>Serial: {item.serial} </span>}
@@ -1314,6 +1411,68 @@ export default function Inventory({ products, serials, saleInvoices = [], purcha
             </div>
           </div>
         </div>
+      )}
+        </>
+      )}
+
+      {inventoryTab === 'counts' && (
+        <div className="space-y-4">
+          <div className="card p-2 flex gap-2 w-fit">
+            <button onClick={() => setCountTab('daily')} className={`px-4 py-2 rounded-lg text-sm ${countTab === 'daily' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>📷 جرد يومي بالسكانر</button>
+            <button onClick={() => setCountTab('weekly')} className={`px-4 py-2 rounded-lg text-sm ${countTab === 'weekly' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>✓ الجرد الأسبوعي</button>
+          </div>
+          {countTab === 'daily' ? (
+            <DailyInventoryScanner
+              products={products}
+              serials={serials}
+              sessions={dailyInventoryScans}
+              onAddSession={onAddDailyInventoryScan || (() => {})}
+              onUpdateSession={onUpdateDailyInventoryScan || (() => {})}
+            />
+          ) : (
+            <PhysicalInventoryCount
+              products={products}
+              serials={serials}
+              weeklyInventoryCounts={weeklyInventoryCounts}
+              onAddCount={onAddCount || (() => {})}
+              onUpdateCount={onUpdateCount || (() => {})}
+            />
+          )}
+        </div>
+      )}
+
+      {inventoryTab === 'reports' && (
+        <div className="space-y-4">
+          <div className="card p-2 flex gap-2 w-fit flex-wrap">
+            <button onClick={() => setReportTab('reports')} className={`px-4 py-2 rounded-lg text-sm ${reportTab === 'reports' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>📊 تقارير المخزون</button>
+            <button onClick={() => setReportTab('ledger')} className={`px-4 py-2 rounded-lg text-sm ${reportTab === 'ledger' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>🧾 سجل الحركة</button>
+            <button onClick={() => setReportTab('locations')} className={`px-4 py-2 rounded-lg text-sm ${reportTab === 'locations' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>📍 المواقع</button>
+          </div>
+          {reportTab === 'reports' && <div className="-m-4 lg:-m-6"><InventoryReports products={products} serials={serials} /></div>}
+          {reportTab === 'ledger' && (
+            <InventoryLedger
+              products={products}
+              serials={serials}
+              purchaseInvoices={purchaseInvoices}
+              saleInvoices={saleInvoices}
+              stockTransfers={stockTransfers}
+              weeklyInventoryCounts={weeklyInventoryCounts}
+              dailyOperations={dailyOperations}
+              noonOrders={noonOrders}
+            />
+          )}
+          {reportTab === 'locations' && <LocationReport products={products} serials={serials} />}
+        </div>
+      )}
+
+      {inventoryTab === 'transfers' && (
+        <StockTransfer
+          products={products}
+          serials={serials}
+          stockTransfers={stockTransfers}
+          onAddTransfer={onAddTransfer || (() => {})}
+          onUpdateTransfer={onUpdateTransfer || (() => {})}
+        />
       )}
     </div>
   );

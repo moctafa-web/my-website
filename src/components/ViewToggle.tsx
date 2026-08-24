@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ViewMode } from '../types';
 import { Grid, List, AlignJustify } from 'lucide-react';
 
@@ -7,13 +7,16 @@ import { Grid, List, AlignJustify } from 'lucide-react';
  * كل صفحة بتاخد مفتاح فريد (storageKey) عشان كل صفحة تحتفظ باختيارها بشكل مستقل.
  */
 export function useViewMode(storageKey: string, defaultMode: ViewMode = 'grid') {
-  const [viewMode, setViewModeState] = useState<ViewMode>(() => {
+  const [viewMode, setViewModeState] = useState<ViewMode>(defaultMode);
+
+  useEffect(() => {
     try {
       const saved = localStorage.getItem(`view_mode_${storageKey}`);
-      if (saved === 'grid' || saved === 'list' || saved === 'compact') return saved;
+      if (saved === 'grid' || saved === 'list' || saved === 'compact') {
+        setViewModeState(saved);
+      }
     } catch { /* ignore */ }
-    return defaultMode;
-  });
+  }, [storageKey]);
 
   const setViewMode = (v: ViewMode) => {
     setViewModeState(v);
@@ -49,7 +52,7 @@ export default function ViewToggle({ value, onChange, options = ['grid', 'list',
   };
 
   return (
-    <div className="flex items-center gap-1 bg-[#252545] border border-violet-900/30 rounded-xl p-1">
+    <div className="flex items-center gap-1 bg-muted-bg border border-violet-900/30 rounded-xl p-1">
       {options.map(v => (
         <button
           key={v}

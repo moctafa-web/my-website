@@ -1,160 +1,74 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AppState, Product, Customer, Supplier, SaleInvoice, PurchaseInvoice,
   Payment, Expense, TreasuryTransaction, NoonOrder, DailyClosing,
-  DailyJournal, SerialItem, Brand, AppSettings, Partner, ProfitDistribution
+  DailyJournal, SerialItem, Brand, AppSettings, Partner, ProfitDistribution,
+  WeeklyInventoryCount, StockTransfer, DailyOperationEntry, DailyInventoryScan
 } from '../types';
-import { db } from '../firebase';
-import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
-import { normalizeForCompare } from '../utils/helpers';
-
-const cleanForFirebase = (obj: any): any => {
-  if (obj === null || obj === undefined) return null;
-  if (Array.isArray(obj)) return obj.map(cleanForFirebase);
-  if (typeof obj === 'object') {
-    const cleaned: any = {};
-    Object.keys(obj).forEach(key => {
-      const val = obj[key];
-      if (val !== undefined) {
-        cleaned[key] = cleanForFirebase(val);
-      }
-    });
-    return cleaned;
-  }
-  return obj;
-};
-
-const saveToFirebase = async (collectionName: string, id: string, data: any) => {
-  try {
-    await setDoc(doc(db, collectionName, id), cleanForFirebase(data));
-  } catch (error) {
-    console.error(`Error saving to ${collectionName}:`, error);
-  }
-};
-
-const deleteFromFirebase = async (collectionName: string, id: string) => {
-  try {
-    await deleteDoc(doc(db, collectionName, id));
-  } catch (error) {
-    console.error(`Error deleting from ${collectionName}:`, error);
-  }
-};
-
-const defaultSettings: AppSettings = {
-  companyName: 'ONE',
-  companyPhone: '',
-  companyAddress: '',
-  currency: 'EGP',
-  taxRate: 0,
-  invoicePrefix: 'INV',
-  purchasePrefix: 'PUR',
-  lastSaleInvoiceNum: 1000,
-  lastPurchaseInvoiceNum: 1000,
-};
-
-const defaultBrands: Brand[] = [
-  { id: 'b1', name: 'Apple', createdAt: new Date().toISOString() },
-  { id: 'b2', name: 'Samsung', createdAt: new Date().toISOString() },
-  { id: 'b3', name: 'Xiaomi', createdAt: new Date().toISOString() },
-  { id: 'b4', name: 'DJI', createdAt: new Date().toISOString() },
-  { id: 'b5', name: 'RAY-BAN', createdAt: new Date().toISOString() },
-  { id: 'b6', name: 'AirPods', createdAt: new Date().toISOString() },
-  { id: 'b7', name: 'Insta360', createdAt: new Date().toISOString() },
-  { id: 'b8', name: 'Magic Keyboard', createdAt: new Date().toISOString() },
-  { id: 'b9', name: 'Others', createdAt: new Date().toISOString() },
-];
-
-const generateDemoData = (): AppState => {
-  const now = new Date().toISOString();
-  const products: Product[] = [
-    { id: 'p1', name: 'iPhone 15 Pro Max 256GB Natural', sku: 'IP15PM-256-NT', upc: '195949035951', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: 45000, salePrice: 52000, stock: 5, createdAt: now, updatedAt: now },
-    { id: 'p2', name: 'iPad Pro 11 M4 256GB WiFi', sku: 'IPADPRO11-256', upc: '195949078279', category: 'tablets', brand: 'Apple', productType: 'serial', costPrice: 35000, salePrice: 42000, stock: 3, createdAt: now, updatedAt: now },
-    { id: 'p3', name: 'MacBook Air M3 13 256GB', sku: 'MBA-M3-256', upc: '195949056147', category: 'laptops', brand: 'Apple', productType: 'serial', costPrice: 55000, salePrice: 65000, stock: 2, createdAt: now, updatedAt: now },
-    { id: 'p4', name: 'AirPods Pro 2nd Gen', sku: 'APP2-USB', upc: '195949077813', category: 'accessories', brand: 'Apple', productType: 'serial', costPrice: 8000, salePrice: 10500, stock: 8, createdAt: now, updatedAt: now },
-    { id: 'p5', name: 'Samsung Galaxy S24 Ultra 256GB', sku: 'SGS24U-256', upc: '8806095194585', category: 'phones', brand: 'Samsung', productType: 'serial', costPrice: 38000, salePrice: 45000, stock: 4, createdAt: now, updatedAt: now },
-    { id: 'p6', name: 'iPhone 15 128GB Black', sku: 'IP15-128-BK', upc: '195949034862', category: 'phones', brand: 'Apple', productType: 'serial', costPrice: 32000, salePrice: 38000, stock: 6, createdAt: now, updatedAt: now },
-    { id: 'p7', name: 'iPad Air M2 11 256GB', sku: 'IPADAIR-M2-256', upc: '195949052613', category: 'tablets', brand: 'Apple', productType: 'serial', costPrice: 28000, salePrice: 34000, stock: 4, createdAt: now, updatedAt: now },
-    { id: 'p8', name: 'Apple Watch Series 9 45mm', sku: 'AWS9-45', upc: '194253921660', category: 'accessories', brand: 'Apple', productType: 'serial', costPrice: 12000, salePrice: 15000, stock: 5, createdAt: now, updatedAt: now },
-  ];
-
-  const serials: SerialItem[] = [
-    { id: 's1', productId: 'p1', productName: 'iPhone 15 Pro Max 256GB Natural', serial: 'F2LXQ7H2QP', imei1: '352938113456789', imei2: '352938113456790', status: 'available', costPrice: 45000, createdAt: now },
-    { id: 's2', productId: 'p1', productName: 'iPhone 15 Pro Max 256GB Natural', serial: 'F3KYR8I3RQ', imei1: '352938113456791', imei2: '352938113456792', status: 'available', costPrice: 45000, createdAt: now },
-    { id: 's3', productId: 'p2', productName: 'iPad Pro 11 M4 256GB WiFi', serial: 'DLXC4R9H2G', status: 'available', costPrice: 35000, createdAt: now },
-    { id: 's4', productId: 'p3', productName: 'MacBook Air M3 13 256GB', serial: 'C02ZC1L4MD6M', status: 'available', costPrice: 55000, createdAt: now },
-    { id: 's5', productId: 'p4', productName: 'AirPods Pro 2nd Gen', serial: 'H6QT2VLXP5', status: 'available', costPrice: 8000, createdAt: now },
-    { id: 's6', productId: 'p5', productName: 'Samsung Galaxy S24 Ultra 256GB', serial: 'R58NC0YX3KL', imei1: '358491234567890', status: 'available', costPrice: 38000, createdAt: now },
-  ];
-
-  const customers: Customer[] = [
-    { id: 'c1', name: 'أحمد محمد علي', phone: '01012345678', type: 'individual', openingBalance: 0, totalInvoices: 52000, totalPaid: 52000, createdAt: now },
-    { id: 'c2', name: 'شركة الفجر للتقنية', phone: '01098765432', type: 'company', openingBalance: 0, totalInvoices: 120000, totalPaid: 80000, createdAt: now },
-    { id: 'c3', name: 'محل نوفل موبايل', phone: '01155667788', type: 'wholesale', openingBalance: 5000, totalInvoices: 85000, totalPaid: 60000, createdAt: now },
-  ];
-
-  const suppliers: Supplier[] = [
-    { id: 'sup1', name: 'الموزع المعتمد Apple', phone: '01011223344', type: 'supplier', openingBalance: 0, totalInvoices: 500000, totalPaid: 450000, createdAt: now },
-    { id: 'sup2', name: 'تاجر إلكترونيات الجملة', phone: '01099887766', type: 'both', openingBalance: 10000, totalInvoices: 200000, totalPaid: 180000, createdAt: now },
-    { id: 'sup3', name: 'Samsung الشرق الأوسط', phone: '01055443322', type: 'supplier', openingBalance: 0, totalInvoices: 150000, totalPaid: 150000, createdAt: now },
-  ];
-
-  return {
-    products, serials, customers, suppliers,
-    saleInvoices: [], purchaseInvoices: [], payments: [],
-    expenses: [], treasuryTransactions: [], noonOrders: [],
-    dailyClosings: [], dailyJournals: [], brands: defaultBrands,
-    // ✅ جديد
-    partners: [],
-    profitDistributions: [],
-    cashBalance: 25000, bankBalance: 150000, settings: defaultSettings,
-  };
-};
+import { normalizeForCompare, generateId } from '../utils/helpers';
+import { makeTransactionId } from './domains/id.store';
+import { applyTreasuryChange } from './domains/treasury.store';
+import { completePendingPurchaseState } from './domains/purchases.store';
+import { generateDemoData, STORAGE_KEY, hydrateState } from '../lib/demo-data';
+import { saveToFirebase, deleteFromFirebase, loadCollection } from '../services/firebasePersistence';
 
 export function useStore() {
   const [state, setState] = useState<AppState>(() => generateDemoData());
-  const [isLoading, setIsLoading] = useState(true);
+  const [hydrated, setHydrated] = useState(false);
+  const treasurySyncRef = useRef<{ ready: boolean; syncedTxIds: Set<string>; syncedClosingIds: Set<string> }>({
+    ready: false,
+    syncedTxIds: new Set(),
+    syncedClosingIds: new Set(),
+  });
 
   useEffect(() => {
-    const loadDataFromFirebase = async () => {
+    let cancelled = false;
+
+    const loadData = async () => {
       try {
-        setIsLoading(true);
+        // Local cache is used immediately so the UI stays responsive, then
+        // Firestore becomes the source of truth when it is reachable.
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw && !cancelled) setState(hydrateState(JSON.parse(raw)));
+      } catch (error) {
+        console.error('Error loading local cache:', error);
+      }
+
+      try {
         const [
-          productsSnap, serialsSnap, customersSnap, suppliersSnap,
-          saleInvoicesSnap, purchaseInvoicesSnap, paymentsSnap,
-          expensesSnap, noonOrdersSnap, brandsSnap, settingsSnap,
-          dailyJournalsSnap, partnersSnap, profitDistributionsSnap,
+          products, serials, customers, suppliers, saleInvoices, purchaseInvoices,
+          payments, expenses, noonOrders, brands, dailyJournals, partners,
+          profitDistributions, treasuryTransactions, dailyClosings, weeklyInventoryCounts,
+          stockTransfers, dailyOperations, dailyInventoryScans,
+          settingsRows, treasuryRows,
         ] = await Promise.all([
-          getDocs(collection(db, 'products')),
-          getDocs(collection(db, 'serials')),
-          getDocs(collection(db, 'customers')),
-          getDocs(collection(db, 'suppliers')),
-          getDocs(collection(db, 'saleInvoices')),
-          getDocs(collection(db, 'purchaseInvoices')),
-          getDocs(collection(db, 'payments')),
-          getDocs(collection(db, 'expenses')),
-          getDocs(collection(db, 'noonOrders')),
-          getDocs(collection(db, 'brands')),
-          getDocs(collection(db, 'settings')),
-          getDocs(collection(db, 'dailyJournals')),
-          getDocs(collection(db, 'partners')),
-          getDocs(collection(db, 'profitDistributions')),
+          loadCollection<Product>('products'),
+          loadCollection<SerialItem>('serials'),
+          loadCollection<Customer>('customers'),
+          loadCollection<Supplier>('suppliers'),
+          loadCollection<SaleInvoice>('saleInvoices'),
+          loadCollection<PurchaseInvoice>('purchaseInvoices'),
+          loadCollection<Payment>('payments'),
+          loadCollection<Expense>('expenses'),
+          loadCollection<NoonOrder>('noonOrders'),
+          loadCollection<Brand>('brands'),
+          loadCollection<DailyJournal>('dailyJournals'),
+          loadCollection<Partner>('partners'),
+          loadCollection<ProfitDistribution>('profitDistributions'),
+          loadCollection<TreasuryTransaction>('treasuryTransactions'),
+          loadCollection<DailyClosing>('dailyClosings'),
+          loadCollection<WeeklyInventoryCount>('weeklyInventoryCounts'),
+          loadCollection<StockTransfer>('stockTransfers'),
+          loadCollection<DailyOperationEntry>('dailyOperations'),
+          loadCollection<DailyInventoryScan>('dailyInventoryScans'),
+          loadCollection<AppSettings>('settings'),
+          loadCollection<{ cashBalance: number; bankBalance: number }>('treasury'),
         ]);
 
-        const products = productsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Product));
-        const serials = serialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as SerialItem));
-        const customers = customersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Customer));
-        const suppliers = suppliersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Supplier));
-        const saleInvoices = saleInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as SaleInvoice));
-        const purchaseInvoices = purchaseInvoicesSnap.docs.map(d => ({ ...d.data(), id: d.id } as PurchaseInvoice));
-        const payments = paymentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Payment));
-        const expenses = expensesSnap.docs.map(d => ({ ...d.data(), id: d.id } as Expense));
-        const noonOrders = noonOrdersSnap.docs.map(d => ({ ...d.data(), id: d.id } as NoonOrder));
-        const brands = brandsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Brand));
-        const dailyJournals = dailyJournalsSnap.docs.map(d => ({ ...d.data(), id: d.id } as DailyJournal));
-        const partners = partnersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Partner));
-        const profitDistributions = profitDistributionsSnap.docs.map(d => ({ ...d.data(), id: d.id } as ProfitDistribution));
-        const settingsDoc = settingsSnap.docs.find(d => d.id === 'main');
-        const savedSettings = settingsDoc ? (settingsDoc.data() as AppSettings) : null;
+        if (cancelled) return;
+
+        const savedSettings = settingsRows.find(item => item.id === 'main');
+        const savedTreasury = treasuryRows.find(item => item.id === 'main');
 
         setState(prev => ({
           ...prev,
@@ -169,19 +83,72 @@ export function useStore() {
           noonOrders,
           dailyJournals,
           brands: brands.length ? brands : prev.brands,
-          settings: savedSettings || prev.settings,
           partners,
           profitDistributions,
+          treasuryTransactions,
+          dailyClosings,
+          weeklyInventoryCounts,
+          stockTransfers,
+          dailyOperations,
+          dailyInventoryScans,
+          settings: savedSettings || prev.settings,
+          cashBalance: savedTreasury?.cashBalance ?? prev.cashBalance,
+          bankBalance: savedTreasury?.bankBalance ?? prev.bankBalance,
         }));
-        console.log('✅ Data loaded from Firebase successfully!');
+
+        treasurySyncRef.current = {
+          ready: true,
+          syncedTxIds: new Set(treasuryTransactions.map(t => t.id)),
+          syncedClosingIds: new Set(dailyClosings.map(c => c.id)),
+        };
+
+        console.info('[Firebase] ERP data loaded successfully');
       } catch (error) {
-        console.error('Error loading from Firebase:', error);
+        console.error('[Firebase] loading failed; keeping local cache/demo state:', error);
+        treasurySyncRef.current.ready = true;
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setHydrated(true);
       }
     };
-    loadDataFromFirebase();
+
+    void loadData();
+    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.error('Error saving local data:', error);
+    }
+  }, [state, hydrated]);
+
+  useEffect(() => {
+    if (!treasurySyncRef.current.ready) return;
+    const newTx = state.treasuryTransactions.filter(t => !treasurySyncRef.current.syncedTxIds.has(t.id));
+    newTx.forEach(t => {
+      treasurySyncRef.current.syncedTxIds.add(t.id);
+      void saveToFirebase('treasuryTransactions', t.id, t);
+    });
+  }, [state.treasuryTransactions]);
+
+  useEffect(() => {
+    if (!treasurySyncRef.current.ready) return;
+    const newClosings = state.dailyClosings.filter(c => !treasurySyncRef.current.syncedClosingIds.has(c.id));
+    newClosings.forEach(c => {
+      treasurySyncRef.current.syncedClosingIds.add(c.id);
+      void saveToFirebase('dailyClosings', c.id, c);
+    });
+  }, [state.dailyClosings]);
+
+  useEffect(() => {
+    if (!treasurySyncRef.current.ready) return;
+    void saveToFirebase('treasury', 'main', {
+      cashBalance: state.cashBalance,
+      bankBalance: state.bankBalance,
+    });
+  }, [state.cashBalance, state.bankBalance]);
 
   const updateState = useCallback((updater: (prev: AppState) => AppState) => {
     setState(updater);
@@ -227,7 +194,7 @@ export function useStore() {
     newSerials.forEach(s => saveToFirebase('serials', s.id, s));
   }, []);
 
-  // ==================== COMPLETE PENDING PURCHASE ====================
+  // ==================== PURCHASES DOMAIN ====================
   const completePendingPurchase = useCallback((
     serialId: string,
     newCostPrice: number,
@@ -238,140 +205,13 @@ export function useStore() {
     invoiceNumber: string
   ): { success: boolean; message?: string } => {
     let result: { success: boolean; message?: string } = { success: true };
-
     setState(prev => {
-      const serial = prev.serials.find(s => s.id === serialId);
-      if (!serial) {
-        result = { success: false, message: 'السيريال غير موجود' };
-        return prev;
-      }
-      if (!serial.purchasePricePending && serial.costPrice !== 0) {
-        result = { success: false, message: 'هذا السيريال لديه سعر شراء مسجل بالفعل' };
-        return prev;
-      }
-
-      const newState = { ...prev };
-      const updatedSerial: SerialItem = {
-        ...serial,
-        costPrice: newCostPrice,
-        purchasePricePending: false,
-      };
-      newState.serials = newState.serials.map(s => s.id === serialId ? updatedSerial : s);
-
-      let updatedPurchaseInvoice: PurchaseInvoice | null = null;
-      if (serial.purchaseInvoiceId) {
-        const oldInvoice = newState.purchaseInvoices.find(inv => inv.id === serial.purchaseInvoiceId);
-        if (oldInvoice) {
-          const updatedItems = oldInvoice.items.map(item => {
-            const hasThisSerial = item.serials?.some(sl => sl.serial === serial.serial);
-            if (!hasThisSerial) return item;
-            const newTotal = newCostPrice * item.quantity - item.discount;
-            return { ...item, unitPrice: newCostPrice, total: newTotal };
-          });
-          const newSubtotal = updatedItems.reduce((s, i) => s + i.total, 0);
-          const newRemaining = newSubtotal - oldInvoice.paid;
-          updatedPurchaseInvoice = {
-            ...oldInvoice,
-            items: updatedItems,
-            subtotal: newSubtotal,
-            total: newSubtotal,
-            remaining: Math.max(0, newRemaining),
-            status: newRemaining <= 0 ? 'paid' : oldInvoice.paid > 0 ? 'partial' : 'unpaid',
-          };
-          newState.purchaseInvoices = newState.purchaseInvoices.map(inv =>
-            inv.id === serial.purchaseInvoiceId ? updatedPurchaseInvoice! : inv
-          );
-          const priceDiff = newCostPrice - serial.costPrice;
-          if (priceDiff !== 0) {
-            newState.suppliers = newState.suppliers.map(s => {
-              if (s.id !== oldInvoice.supplierId) return s;
-              return { ...s, totalInvoices: (s.totalInvoices || 0) + priceDiff };
-            });
-          }
-        }
-      } else {
-        const product = newState.products.find(p => p.id === serial.productId);
-        const invoiceId = `inv_pending_${Date.now()}`;
-        const total = newCostPrice;
-        const remaining = total - paidAmount;
-        const newInvoice: PurchaseInvoice = {
-          id: invoiceId,
-          invoiceNumber,
-          supplierId,
-          supplierName,
-          date: new Date().toISOString().split('T')[0],
-          items: [{
-            id: `item_${Date.now()}`,
-            productId: serial.productId,
-            productName: serial.productName,
-            sku: product?.sku || '',
-            quantity: 1,
-            unitPrice: newCostPrice,
-            discount: 0,
-            discountType: 'fixed',
-            taxRate: 0,
-            total: newCostPrice,
-            serials: [{ serial: serial.serial, imei1: serial.imei1, imei2: serial.imei2 }],
-            costPrice: newCostPrice,
-          }],
-          subtotal: total,
-          taxTotal: 0,
-          discount: 0,
-          total,
-          paid: paidAmount,
-          remaining: Math.max(0, remaining),
-          status: remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
-          paymentMethod,
-          createdAt: new Date().toISOString(),
-        };
-        newState.purchaseInvoices = [...newState.purchaseInvoices, newInvoice];
-        updatedPurchaseInvoice = newInvoice;
-        if (newState.suppliers.some(s => s.id === supplierId)) {
-          newState.suppliers = newState.suppliers.map(s => {
-            if (s.id !== supplierId) return s;
-            return {
-              ...s,
-              totalInvoices: (s.totalInvoices || 0) + total,
-              totalPaid: (s.totalPaid || 0) + paidAmount,
-            };
-          });
-        }
-        if (paidAmount > 0 && paymentMethod !== 'credit') {
-          const treasury = paymentMethod === 'cash' ? 'cash' : 'bank';
-          newState.cashBalance = treasury === 'cash' ? newState.cashBalance - paidAmount : newState.cashBalance;
-          newState.bankBalance = treasury === 'bank' ? newState.bankBalance - paidAmount : newState.bankBalance;
-          newState.treasuryTransactions = [...newState.treasuryTransactions, {
-            id: `tr_${Date.now()}`,
-            type: 'purchase',
-            description: `استكمال سعر شراء ${serial.productName} - سيريال ${serial.serial}`,
-            amount: paidAmount,
-            treasury,
-            direction: 'out',
-            referenceId: invoiceId,
-            date: new Date().toISOString().split('T')[0],
-            createdAt: new Date().toISOString(),
-          }];
-        }
-      }
-
-      newState.products = newState.products.map(p => {
-        if (p.id !== serial.productId) return p;
-        return { ...p, costPrice: newCostPrice, updatedAt: new Date().toISOString() };
-      });
-
-      saveToFirebase('serials', updatedSerial.id, updatedSerial);
-      if (updatedPurchaseInvoice) saveToFirebase('purchaseInvoices', updatedPurchaseInvoice.id, updatedPurchaseInvoice);
-      const updatedProduct = newState.products.find(p => p.id === serial.productId);
-      if (updatedProduct) saveToFirebase('products', updatedProduct.id, updatedProduct);
-      const updatedSupplier = newState.suppliers.find(s =>
-        s.id === supplierId ||
-        s.id === prev.purchaseInvoices.find(inv => inv.id === serial.purchaseInvoiceId)?.supplierId
-      );
-      if (updatedSupplier) saveToFirebase('suppliers', updatedSupplier.id, updatedSupplier);
-
-      return newState;
+      const completed = completePendingPurchaseState(prev, {
+        serialId, newCostPrice, supplierId, supplierName, paymentMethod, paidAmount, invoiceNumber,
+      }, { save: saveToFirebase });
+      result = completed.result;
+      return completed.state;
     });
-
     return result;
   }, []);
 
@@ -459,7 +299,7 @@ export function useStore() {
         newState.cashBalance = treasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
         newState.bankBalance = treasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
-          id: `tr_${Date.now()}`,
+          id: makeTransactionId(),
           type: 'sale',
           description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
           amount: invoice.paid,
@@ -619,7 +459,7 @@ export function useStore() {
         newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
         newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
-          id: `tr_${Date.now()}`,
+          id: makeTransactionId(),
           type: 'sale',
           description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
           amount: invoice.paid,
@@ -784,7 +624,7 @@ export function useStore() {
         newState.cashBalance = treasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
         newState.bankBalance = treasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
-          id: `tr_${Date.now()}`,
+          id: makeTransactionId(),
           type: 'purchase',
           description: `فاتورة مشتريات ${invoice.invoiceNumber} - ${invoice.supplierName}`,
           amount: invoice.paid,
@@ -877,7 +717,7 @@ export function useStore() {
         newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
         newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
-          id: `tr_${Date.now()}`,
+          id: makeTransactionId(),
           type: 'purchase',
           description: `فاتورة مشتريات ${invoice.invoiceNumber} - ${invoice.supplierName}`,
           amount: invoice.paid,
@@ -1060,7 +900,7 @@ export function useStore() {
       }
 
       newState.treasuryTransactions = [...newState.treasuryTransactions, {
-        id: `tr_${Date.now()}`,
+        id: makeTransactionId(),
         type: payment.direction === 'in' ? 'payment_in' : 'payment_out',
         description: payment.notes || `دفعة - ${payment.referenceName}`,
         amount: payment.amount,
@@ -1089,7 +929,7 @@ export function useStore() {
       newState.cashBalance = treasury === 'cash' ? newState.cashBalance - expense.amount : newState.cashBalance;
       newState.bankBalance = treasury === 'bank' ? newState.bankBalance - expense.amount : newState.bankBalance;
       newState.treasuryTransactions = [...newState.treasuryTransactions, {
-        id: `tr_${Date.now()}`,
+        id: makeTransactionId(),
         type: 'expense',
         description: expense.description,
         amount: expense.amount,
@@ -1322,7 +1162,7 @@ export function useStore() {
       if (totalSettled > 0) {
         newState.bankBalance = newState.bankBalance + totalSettled;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
-          id: `tr_${Date.now()}`,
+          id: makeTransactionId(),
           type: 'sale' as const,
           description: `تسوية تحويل بنكي جماعي - ${settlements.length} أوردر`,
           amount: totalSettled,
@@ -1407,22 +1247,18 @@ export function useStore() {
   }, []);
 
   // ==================== DANGEROUS OPERATIONS ====================
+  // الأنواع اللي فعلاً بيتم تحميلها وتزامنها مع Firebase بشكل كامل عند بدء التشغيل
+  // (لسه فيه أنواع بيانات تانية زي الخزنة والجرد الأسبوعي وحركات التحويل مش متزامنة بالكامل حالياً - بند منفصل)
+  const restoreFullState = useCallback(async (restored: AppState) => {
+    setState(hydrateState(restored));
+  }, []);
+
   const resetAllData = useCallback(async () => {
-    const collections = [
-      'products', 'serials', 'customers', 'suppliers', 'saleInvoices',
-      'purchaseInvoices', 'payments', 'expenses', 'noonOrders',
-      'treasuryTransactions', 'dailyClosings', 'dailyJournals',
-    ];
-    for (const col of collections) {
-      const snap = await getDocs(collection(db, col));
-      await Promise.all(snap.docs.map(d => deleteDoc(doc(db, col, d.id))));
-    }
+    treasurySyncRef.current = { ready: true, syncedTxIds: new Set(), syncedClosingIds: new Set() };
     setState(prev => ({ ...generateDemoData(), settings: prev.settings }));
   }, []);
 
   const deleteAllNoonOrders = useCallback(async () => {
-    const snap = await getDocs(collection(db, 'noonOrders'));
-    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'noonOrders', d.id))));
     setState(prev => ({ ...prev, noonOrders: [] }));
   }, []);
 
@@ -1504,30 +1340,76 @@ export function useStore() {
 
   // ==================== TREASURY ====================
   const adjustTreasury = useCallback((type: 'cash' | 'bank', amount: number, direction: 'in' | 'out', description: string) => {
-    setState(prev => {
-      const newState = { ...prev };
-      if (type === 'cash') {
-        newState.cashBalance = direction === 'in' ? newState.cashBalance + amount : newState.cashBalance - amount;
-      } else {
-        newState.bankBalance = direction === 'in' ? newState.bankBalance + amount : newState.bankBalance - amount;
-      }
-      newState.treasuryTransactions = [...newState.treasuryTransactions, {
-        id: `tr_${Date.now()}`,
-        type: 'adjustment',
-        description,
-        amount,
-        treasury: type,
-        direction,
-        date: new Date().toISOString().split('T')[0],
-        createdAt: new Date().toISOString(),
-      }];
+    setState(prev => applyTreasuryChange(prev, type, amount, direction, description));
+  }, []);
+
+  // ==================== Phase 1: Weekly Inventory Count ====================
+  const addWeeklyInventoryCount = useCallback((count: WeeklyInventoryCount) => {
+    updateState(prev => {
+      const newState = { ...prev, weeklyInventoryCounts: [...(prev.weeklyInventoryCounts || []), count] };
+      saveToFirebase?.('weeklyInventoryCounts', count.id, count);
       return newState;
     });
-  }, []);
+  }, [updateState]);
+
+  const updateWeeklyInventoryCount = useCallback((count: WeeklyInventoryCount) => {
+    updateState(prev => ({
+      ...prev,
+      weeklyInventoryCounts: (prev.weeklyInventoryCounts || []).map(c => c.id === count.id ? count : c),
+    }));
+    saveToFirebase?.('weeklyInventoryCounts', count.id, count);
+  }, [updateState]);
+
+  // ==================== Phase 2: Stock Transfers ====================
+  const addStockTransfer = useCallback((transfer: StockTransfer) => {
+    updateState(prev => {
+      const newState = { ...prev, stockTransfers: [...(prev.stockTransfers || []), transfer] };
+      saveToFirebase?.('stockTransfers', transfer.id, transfer);
+      return newState;
+    });
+  }, [updateState]);
+
+  const updateStockTransfer = useCallback((transfer: StockTransfer) => {
+    updateState(prev => ({
+      ...prev,
+      stockTransfers: (prev.stockTransfers || []).map(t => t.id === transfer.id ? transfer : t),
+    }));
+    saveToFirebase?.('stockTransfers', transfer.id, transfer);
+  }, [updateState]);
+
+  // ==================== Daily Barcode Inventory ====================
+  const addDailyInventoryScan = useCallback((session: DailyInventoryScan) => {
+    updateState(prev => ({ ...prev, dailyInventoryScans: [...(prev.dailyInventoryScans || []), session] }));
+    saveToFirebase('dailyInventoryScans', session.id, session);
+  }, [updateState]);
+
+  const updateDailyInventoryScan = useCallback((session: DailyInventoryScan) => {
+    updateState(prev => ({
+      ...prev,
+      dailyInventoryScans: (prev.dailyInventoryScans || []).map(s => s.id === session.id ? session : s),
+    }));
+    saveToFirebase('dailyInventoryScans', session.id, session);
+  }, [updateState]);
+
+    // ==================== Phase 3: Daily Operations ====================
+  const addDailyOperation = useCallback((operation: DailyOperationEntry) => {
+    updateState(prev => {
+      const newState = { ...prev, dailyOperations: [...(prev.dailyOperations || []), operation] };
+      saveToFirebase?.('dailyOperations', operation.id, operation);
+      return newState;
+    });
+  }, [updateState]);
+
+  const deleteDailyOperation = useCallback((operationId: string) => {
+    updateState(prev => ({
+      ...prev,
+      dailyOperations: (prev.dailyOperations || []).filter(op => op.id !== operationId),
+    }));
+    deleteFromFirebase?.('dailyOperations', operationId);
+  }, [updateState]);
 
   return {
     state,
-    isLoading,
     updateState,
     addProduct, updateProduct, deleteProduct,
     addSerial, updateSerial, addSerials,
@@ -1547,7 +1429,15 @@ export function useStore() {
     addPartner, updatePartner, deletePartner,
     // ✅ توزيع الأرباح
     saveDistribution, deleteDistribution,
+    // ✅ Phase 1: Weekly Inventory
+    addWeeklyInventoryCount, updateWeeklyInventoryCount,
+    // ✅ Phase 2: Stock Transfers
+    addStockTransfer, updateStockTransfer,
+    // ✅ Phase 3: Daily Operations
+    addDailyOperation, deleteDailyOperation,
+    addDailyInventoryScan, updateDailyInventoryScan,
     resetAllData,
+    restoreFullState,
     deleteAllNoonOrders,
     backfillPaymentRecords,
     recalculatePartyTotals,

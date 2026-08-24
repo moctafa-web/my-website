@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AppSettings, AppState } from '../types';
 import PasswordConfirmModal from '../components/PasswordConfirmModal';
+import Backup from './Backup';
 
 interface Props {
   settings: AppSettings;
@@ -13,9 +14,11 @@ interface Props {
   fullState: AppState;
   onBackfillPaymentRecords: () => { added: number };
   onRecalculatePartyTotals: () => { fixedCustomers: number; fixedSuppliers: number };
+  onRestoreBackup: (state: AppState) => void | Promise<void>;
 }
 
-export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState, onBackfillPaymentRecords, onRecalculatePartyTotals }: Props) {
+export default function Settings({ settings, onUpdateSettings, cashBalance, bankBalance, onResetData, onDeleteAllNoonOrders, noonOrdersCount, fullState, onBackfillPaymentRecords, onRecalculatePartyTotals, onRestoreBackup }: Props) {
+  const [settingsTab, setSettingsTab] = useState<'general' | 'backup'>('general');
   const [form, setForm] = useState({ ...settings });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,8 +57,38 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
     <div className="p-4 lg:p-6 space-y-6">
       <div><h2 className="text-xl font-bold text-white">⚙️ الإعدادات</h2></div>
 
+      {/* ==================== Settings Tabs Navigation ==================== */}
+      <div className="flex gap-2 border-b border-white/10 overflow-x-auto">
+        <button onClick={() => setSettingsTab('general')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+            settingsTab === 'general'
+              ? 'border-violet-500 text-violet-300'
+              : 'border-transparent text-gray-400 hover:text-gray-300'
+          }`}>
+          ⚙️ عام
+        </button>
+        <button onClick={() => setSettingsTab('backup')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+            settingsTab === 'backup'
+              ? 'border-violet-500 text-violet-300'
+              : 'border-transparent text-gray-400 hover:text-gray-300'
+          }`}>
+          💾 النسخ الاحتياطية
+        </button>
+      </div>
+
+      {/* ==================== Tab: النسخ الاحتياطية ==================== */}
+      {settingsTab === 'backup' && (
+        <div className="-m-4 lg:-m-6">
+          <Backup state={fullState} onRestoreBackup={onRestoreBackup} />
+        </div>
+      )}
+
+      {/* ==================== Tab: عام ==================== */}
+      {settingsTab === 'general' && (
+      <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">🏢 بيانات الشركة</h3>
           <div className="space-y-3">
             <div>
@@ -73,7 +106,7 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
           </div>
         </div>
 
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">📄 إعدادات الفواتير</h3>
           <div className="space-y-3">
             <div>
@@ -91,7 +124,7 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
           </div>
         </div>
 
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">💰 الأرصدة الحالية</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between bg-green-900/20 border border-green-700/30 rounded-xl px-4 py-3">
@@ -105,7 +138,7 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
           </div>
         </div>
 
-        <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl p-5">
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl p-5">
           <h3 className="font-bold text-white mb-4">🔧 النظام</h3>
           <div className="space-y-3">
             <div className="bg-violet-900/20 border border-violet-700/30 rounded-xl p-4">
@@ -178,6 +211,8 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
         </button>
         {saved && <span className="text-xs text-gray-500">تم الحفظ في قاعدة البيانات وسيظهر على كل الأجهزة</span>}
       </div>
+      </>
+      )}
 
       {/* تأكيد حذف أوردرات نون/أمازون بكلمة سر */}
       {showDeleteNoon && (

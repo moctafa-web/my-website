@@ -303,7 +303,7 @@ export default function QuickEntry({
   return (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-start justify-center pt-16 px-4" onClick={onClose}>
       <div
-        className="bg-[#1a1a35] border border-violet-700/40 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+        className="bg-elevated border border-violet-700/40 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -381,7 +381,7 @@ export default function QuickEntry({
                     onChange={e => setPartyName(e.target.value)}
                     list={mode === 'sale' ? 'qe-customers' : 'qe-suppliers'}
                     placeholder={mode === 'sale' ? CASH_CUSTOMER_NAME : 'اسم المورد'}
-                    className="w-full bg-[#252545] border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
+                    className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
                   />
                   <datalist id="qe-customers">
                     {customers.map(c => <option key={c.id} value={c.name} />)}
@@ -401,7 +401,7 @@ export default function QuickEntry({
                     value={orderNumber}
                     onChange={e => setOrderNumber(e.target.value)}
                     placeholder="رقم أوردر نون"
-                    className="w-full bg-[#252545] border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
+                    className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
                   />
                 </div>
               )}
@@ -425,10 +425,10 @@ export default function QuickEntry({
                             onChange={e => { updateLine(line.rowId, { search: e.target.value, productId: '' }); setActiveDropdownRow(line.rowId); }}
                             onFocus={() => setActiveDropdownRow(line.rowId)}
                             placeholder="دور على منتج بالاسم أو SKU..."
-                            className="w-full bg-[#252545] border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
+                            className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
                           />
                           {suggestions.length > 0 && (
-                            <div className="absolute z-10 mt-1 w-full bg-[#1f1f40] border border-violet-700/40 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                            <div className="absolute z-10 mt-1 w-full bg-elevated border border-violet-700/40 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                               {suggestions.map(p => (
                                 <button
                                   key={p.id}
@@ -458,7 +458,7 @@ export default function QuickEntry({
                                 type="number"
                                 value={line.quantity}
                                 onChange={e => updateLine(line.rowId, { quantity: e.target.value })}
-                                className="w-16 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-sm text-center outline-none"
+                                className="w-16 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-sm text-center outline-none"
                                 min={1}
                               />
                             </div>
@@ -469,7 +469,7 @@ export default function QuickEntry({
                               type="number"
                               value={line.unitPrice}
                               onChange={e => updateLine(line.rowId, { unitPrice: e.target.value })}
-                              className="w-24 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-sm text-center outline-none"
+                              className="w-24 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-sm text-center outline-none"
                             />
                           </div>
 
@@ -478,7 +478,7 @@ export default function QuickEntry({
                               <select
                                 value={line.selectedSerialId}
                                 onChange={e => updateLine(line.rowId, { selectedSerialId: e.target.value })}
-                                className="bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-xs outline-none flex-1 min-w-[140px]"
+                                className="bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-xs outline-none flex-1 min-w-[140px]"
                               >
                                 <option value="">اختار سيريال</option>
                                 {availableSerials.map(s => (
@@ -497,14 +497,14 @@ export default function QuickEntry({
                                 value={line.serialInput}
                                 onChange={e => updateLine(line.rowId, { serialInput: e.target.value })}
                                 placeholder="السيريال"
-                                className="w-28 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-xs outline-none"
+                                className="w-28 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-xs outline-none"
                               />
                               <input
                                 type="text"
                                 value={line.imei1Input}
                                 onChange={e => updateLine(line.rowId, { imei1Input: e.target.value })}
                                 placeholder="IMEI (اختياري)"
-                                className="w-28 bg-[#252545] border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-xs outline-none"
+                                className="w-28 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1.5 text-white text-xs outline-none"
                               />
                             </>
                           )}
@@ -546,7 +546,7 @@ export default function QuickEntry({
                       value={paid}
                       onChange={e => setPaid(e.target.value)}
                       placeholder={String(total)}
-                      className="w-32 bg-[#252545] border border-violet-900/30 rounded-lg px-3 py-1.5 text-white text-sm outline-none"
+                      className="w-32 bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-1.5 text-white text-sm outline-none"
                     />
                   </div>
                   <div className="text-sm text-gray-300 mr-auto">

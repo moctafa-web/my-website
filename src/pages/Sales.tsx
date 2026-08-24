@@ -30,6 +30,9 @@ interface Props {
   onAddSupplier?: (s: Supplier) => { success: boolean; message?: string } | void;
   onAddPurchaseInvoice?: (inv: PurchaseInvoice) => void;
   onAddSerials?: (serials: SerialItem[]) => void;
+  // ✅ لفتح قائمة فواتير يوم معيّن مباشرة (مثلاً "مبيعات اليوم" في الرئيسية)
+  preselectedDateFilter?: string | null;
+  onPreselectedDateFilterHandled?: () => void;
 }
 
 interface SaleItem {
@@ -64,9 +67,11 @@ export default function Sales({
   suppliers = [], onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice, onDeleteSaleInvoice,
   preselectedCustomerId, onPreselectedHandled,
   onAddProduct, onAddSupplier, onAddPurchaseInvoice, onAddSerials,
+  preselectedDateFilter, onPreselectedDateFilterHandled,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<SaleInvoice | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<SaleInvoice | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<SaleInvoice | null>(null);
@@ -199,6 +204,14 @@ export default function Sales({
     }
   }, [preselectedCustomerId]);
 
+  useEffect(() => {
+    if (preselectedDateFilter) {
+      setDateFilter(preselectedDateFilter);
+      setSearch('');
+      onPreselectedDateFilterHandled?.();
+    }
+  }, [preselectedDateFilter]);
+
   // ✅ إخفاء رسالة نتيجة المسح تلقائياً بعد فترة قصيرة عشان متتراكمش على الشاشة
   useEffect(() => {
     if (!scanMessage) return;
@@ -207,11 +220,14 @@ export default function Sales({
   }, [scanMessage]);
 
   const searchQuery = search.toLowerCase();
-  const filtered = saleInvoices.filter(inv =>
-    inv.invoiceNumber.toLowerCase().includes(searchQuery) ||
-    inv.customerName.toLowerCase().includes(searchQuery) ||
-    inv.date.includes(searchQuery)
-  ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const filtered = saleInvoices.filter(inv => {
+    if (dateFilter && inv.date !== dateFilter) return false;
+    return (
+      inv.invoiceNumber.toLowerCase().includes(searchQuery) ||
+      inv.customerName.toLowerCase().includes(searchQuery) ||
+      inv.date.includes(searchQuery)
+    );
+  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const allParties = [
     ...customers.map(c => ({ ...c, partyType: 'customer' as const })),
@@ -996,21 +1012,28 @@ const validateStock = (): string | null => {
           className="input-dark w-full pr-9" />
       </div>
 
+      {dateFilter && (
+        <div className="flex items-center justify-between bg-blue-900/20 border border-blue-700/30 rounded-xl px-4 py-2 text-sm">
+          <span className="text-blue-300">📅 بيتم عرض فواتير يوم {dateFilter} فقط ({filtered.length} فاتورة)</span>
+          <button onClick={() => setDateFilter(null)} className="text-xs text-red-400 hover:underline">إلغاء الفلتر (عرض الكل)</button>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#1a1a35] border border-green-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-green-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-green-400">
             {formatCurrency(saleInvoices.reduce((s, i) => s + i.total, 0))}
           </div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المبيعات</div>
         </div>
-        <div className="bg-[#1a1a35] border border-blue-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-blue-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-blue-400">
             {formatCurrency(saleInvoices.reduce((s, i) => s + i.paid, 0))}
           </div>
           <div className="text-xs text-gray-500 mt-1">إجمالي المحصل</div>
         </div>
-        <div className="bg-[#1a1a35] border border-red-700/30 rounded-xl p-4 text-center">
+        <div className="bg-elevated border border-red-700/30 rounded-xl p-4 text-center">
           <div className="text-2xl font-black text-red-400">
             {formatCurrency(saleInvoices.reduce((s, i) => s + i.remaining, 0))}
           </div>
@@ -1019,7 +1042,7 @@ const validateStock = (): string | null => {
       </div>
 
       {/* Invoices Table */}
-      <div className="bg-[#1a1a35] border border-violet-900/30 rounded-2xl overflow-hidden">
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-violet-900/20">
             <tr>
@@ -1076,7 +1099,7 @@ const validateStock = (): string | null => {
       {/* ==================== New/Edit Invoice Modal ==================== */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-xl font-bold text-white">
                 {editingInvoice ? `✏️ تعديل فاتورة ${editingInvoice.invoiceNumber}` : '➕ فاتورة بيع جديدة'}
@@ -1097,7 +1120,7 @@ const validateStock = (): string | null => {
                   className="input-dark w-full"
                 />
                 {showCustDrop && (
-                  <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-48 overflow-y-auto">
+                  <div className="absolute top-full mt-1 right-0 left-0 bg-muted-bg border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-48 overflow-y-auto">
                     {filteredCustomers.slice(0, 10).map(p => (
                       <button key={p.id}
                         onClick={() => { setCustomerId(p.id); setCustomerSearch(p.name); setShowCustDrop(false); }}
@@ -1154,7 +1177,7 @@ const validateStock = (): string | null => {
                   const availSers = item.productId ? getAvailableSerials(item.productId) : [];
 
                   return (
-                    <div key={item.id} className="bg-[#252545] border border-violet-900/20 rounded-xl p-3">
+                    <div key={item.id} className="bg-muted-bg border border-violet-900/20 rounded-xl p-3">
                       <div className="grid grid-cols-12 gap-2 items-start">
                         {/* البند - البحث عن منتج */}
                         <div className="col-span-12 md:col-span-4 relative">
@@ -1180,7 +1203,7 @@ const validateStock = (): string | null => {
                             </button>
                           </div>
                           {showItemDrop[item.id] && (
-                            <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto">
+                            <div className="absolute top-full mt-1 right-0 left-0 bg-elevated border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto">
                               {getFilteredProducts(itemSearch[item.id] || '').map(p => {
                                 const avail = getAvailableStock(p.id);
                                 const outOfStock = avail === 0;
@@ -1456,7 +1479,7 @@ const validateStock = (): string | null => {
       {/* View Invoice */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📄 {viewInvoice.invoiceNumber}</h2>
               <div className="flex gap-2">
@@ -1524,7 +1547,7 @@ const validateStock = (): string | null => {
       {/* Add Customer */}
       {addCustomerModal && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-4">➕ إضافة عميل جديد</h3>
             <div className="space-y-3">
               <input type="text" value={newCustomer.name}
@@ -1559,7 +1582,7 @@ const validateStock = (): string | null => {
       {/* Delete Confirm */}
       {confirmDeleteInvoice && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-2">🗑️ حذف فاتورة المبيعات</h3>
             <p className="text-gray-400 text-sm mb-4">
               هل أنت متأكد من حذف فاتورة{' '}
@@ -1582,7 +1605,7 @@ const validateStock = (): string | null => {
       {/* ==================== Quick Purchase ==================== */}
       {showQuickPurchase && (
         <div className="fixed inset-0 bg-black/85 z-[60] flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#1a1a35] border border-orange-700/40 rounded-2xl p-6 w-full max-w-3xl my-4">
+          <div className="bg-elevated border border-orange-700/40 rounded-2xl p-6 w-full max-w-3xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <ShoppingCart size={20} className="text-orange-400" />
@@ -1605,7 +1628,7 @@ const validateStock = (): string | null => {
                   onFocus={() => setQpShowSupDrop(true)}
                   placeholder="ابحث عن مورد..." className="input-dark w-full" />
                 {qpShowSupDrop && (
-                  <div className="absolute top-full mt-1 right-0 left-0 bg-[#252545] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
+                  <div className="absolute top-full mt-1 right-0 left-0 bg-muted-bg border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
                     {filteredQpSuppliers.slice(0, 8).map(s => (
                       <button key={s.id}
                         onClick={() => { setQpSupplierId(s.id); setQpSupplierSearch(s.name); setQpShowSupDrop(false); }}
@@ -1645,7 +1668,7 @@ const validateStock = (): string | null => {
                 {qpItems.map((item) => {
                   const linkedProduct = products.find(p => p.id === item.productId);
                   return (
-                    <div key={item.id} className="bg-[#252545] border border-orange-900/20 rounded-xl p-3">
+                    <div key={item.id} className="bg-muted-bg border border-orange-900/20 rounded-xl p-3">
                       <div className="grid grid-cols-12 gap-2 items-end mb-3">
                         <div className="col-span-12 md:col-span-5 relative">
                           <label className="form-label text-xs">المنتج</label>
@@ -1665,7 +1688,7 @@ const validateStock = (): string | null => {
                             </button>
                           </div>
                           {qpShowItemDrop[item.id] && (
-                            <div className="absolute top-full mt-1 right-0 left-0 bg-[#1a1a35] border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
+                            <div className="absolute top-full mt-1 right-0 left-0 bg-elevated border border-violet-900/40 rounded-xl shadow-xl z-30 max-h-44 overflow-y-auto">
                               {getFilteredProducts(qpItemSearch[item.id] || '').map(p => (
                                 <button key={p.id} onClick={() => selectQpProduct(item.id, p)}
                                   className="block w-full text-right px-3 py-2 text-xs text-gray-300 hover:bg-violet-700/20">
@@ -1820,7 +1843,7 @@ const validateStock = (): string | null => {
       {/* Add New Product Modal */}
       {showNewProductModal && (
         <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
             <h3 className="font-bold text-white mb-4">➕ إضافة منتج جديد للنظام</h3>
             <div className="space-y-3">
               <input type="text" value={newProductForm.name}
@@ -1880,7 +1903,7 @@ const validateStock = (): string | null => {
       {/* Add Supplier Modal */}
       {addSupplierModal && (
         <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a35] border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
             <h3 className="font-bold text-white mb-4">➕ إضافة مورد جديد</h3>
             <div className="space-y-3">
               <input type="text" value={newSupplier.name}
@@ -1916,7 +1939,7 @@ const validateStock = (): string | null => {
         <div className="fixed inset-0 z-[100]">
           <BarcodeScanner
             title={scanMode === 'sale' ? '📷 مسح باركود للبيع' : '📷 مسح باركود للشراء'}
-            onDetected={handleScanDetected}
+            onDetected={(code, format) => handleScanDetected({ barcode: code, format })}
             onClose={() => { setShowScanner(false); setScanTargetItemId(null); }}
           />
         </div>
