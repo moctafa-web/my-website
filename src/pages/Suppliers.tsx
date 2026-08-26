@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Supplier, PurchaseInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
 import { calculateSupplierBalance } from '../store/domains/accounting.store';
-import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar } from 'lucide-react';
+import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar, Upload, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 
 interface Props {
@@ -39,6 +40,9 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
   // فلتر الفترة الزمنية لحركة الحساب
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [importingSuppliers, setImportingSuppliers] = useState(false);
+  const [importSummary, setImportSummary] = useState<{added:number; skipped:number; errors:string[]} | null>(null);
+  const supplierImportRef = useRef<HTMLInputElement | null>(null);
 
   // ✅ فتح كشف حساب مورد/تاجر تلقائيًا لو جاي طلب من صفحة تانية (زي دفتر الديون بالرئيسية)
   React.useEffect(() => {
@@ -88,6 +92,72 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
     });
     if (!dateFrom && !dateTo) return withRunning;
     return withRunning.filter(r => (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo));
+  };
+
+  const downloadSupplierTemplate = () => {
+    const rows = [{
+      'اسم المورد / التاجر *': 'ABC Trading',
+      'الهاتف': '01000000000',
+      'البريد الإلكتروني': '',
+      'العنوان': '',
+      'النوع': 'supplier',
+      'الرصيد الافتتاحي': 0,
+      'ملاحظات': '',
+    }];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [28, 18, 28, 30, 14, 18, 30].map(w => ({ width: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Suppliers');
+    XLSX.writeFile(wb, 'suppliers_import_template.xlsx');
+  };
+
+  const handleImportSuppliers = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportingSuppliers(true); setImportSummary(null);
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array', raw: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
+      let added = 0, skipped = 0; const errors: string[] = [];
+      const existingNames = new Set(suppliers.map(s => s.name.trim().toLowerCase()));
+      const get = (row: Record<string, any>, keys: string[]) => {
+        const key = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
+        return key ? row[key] : '';
+      };
+      const typeMap: Record<string, Supplier['type']> = {
+        supplier: 'supplier', 'مورد': 'supplier', 'suppliers': 'supplier',
+        trader: 'trader', 'تاجر': 'trader',
+        both: 'both', 'كلاهما': 'both', 'مورد وتاجر': 'both',
+      };
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const name = String(get(row, ['اسم المورد / التاجر *','اسم المورد / التاجر','اسم المورد','supplier name','name']) || '').trim();
+        if (!name) { errors.push(`السطر ${i + 2}: اسم المورد/التاجر فارغ`); skipped++; continue; }
+        if (existingNames.has(name.toLowerCase())) { errors.push(`السطر ${i + 2}: الاسم موجود بالفعل (${name})`); skipped++; continue; }
+        const typeRaw = String(get(row, ['النوع','type']) || 'supplier').trim().toLowerCase();
+        const now = new Date().toISOString();
+        const result = onAddSupplier({
+          id: generateId(),
+          name,
+          phone: String(get(row, ['الهاتف','phone','mobile']) || '').trim(),
+          email: String(get(row, ['البريد الإلكتروني','email']) || '').trim(),
+          address: String(get(row, ['العنوان','address']) || '').trim(),
+          type: typeMap[typeRaw] || 'supplier',
+          openingBalance: Number(get(row, ['الرصيد الافتتاحي','opening balance','openingbalance']) || 0) || 0,
+          totalInvoices: 0,
+          totalPaid: 0,
+          notes: String(get(row, ['ملاحظات','notes']) || '').trim(),
+          createdAt: now,
+        });
+        if (result && result.success === false) { errors.push(`السطر ${i + 2}: ${result.message || 'تعذر إضافة المورد'}`); skipped++; continue; }
+        existingNames.add(name.toLowerCase()); added++;
+      }
+      setImportSummary({ added, skipped, errors: errors.slice(0, 100) });
+    } catch { setImportSummary({ added: 0, skipped: 0, errors: ['ملف Excel غير صالح أو لا يمكن قراءته.'] }); }
+    finally { setImportingSuppliers(false); }
   };
 
   const openAdd = () => { setEditSupplier(null); setForm({ name: '', phone: '', email: '', address: '', type: 'supplier', notes: '', openingBalance: 0 }); setDuplicateError(null); setShowForm(true); };
@@ -222,10 +292,22 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div><h2 className="text-xl font-bold text-white">🚚 الموردون والتجار</h2><p className="text-gray-500 text-sm">{suppliers.length} مورد</p></div>
-        <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> مورد جديد</button>
+      <div className="flex items-center justify-between gap-3">
+        <div><h2 className="text-xl font-bold text-white">🚚 الموردون والتجار</h2><p className="text-gray-500 text-sm">{suppliers.length} مورد / تاجر</p></div>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadSupplierTemplate} className="btn-secondary text-sm flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
+          <button onClick={() => supplierImportRef.current?.click()} disabled={importingSuppliers} className="btn-secondary text-sm flex items-center gap-2"><Upload size={14} /> {importingSuppliers ? 'جاري الاستيراد...' : 'استيراد Excel'}</button>
+          <input ref={supplierImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportSuppliers} />
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> مورد جديد</button>
+        </div>
       </div>
+      {importSummary && (
+        <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2"><h3 className="font-bold text-violet-300">نتيجة استيراد الموردين</h3><button onClick={() => setImportSummary(null)} className="text-gray-500 hover:text-white">×</button></div>
+          <div className="text-sm text-gray-300">تمت إضافة <b className="text-green-400">{importSummary.added}</b> سجل، وتم تخطي <b className="text-yellow-400">{importSummary.skipped}</b>.</div>
+          {importSummary.errors.length > 0 && <div className="mt-2 text-xs text-red-300 space-y-1 max-h-40 overflow-auto">{importSummary.errors.map((e, i) => <div key={i}>• {e}</div>)}</div>}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-elevated border border-blue-700/30 rounded-xl p-4 text-center">

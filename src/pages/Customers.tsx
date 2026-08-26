@@ -1,14 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { Customer, SaleInvoice, Payment, StatementRow, AccountStatement } from '../types';
+import React, { useState, useMemo, useRef } from 'react';
+import { Customer, SaleInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
-import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar } from 'lucide-react';
+import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar, Upload, Download } from 'lucide-react';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import StatementModal from '../components/StatementModal';
-import TransactionDetail from '../components/TransactionDetail';
+import * as XLSX from 'xlsx';
 import PaymentMethodBadge from '../components/PaymentMethodBadge';
-import { StatementService } from '../services/statementService';
 import { calculateCustomerBalance } from '../store/domains/accounting.store';
-import { PDFService } from '../services/pdfService';
 
 interface Props {
   customers: Customer[];
@@ -46,11 +43,9 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   // فلتر الفترة الزمنية لحركة الحساب
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  // ✅ الكشف المتقدم
-  const [showAdvancedStatement, setShowAdvancedStatement] = useState(false);
-  const [currentStatement, setCurrentStatement] = useState<AccountStatement | null>(null);
-  const [selectedTransactionRow, setSelectedTransactionRow] = useState<StatementRow | null>(null);
-  const [showTransactionDetail, setShowTransactionDetail] = useState(false);
+  const [importingCustomers, setImportingCustomers] = useState(false);
+  const [importSummary, setImportSummary] = useState<{added:number; skipped:number; errors:string[]} | null>(null);
+  const customerImportRef = useRef<HTMLInputElement | null>(null);
 
   // ✅ فتح كشف حساب عميل تلقائيًا لو جاي طلب من صفحة تانية (زي دفتر الديون بالرئيسية)
   React.useEffect(() => {
@@ -72,6 +67,88 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   );
 
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
+
+
+  const downloadCustomerTemplate = () => {
+    const rows = [{
+      'اسم العميل *': 'عميل تجريبي',
+      'الهاتف': '01000000000',
+      'البريد الإلكتروني': '',
+      'العنوان': '',
+      'النوع': 'individual',
+      'الرصيد الافتتاحي': 0,
+      'ملاحظات': '',
+    }];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [28,18,28,30,14,18,30].map(w => ({width:w}));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Customers');
+    XLSX.writeFile(wb, 'customers_import_template.xlsx');
+  };
+
+  const handleImportCustomers = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportingCustomers(true); setImportSummary(null);
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, {type:'array', raw:false});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, {defval:''});
+      const existingNames = new Set(customers.map(c => c.name.trim().toLowerCase()));
+      const errors: string[] = []; let added = 0, skipped = 0;
+      const get = (row: Record<string, any>, keys: string[]) => {
+        const key = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
+        return key ? row[key] : '';
+      };
+      const typeMap: Record<string, Customer['type']> = {
+        individual:'individual', 'فرد':'individual', company:'company', 'شركة':'company',
+        wholesale:'wholesale', 'جملة':'wholesale', trader:'trader', 'تاجر':'trader'
+      };
+      for (let i=0;i<rows.length;i++) {
+        const row = rows[i];
+        const name = String(get(row,['اسم العميل *','اسم العميل','customer name','name'])||'').trim();
+        if (!name) { errors.push(`السطر ${i+2}: اسم العميل فارغ`); skipped++; continue; }
+        if (existingNames.has(name.toLowerCase())) { errors.push(`السطر ${i+2}: العميل موجود بالفعل (${name})`); skipped++; continue; }
+        const typeRaw = String(get(row,['النوع','type'])||'individual').trim().toLowerCase();
+        const result = onAddCustomer({
+          id: generateId(), name,
+          phone:String(get(row,['الهاتف','phone','mobile'])||'').trim(),
+          email:String(get(row,['البريد الإلكتروني','email'])||'').trim(),
+          address:String(get(row,['العنوان','address'])||'').trim(),
+          type:typeMap[typeRaw] || 'individual',
+          openingBalance:Number(get(row,['الرصيد الافتتاحي','opening balance','openingbalance'])||0)||0,
+          totalInvoices:0,totalPaid:0,
+          notes:String(get(row,['ملاحظات','notes'])||'').trim(),
+          createdAt:new Date().toISOString(),
+        });
+        if (result && result.success === false) { errors.push(`السطر ${i+2}: ${result.message || 'تعذر إضافة العميل'}`); skipped++; continue; }
+        existingNames.add(name.toLowerCase()); added++;
+      }
+      setImportSummary({added, skipped, errors:errors.slice(0,100)});
+    } catch {
+      setImportSummary({added:0,skipped:0,errors:['ملف Excel غير صالح أو لا يمكن قراءته.']});
+    } finally { setImportingCustomers(false); }
+  };
+
+  const printStatement = (c: Customer) => {
+    const rowsToPrint = getFullStatementRows(c);
+    const periodLabel = (dateFrom || dateTo) ? `من ${dateFrom || '...'} إلى ${dateTo || getTodayStr()}` : `حتى تاريخ: ${getTodayStr()}`;
+    const periodTotalDebit = rowsToPrint.reduce((x,r)=>x+r.debit,0);
+    const periodTotalCredit = rowsToPrint.reduce((x,r)=>x+r.credit,0);
+    const openingForPeriod = (dateFrom || dateTo) ? (rowsToPrint[0] ? rowsToPrint[0].runningBalance - rowsToPrint[0].debit + rowsToPrint[0].credit : c.openingBalance) : c.openingBalance;
+    const finalBalance = rowsToPrint.length ? rowsToPrint[rowsToPrint.length-1].runningBalance : getBalance(c);
+    const finalLabel = (dateFrom || dateTo) ? 'الرصيد في نهاية الفترة' : finalBalance > 0 ? 'الرصيد النهائي (مستحق منه)' : finalBalance < 0 ? 'الرصيد النهائي (متبقي له - فرق حساب)' : 'الرصيد النهائي (متطابق)';
+    const finalDisplayAmount = (dateFrom || dateTo) ? finalBalance : Math.abs(finalBalance);
+    const rows = rowsToPrint.map(t => `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`).join('');
+    printElement(`
+      <div class="header"><div><div class="company-name">ONE</div></div><div class="invoice-info"><div><strong>كشف حساب عميل</strong></div><div>${c.name}</div><div>${c.phone || ''}</div><div>${periodLabel}</div></div></div>
+      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>` : (c.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${c.openingBalance.toLocaleString('ar-EG')} ج.م</p>` : '')}
+      <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="totals"><table><tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG')} ج.م</td></tr><tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG')} ج.م</td></tr><tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG')} ج.م</td></tr></table></div>
+    `);
+  };
 
   const openAdd = () => { setEditCustomer(null); setForm({ name: '', phone: '', email: '', address: '', type: 'individual', notes: '', openingBalance: 0 }); setDuplicateError(null); setShowForm(true); };
   const openEdit = (c: Customer) => { setEditCustomer(c); setForm({ name: c.name, phone: c.phone || '', email: c.email || '', address: c.address || '', type: c.type, notes: c.notes || '', openingBalance: c.openingBalance }); setDuplicateError(null); setShowForm(true); };
@@ -123,44 +200,11 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     setShowPayment(c);
   };
 
-  // ✅ فتح الكشف المتقدم
+  // فتح كشف حساب العميل بالشكل الموحد مع كشف حساب الموردين
   const openAdvancedStatement = (c: Customer) => {
-    const statement = StatementService.calculateStatement(
-      c,
-      saleInvoices,
-      payments,
-      dateFrom,
-      dateTo
-    );
-    setCurrentStatement(statement);
-    setViewCustomer(null);
-    setShowAdvancedStatement(true);
-  };
-
-  // ✅ طباعة الكشف
-  const handlePrintStatement = (c: Customer, stmt: AccountStatement) => {
-    const html = PDFService.generateStatementHTML(
-      c,
-      stmt,
-      'شركتنا', // TODO: استبدال بـ company name من الإعدادات
-      undefined, // TODO: استبدال بـ company logo
-      '00201000000000', // TODO: من الإعدادات
-      'القاهرة, مصر' // TODO: من الإعدادات
-    );
-    PDFService.printHTML(html, `كشف-حساب-${c.name}`);
-  };
-
-  // ✅ تحميل PDF
-  const handleExportPDF = async (c: Customer, stmt: AccountStatement) => {
-    const html = PDFService.generateStatementHTML(
-      c,
-      stmt,
-      'شركتنا',
-      undefined,
-      '00201000000000',
-      'القاهرة, مصر'
-    );
-    await PDFService.downloadPDF(html, `كشف-حساب-${c.name}.pdf`);
+    setViewCustomer(c);
+    setDateFrom('');
+    setDateTo('');
   };
 
   // تعديل تاريخ فاتورة مباشرة من كشف الحساب (مفيد لإغلاق حساب شهر أو تصحيح تاريخ منسي)
@@ -207,40 +251,6 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     return withRunning.filter(r => (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo));
   };
 
-  const printStatement = (c: Customer) => {
-    const rowsToPrint = getFullStatementRows(c);
-    const periodLabel = (dateFrom || dateTo) ? `من ${dateFrom || '...'} إلى ${dateTo || getTodayStr()}` : `حتى تاريخ: ${getTodayStr()}`;
-    const periodTotalDebit = rowsToPrint.reduce((s, r) => s + r.debit, 0);
-    const periodTotalCredit = rowsToPrint.reduce((s, r) => s + r.credit, 0);
-    const openingForPeriod = (dateFrom || dateTo) ? (rowsToPrint[0] ? rowsToPrint[0].runningBalance - rowsToPrint[0].debit + rowsToPrint[0].credit : c.openingBalance) : c.openingBalance;
-    const finalBalance = rowsToPrint.length > 0 ? rowsToPrint[rowsToPrint.length - 1].runningBalance : getBalance(c);
-    const finalLabel = (dateFrom || dateTo)
-      ? 'الرصيد في نهاية الفترة'
-      : finalBalance > 0 ? 'الرصيد النهائي (مستحق منه)' : finalBalance < 0 ? 'الرصيد النهائي (متبقي له - فرق حساب)' : 'الرصيد النهائي (متطابق)';
-    const finalDisplayAmount = (dateFrom || dateTo) ? finalBalance : Math.abs(finalBalance);
-
-    const rows = rowsToPrint.map(t =>
-      `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`
-    ).join('');
-
-    printElement(`
-      <div class="header">
-        <div><div class="company-name">ONE</div></div>
-        <div class="invoice-info"><div><strong>كشف حساب عميل</strong></div><div>${c.name}</div><div>${c.phone || ''}</div><div>${periodLabel}</div></div>
-      </div>
-      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>` : (c.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${c.openingBalance.toLocaleString('ar-EG')} ج.م</p>` : '')}
-      <table>
-        <thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div class="totals"><table>
-        <tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG')} ج.م</td></tr>
-      </table></div>
-    `);
-  };
-
   // ✅ طباعة فاتورة بيع منفردة (من كشف الحساب أو من قائمة الفواتير)
   const printSaleInvoice = (inv: SaleInvoice) => {
     const rows = inv.items.map(item => `
@@ -279,8 +289,21 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div><h2 className="text-xl font-bold text-white">👥 العملاء</h2><p className="text-gray-500 text-sm">{customers.length} عميل</p></div>
-        <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> عميل جديد</button>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadCustomerTemplate} className="btn-secondary text-sm flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
+          <button onClick={() => customerImportRef.current?.click()} disabled={importingCustomers} className="btn-secondary text-sm flex items-center gap-2"><Upload size={14} /> {importingCustomers ? 'جاري الاستيراد...' : 'استيراد Excel'}</button>
+          <input ref={customerImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportCustomers} />
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> عميل جديد</button>
+        </div>
       </div>
+
+      {importSummary && (
+        <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2"><h3 className="font-bold text-violet-300">نتيجة استيراد العملاء</h3><button onClick={() => setImportSummary(null)} className="text-gray-500 hover:text-white">×</button></div>
+          <div className="text-sm text-gray-300">تمت إضافة <b className="text-green-400">{importSummary.added}</b> عميل، وتم تخطي <b className="text-yellow-400">{importSummary.skipped}</b>.</div>
+          {importSummary.errors.length > 0 && <div className="mt-2 text-xs text-red-300 space-y-1 max-h-40 overflow-auto">{importSummary.errors.map((e,i)=><div key={i}>• {e}</div>)}</div>}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-elevated border border-violet-700/30 rounded-xl p-4 text-center">
@@ -433,7 +456,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
               <div className="flex gap-2">
                 <button onClick={() => { setShowForm(false); setViewCustomer(null); onNavigateToSales?.(viewCustomer.id); }} className="btn-primary text-sm flex items-center gap-1"><FilePlus2 size={14} /> فاتورة جديدة</button>
                 <button onClick={() => openPaymentModal(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><DollarSign size={14} /> تحصيل دفعة</button>
-                <button onClick={() => printStatement(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><Printer size={14} /> طباعة PDF</button>
+                <button onClick={() => printStatement(viewCustomer)} className="btn-secondary text-sm flex items-center gap-1"><Printer size={14} /> طباعة</button>
                 <button onClick={() => setViewCustomer(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
               </div>
             </div>
@@ -661,37 +684,6 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
         </div>
       )}
 
-      {/* ✅ Advanced Statement Modal */}
-      {showAdvancedStatement && currentStatement && (
-        <StatementModal
-          isOpen={showAdvancedStatement}
-          customer={viewCustomer || customers.find(c => c.id === currentStatement.customerId) || null}
-          statement={currentStatement}
-          onClose={() => {
-            setShowAdvancedStatement(false);
-            setCurrentStatement(null);
-          }}
-          onPrint={handlePrintStatement}
-          onExportPDF={handleExportPDF}
-          onSendEmail={(c, stmt) => {
-            console.log('[v0] سيتم إضافة إرسال البريد الإلكتروني في المرحلة القادمة');
-          }}
-          onShowTransactionDetail={(row) => {
-            setSelectedTransactionRow(row);
-            setShowTransactionDetail(true);
-          }}
-        />
-      )}
-
-      {/* ✅ Transaction Detail Modal */}
-      <TransactionDetail
-        isOpen={showTransactionDetail}
-        row={selectedTransactionRow}
-        onClose={() => {
-          setShowTransactionDetail(false);
-          setSelectedTransactionRow(null);
-        }}
-      />
     </div>
   );
 }

@@ -128,19 +128,6 @@ var ArrowLeft = createLucideIcon("arrow-left", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
-var ArrowRight = createLucideIcon("arrow-right", [["path", {
-	d: "M5 12h14",
-	key: "1ays0h"
-}], ["path", {
-	d: "m12 5 7 7-7 7",
-	key: "xquz4c"
-}]]);
-/**
-* @license lucide-react v0.510.0 - ISC
-*
-* This source code is licensed under the ISC license.
-* See the LICENSE file in the root directory of this source tree.
-*/
 var ArrowUpRight = createLucideIcon("arrow-up-right", [["path", {
 	d: "M7 7h10v10",
 	key: "1tivn9"
@@ -1129,19 +1116,6 @@ var Search = createLucideIcon("search", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
-var Send = createLucideIcon("send", [["path", {
-	d: "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z",
-	key: "1ffxy3"
-}], ["path", {
-	d: "m21.854 2.147-10.94 10.939",
-	key: "12cjpa"
-}]]);
-/**
-* @license lucide-react v0.510.0 - ISC
-*
-* This source code is licensed under the ISC license.
-* See the LICENSE file in the root directory of this source tree.
-*/
 var Settings = createLucideIcon("settings", [["path", {
 	d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
 	key: "1qme2f"
@@ -1518,4 +1492,4 @@ var Zap = createLucideIcon("zap", [["path", {
 	key: "1xq2db"
 }]]);
 //#endregion
-export { ChevronRight as $, PackagePlus as A, FilePlus2 as B, ScanLine as C, Printer as D, QrCode as E, Hash as F, Copy as G, Download as H, HardDrive as I, CircleX as J, Clock as K, Grid3x3 as L, List as M, LayoutDashboard as N, Plus as O, Landmark as P, ChevronUp as Q, Funnel as R, Search as S, RefreshCw as T, DollarSign as U, Eye as V, CreditCard as W, CircleCheckBig as X, CircleCheck as Y, CircleAlert as Z, ShoppingBag as _, Users as a, Calendar as at, Settings as b, TriangleAlert as c, Banknote as ct, Trash2 as d, ArrowLeft as dt, ChevronLeft as et, Store as f, ArrowDownLeft as ft, ShoppingCart as g, SquareCheckBig as h, Wallet as i, Camera as it, Menu as j, Package as k, TrendingUp as l, ArrowUpRight as lt, SquarePen as m, ZapOff as n, Check as nt, Upload as o, Boxes as ot, Square as p, AlignJustify as pt, ClipboardCheck as q, X as r, ChartColumn as rt, Truck as s, BookOpen as st, Zap as t, ChevronDown as tt, TrendingDown as u, ArrowRight as ut, ShieldCheck as v, Save as w, Send as x, ShieldAlert as y, FileText as z };
+export { ChevronLeft as $, Menu as A, Eye as B, Save as C, Plus as D, Printer as E, HardDrive as F, Clock as G, DollarSign as H, Grid3x3 as I, CircleCheck as J, ClipboardCheck as K, Funnel as L, LayoutDashboard as M, Landmark as N, Package as O, Hash as P, ChevronRight as Q, FileText as R, ScanLine as S, QrCode as T, CreditCard as U, Download as V, Copy as W, CircleAlert as X, CircleCheckBig as Y, ChevronUp as Z, ShoppingBag as _, Users as a, Boxes as at, Settings as b, TriangleAlert as c, ArrowUpRight as ct, Trash2 as d, AlignJustify as dt, ChevronDown as et, Store as f, ShoppingCart as g, SquareCheckBig as h, Wallet as i, Calendar as it, List as j, PackagePlus as k, TrendingUp as l, ArrowLeft as lt, SquarePen as m, ZapOff as n, ChartColumn as nt, Upload as o, BookOpen as ot, Square as p, CircleX as q, X as r, Camera as rt, Truck as s, Banknote as st, Zap as t, Check as tt, TrendingDown as u, ArrowDownLeft as ut, ShieldCheck as v, RefreshCw as w, Search as x, ShieldAlert as y, FilePlus2 as z };

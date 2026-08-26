@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
+import * as XLSX from 'xlsx';
 
 interface Props {
   purchaseInvoices: PurchaseInvoice[];
@@ -105,6 +106,133 @@ export default function Purchases({
     | null
   >(null);
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+
+  const [showExcelImport, setShowExcelImport] = useState(false);
+  const [importPreview, setImportPreview] = useState<{
+    supplierName: string; supplier?: Supplier; date: string; invoiceNumber?: string; paymentMethod: PaymentMethod; paid: number;
+    rows: Array<{row:number; productId:string; product:Product; productName:string; sku:string; upc:string; quantity:number; unitPrice:number; serials:{serial:string; imei1:string; imei2:string}[]}>;
+    missingProducts:string[]; errors:string[]; pendingPriceRows:number;
+  } | null>(null);
+  const purchaseImportRef = useRef<HTMLInputElement | null>(null);
+
+  const downloadPurchaseTemplate = () => {
+    const rows = [{
+      'رقم الفاتورة': 'اختياري - مثال PO-1001',
+      'التاريخ *': getTodayStr(),
+      'اسم المورد / التاجر *': 'ABC Trading',
+      'طريقة الدفع': 'cash',
+      'المدفوع': 0,
+      'UPC': '0194250000000',
+      'اسم المنتج *': 'iPad Pro M5 256GB WiFi',
+      'SKU': 'IPAD-M5-256-WIFI',
+      'الكمية *': 1,
+      'سعر الشراء': 0,
+      'Serial / IMEI': 'SN-EXAMPLE-001',
+      'IMEI1': '',
+      'IMEI2': '',
+      'ملاحظات': '',
+    }];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [22,16,28,15,14,18,34,22,12,16,24,20,20,30].map(w=>({width:w}));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'PurchaseImport');
+    XLSX.writeFile(wb, 'purchase_invoice_import_template.xlsx');
+  };
+
+  const normalize = (v:any) => normalizeForCompare(String(v ?? '').trim());
+  const findImportProduct = (upc:string, sku:string, name:string) => {
+    const nUpc = String(upc || '').trim().toLowerCase();
+    const nSku = String(sku || '').trim().toLowerCase();
+    const nName = normalize(name);
+    return products.find(p =>
+      (nUpc && String(p.upc || '').trim().toLowerCase() === nUpc) ||
+      (nSku && String(p.sku || '').trim().toLowerCase() === nSku) ||
+      (nName && normalize(p.name) === nName)
+    );
+  };
+
+  const parsePurchaseExcel = async (file: File) => {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, {type:'array', raw:false});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, {defval:''});
+    const get = (row: Record<string, any>, keys:string[]) => {
+      const key = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
+      return key ? row[key] : '';
+    };
+    const errors:string[]=[]; const missingSet=new Set<string>(); let pendingPriceRows=0;
+    let supplierName=''; let date=getTodayStr(); let invoiceNumber=''; let paymentMethod:PaymentMethod='cash'; let paid=0;
+    const rows: Array<{row:number; productId:string; product:Product; productName:string; sku:string; upc:string; quantity:number; unitPrice:number; serials:{serial:string; imei1:string; imei2:string}[]}> = [];
+    const serialsInFile = new Set<string>();
+    rawRows.forEach((raw,i)=>{
+      const rowNo=i+2;
+      const rowSupplier=String(get(raw,['اسم المورد / التاجر *','اسم المورد / التاجر','اسم المورد','supplier name','supplier'])||'').trim();
+      if (rowSupplier) { if (!supplierName) supplierName=rowSupplier; else if (normalize(rowSupplier)!==normalize(supplierName)) errors.push(`السطر ${rowNo}: ملف الفاتورة يجب أن يحتوي موردًا واحدًا فقط`); }
+      const rowDate=String(get(raw,['التاريخ *','التاريخ','date'])||'').trim(); if (rowDate) { if (!date || date===getTodayStr()) date=rowDate; else if (date!==rowDate) errors.push(`السطر ${rowNo}: يوجد أكثر من تاريخ داخل نفس الفاتورة`); }
+      const rowInv=String(get(raw,['رقم الفاتورة','invoice number','invoicenumber'])||'').trim(); if (rowInv) { if (!invoiceNumber) invoiceNumber=rowInv; else if (invoiceNumber!==rowInv) errors.push(`السطر ${rowNo}: يوجد أكثر من رقم فاتورة داخل نفس الملف`); }
+      const pm=String(get(raw,['طريقة الدفع','payment method','paymentmethod'])||'').trim().toLowerCase(); if (pm) paymentMethod = (['cash','bank','credit','card','instapay','transfer','check'].includes(pm) ? pm : paymentMethod) as PaymentMethod;
+      const rowPaid=Number(get(raw,['المدفوع','paid'])||''); if (!Number.isNaN(rowPaid) && rowPaid>0) paid=rowPaid;
+      const productName=String(get(raw,['اسم المنتج *','اسم المنتج','product name','name'])||'').trim();
+      const upc=String(get(raw,['upc','UPC','الـUPC','كود UPC'])||'').trim();
+      const sku=String(get(raw,['sku','SKU'])||'').trim();
+      const quantity=Number(get(raw,['الكمية *','الكمية','quantity','qty'])||0);
+      const unitRaw=String(get(raw,['سعر الشراء','سعر الشراء *','سعر التكلفة','unit price','unitprice','cost'])||'').trim();
+      const unitPrice=unitRaw===''?0:Number(unitRaw);
+      const serial=String(get(raw,['Serial / IMEI','serial','السيريال','imei'])||'').trim();
+      const imei1=String(get(raw,['IMEI1','imei1'])||'').trim();
+      const imei2=String(get(raw,['IMEI2','imei2'])||'').trim();
+      if (!productName && !upc && !sku) { errors.push(`السطر ${rowNo}: لا يوجد منتج أو UPC أو SKU`); return; }
+      if (!Number.isFinite(quantity) || quantity<=0) { errors.push(`السطر ${rowNo}: الكمية غير صحيحة`); return; }
+      if (!Number.isFinite(unitPrice) || unitPrice<0) { errors.push(`السطر ${rowNo}: سعر الشراء غير صحيح`); return; }
+      const product=findImportProduct(upc,sku,productName);
+      if (!product) { missingSet.add(upc || sku || productName); return; }
+      if (unitPrice===0 && product.productType==='serial' && serial) pendingPriceRows++;
+      if (product.productType==='serial') {
+        if (quantity !== 1) { errors.push(`السطر ${rowNo}: منتج السيريال يجب أن تكون كميته 1 لكل سيريال (كرر السطر لكل جهاز)`); return; }
+        if (!serial) { errors.push(`السطر ${rowNo}: المنتج "${product.name}" سيريال ويحتاج Serial/IMEI`); return; }
+        const key=serial.toLowerCase(); if (serialsInFile.has(key)) { errors.push(`السطر ${rowNo}: السيريال ${serial} مكرر داخل الملف`); return; }
+        if (serials.some(s=>String(s.serial).trim().toLowerCase()===key && !s.purchasePricePending)) { errors.push(`السطر ${rowNo}: السيريال ${serial} موجود بالفعل في المخزون`); return; }
+        serialsInFile.add(key);
+      }
+      rows.push({row:rowNo,productId:product.id,product,productName:product.name,sku:product.sku,upc:product.upc||'',quantity,unitPrice,serials:serial?[{serial,imei1,imei2}]:[]});
+    });
+    if (!supplierName) errors.push('اسم المورد / التاجر مطلوب');
+    const supplier = suppliers.find(s=>normalize(s.name)===normalize(supplierName));
+    if (!supplier && supplierName) errors.push(`المورد غير موجود: ${supplierName} — أضفه أولًا من صفحة الموردين والتجار`);
+    setImportPreview({supplierName,supplier,date,invoiceNumber:invoiceNumber||undefined,paymentMethod,paid,rows,missingProducts:[...missingSet],errors,pendingPriceRows});
+    setShowExcelImport(true);
+  };
+
+  const handlePurchaseExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file=e.target.files?.[0]; e.target.value=''; if(!file) return;
+    try { await parsePurchaseExcel(file); } catch { setImportPreview({supplierName:'',date:getTodayStr(),paymentMethod:'cash',paid:0,rows:[],missingProducts:[],errors:['ملف Excel غير صالح أو لا يمكن قراءته.'],pendingPriceRows:0}); setShowExcelImport(true); }
+  };
+
+  const commitPurchaseImport = () => {
+    if (!importPreview) return;
+    if (importPreview.errors.length || importPreview.missingProducts.length || !importPreview.supplier || !importPreview.rows.length) return;
+    const grouped = new Map<string, typeof importPreview.rows[number]>();
+    importPreview.rows.forEach(r=>{
+      const key=r.productId;
+      const existing=grouped.get(key);
+      if (!existing) grouped.set(key,{...r,serials:[...r.serials]});
+      else { existing.quantity += r.quantity; existing.serials.push(...r.serials); }
+    });
+    const invoiceId=generateId();
+    const existingNums=purchaseInvoices.map(inv=>parseInt(inv.invoiceNumber.split('-').pop()||'0',10)).filter(n=>!Number.isNaN(n));
+    const next=Math.max(settings.lastPurchaseInvoiceNum,...existingNums,1000)+1;
+    const invoiceNumber=importPreview.invoiceNumber || `${settings.purchasePrefix}-${String(next).padStart(4,'0')}`;
+    const items:InvoiceItem[]=[...grouped.values()].map(r=>({id:generateId(),productId:r.productId,productName:r.productName,sku:r.sku,quantity:r.quantity,unitPrice:r.unitPrice,discount:0,discountType:'fixed' as const,taxRate:0,total:r.quantity*r.unitPrice,serials:r.serials.filter(s=>s.serial)}));
+    const subtotal=items.reduce((s,i)=>s+i.total,0);
+    const paidAmount=Math.max(0,Math.min(importPreview.paid,subtotal));
+    const remaining=Math.max(0,subtotal-paidAmount);
+    const invoice:PurchaseInvoice={id:invoiceId,invoiceNumber,supplierId:importPreview.supplier!.id,supplierName:importPreview.supplier!.name,date:importPreview.date||getTodayStr(),items,subtotal,taxTotal:0,discount:0,total:subtotal,paid:paidAmount,remaining,status:subtotal===0?'unpaid':remaining<=0?'paid':paidAmount>0?'partial':'unpaid',paymentMethod:importPreview.paymentMethod,createdAt:new Date().toISOString()};
+    const newSerials:SerialItem[]=[];
+    items.forEach(item=>item.serials?.forEach(sl=>newSerials.push({id:generateId(),productId:item.productId,productName:item.productName,serial:sl.serial,imei1:sl.imei1||undefined,imei2:sl.imei2||undefined,status:'available',purchaseInvoiceId:invoiceId,costPrice:item.unitPrice,salePrice:undefined,createdAt:new Date().toISOString(),purchasePricePending:item.unitPrice===0})));
+    onAddPurchaseInvoice(invoice); if(newSerials.length) onAddSerials(newSerials);
+    setShowExcelImport(false); setImportPreview(null);
+  };
+
 
   const getAvailableStock = useCallback((productId: string): number => {
     return serials.filter(s => s.productId === productId && s.status === 'available').length;
@@ -718,9 +846,14 @@ export default function Purchases({
           <h2 className="text-xl font-bold text-white">📦 المشتريات</h2>
           <p className="text-gray-500 text-sm">{purchaseInvoices.length} فاتورة</p>
         </div>
-        <button onClick={openNewForm} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> فاتورة شراء جديدة
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadPurchaseTemplate} className="btn-secondary flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
+          <button onClick={() => purchaseImportRef.current?.click()} className="btn-secondary flex items-center gap-2"><Upload size={14} /> استيراد Excel</button>
+          <input ref={purchaseImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handlePurchaseExcel} />
+          <button onClick={openNewForm} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> فاتورة شراء جديدة
+          </button>
+        </div>
       </div>
 
       <div className="relative">
@@ -1384,6 +1517,32 @@ export default function Purchases({
               <button onClick={handleAddSupplier} className="btn-primary flex-1">إضافة</button>
               <button onClick={() => { setAddSupplierModal(false); setQuickAddError(null); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showExcelImport && importPreview && (
+        <div className="fixed inset-0 bg-black/85 z-[70] flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-5xl my-4">
+            <div className="flex items-center justify-between mb-4">
+              <div><h2 className="text-xl font-bold text-white">📥 استيراد فاتورة شراء من Excel</h2><p className="text-xs text-gray-500 mt-1">لن يتم حفظ أي شيء حتى تضغط استيراد بعد نجاح التحقق.</p></div>
+              <button onClick={() => { setShowExcelImport(false); setImportPreview(null); }} className="p-2 rounded-lg text-gray-400 hover:bg-white/10"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+              <div className="bg-muted-bg rounded-xl p-3"><div className="text-xs text-gray-500">المورد</div><div className="font-bold text-white text-sm">{importPreview.supplierName || '-'}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3"><div className="text-xs text-gray-500">التاريخ</div><div className="font-bold text-white text-sm">{importPreview.date || '-'}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3"><div className="text-xs text-gray-500">البنود</div><div className="font-bold text-white text-sm">{importPreview.rows.length}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3"><div className="text-xs text-gray-500">منتجات غير موجودة</div><div className="font-bold text-red-400 text-sm">{importPreview.missingProducts.length}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3"><div className="text-xs text-gray-500">سيريالات بسعر معلق</div><div className="font-bold text-yellow-400 text-sm">{importPreview.pendingPriceRows}</div></div>
+            </div>
+            {importPreview.missingProducts.length > 0 && <div className="bg-red-900/20 border border-red-700/40 rounded-xl p-3 mb-3"><div className="font-bold text-red-300">منتجات غير موجودة</div><div className="text-xs text-red-200 mt-1">أنشئ هذه المنتجات أولًا من صفحة المنتجات ثم أعد استيراد الملف:</div><div className="mt-2 flex flex-wrap gap-2">{importPreview.missingProducts.map(x => <span key={x} className="px-2 py-1 rounded-lg bg-red-950/40 text-xs text-red-200">{x}</span>)}</div></div>}
+            {importPreview.errors.length > 0 && <div className="bg-red-900/20 border border-red-700/40 rounded-xl p-3 mb-3"><div className="font-bold text-red-300">مشاكل تحتاج مراجعة</div><div className="mt-2 text-xs text-red-200 space-y-1 max-h-40 overflow-auto">{importPreview.errors.map((x, i) => <div key={i}>• {x}</div>)}</div></div>}
+            {importPreview.pendingPriceRows > 0 && <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-xl p-3 mb-3 text-sm text-yellow-200">الصفوف التي بها سعر شراء = 0 ستُسجل كسيريالات <b>بسعر شراء معلّق</b> ويمكن إكمال سعرها لاحقًا.</div>}
+            <div className="overflow-x-auto border border-white/10 rounded-xl">
+              <table className="w-full text-sm"><thead className="bg-violet-900/20"><tr><th className="text-right p-2">السطر</th><th className="text-right p-2">المنتج</th><th className="text-center p-2">الكمية</th><th className="text-center p-2">السعر</th><th className="text-center p-2">السيريالات</th></tr></thead>
+              <tbody>{importPreview.rows.map(r => <tr key={`${r.row}-${r.productId}`} className="border-t border-white/5"><td className="p-2 text-gray-500">{r.row}</td><td className="p-2 text-white">{r.productName}<div className="text-xs text-gray-500">{r.upc || r.sku || '-'}</div></td><td className="p-2 text-center">{r.quantity}</td><td className={`p-2 text-center ${r.unitPrice === 0 ? 'text-yellow-400' : 'text-white'}`}>{formatCurrency(r.unitPrice)}</td><td className="p-2 text-center font-mono text-xs">{r.serials.length ? r.serials.map(s => s.serial).join(', ') : '-'}</td></tr>)}{importPreview.rows.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-500">لا توجد بنود صالحة للاستيراد</td></tr>}</tbody></table>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-4"><button onClick={() => { setShowExcelImport(false); setImportPreview(null); }} className="btn-secondary">إغلاق</button><button disabled={!!importPreview.errors.length || !!importPreview.missingProducts.length || !importPreview.supplier || !importPreview.rows.length} onClick={commitPurchaseImport} className="btn-primary disabled:opacity-40">استيراد الفاتورة</button></div>
           </div>
         </div>
       )}

@@ -1,8 +1,9 @@
 // src/pages/Products.tsx
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Brand, SerialItem, ViewMode, ProductCategory } from '../types';
 import { formatCurrency, generateId, categoryLabel, getTodayStr, generateSKU, generateUPC } from '../utils/helpers';
-import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, QrCode, RefreshCw } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, QrCode, RefreshCw, Upload, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import ProductQRModal from '../components/ProductQRModal';
 
 const CATEGORIES = ['phones', 'tablets', 'laptops', 'accessories', 'other'];
@@ -52,6 +53,9 @@ export default function Products({
   const [jrardData, setJrardData] = useState<Record<string, string>>({});
   const [qrProduct, setQrProduct] = useState<Product | null>(null);
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [importingProducts, setImportingProducts] = useState(false);
+  const [importSummary, setImportSummary] = useState<{added:number; skipped:number; errors:string[]} | null>(null);
+  const productImportRef = useRef<HTMLInputElement | null>(null);
 
   // ✅ إصلاح العلامات التجارية: لو brands فاضية أو أقل من العدد المتوقع، أضف الافتراضية
   useEffect(() => {
@@ -175,6 +179,94 @@ export default function Products({
     }
   };
 
+  const downloadProductTemplate = () => {
+    const rows = [
+      {
+        'اسم المنتج *': 'iPad Pro M5 256GB WiFi',
+        'UPC *': '0195949823456',
+        'SKU': 'IPAD-PRO-M5-256-WIFI',
+        'البراند': 'Apple',
+        'التصنيف': 'tablets',
+        'نوع المنتج': 'serial',
+        'الوصف': '',
+        'سعر التكلفة': 0,
+        'سعر البيع': 0,
+        'الكمية': 0,
+        'الحد الأدنى': 2,
+        'Barcode': '',
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [28, 18, 24, 16, 16, 14, 28, 14, 14, 10, 12, 18].map(w => ({ width: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Products');
+    XLSX.writeFile(wb, 'products_import_template.xlsx');
+  };
+
+  const handleImportProducts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportingProducts(true);
+    setImportSummary(null);
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array', raw: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
+      let added = 0, skipped = 0;
+      const errors: string[] = [];
+      const existingUpcs = new Set(products.map(p => String(p.upc || '').trim()).filter(Boolean));
+      const existingSkus = new Set(products.map(p => String(p.sku || '').trim().toLowerCase()).filter(Boolean));
+      const get = (row: Record<string, any>, keys: string[]) => {
+        const key = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
+        return key ? row[key] : '';
+      };
+      const catMap: Record<string, ProductCategory> = {
+        phones: 'phones', 'هواتف': 'phones', 'موبايلات': 'phones',
+        tablets: 'tablets', 'تابلت': 'tablets',
+        laptops: 'laptops', 'لابتوب': 'laptops', 'كمبيوتر': 'laptops',
+        accessories: 'accessories', 'اكسسوارات': 'accessories',
+        other: 'other', 'أخرى': 'other', 'اخرى': 'other',
+      };
+      const typeMap: Record<string, 'serial'|'normal'> = {
+        serial: 'serial', 'سيريال': 'serial', 'serialed': 'serial',
+        normal: 'normal', 'عادي': 'normal', 'بدون سيريال': 'normal',
+      };
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const name = String(get(row, ['اسم المنتج *','اسم المنتج','product name','name']) || '').trim();
+        const upc = String(get(row, ['upc *','upc']) || '').trim();
+        if (!name) { errors.push(`السطر ${i + 2}: اسم المنتج فارغ`); skipped++; continue; }
+        if (!upc) { errors.push(`السطر ${i + 2}: UPC فارغ`); skipped++; continue; }
+        if (existingUpcs.has(upc)) { errors.push(`السطر ${i + 2}: UPC مكرر أو موجود بالفعل (${upc})`); skipped++; continue; }
+        const skuRaw = String(get(row, ['sku','SKU']) || '').trim();
+        const sku = skuRaw || generateSKU(name);
+        if (existingSkus.has(sku.toLowerCase())) { errors.push(`السطر ${i + 2}: SKU مكرر (${sku})`); skipped++; continue; }
+        const categoryRaw = String(get(row, ['التصنيف','category']) || 'phones').trim().toLowerCase();
+        const productTypeRaw = String(get(row, ['نوع المنتج','product type']) || 'serial').trim().toLowerCase();
+        const category = catMap[categoryRaw] || 'other';
+        const productType = typeMap[productTypeRaw] || 'serial';
+        const brand = String(get(row, ['البراند','brand']) || 'Others').trim() || 'Others';
+        const now = new Date().toISOString();
+        const result = onAddProduct({
+          id: generateId(), name, description: String(get(row, ['الوصف','description']) || ''), sku,
+          upc, barcode: String(get(row, ['barcode','باركود']) || ''), category, brand, productType,
+          costPrice: Number(get(row, ['سعر التكلفة','cost price','costprice']) || 0) || 0,
+          salePrice: Number(get(row, ['سعر البيع','sale price','saleprice']) || 0) || 0,
+          stock: Number(get(row, ['الكمية','stock','quantity']) || 0) || 0,
+          minStock: Number(get(row, ['الحد الأدنى','min stock','minstock']) || 2) || 2,
+          createdAt: now, updatedAt: now,
+        });
+        if (result && result.success === false) { errors.push(`السطر ${i + 2}: ${result.message || 'تعذر إضافة المنتج'}`); skipped++; continue; }
+        existingUpcs.add(upc); existingSkus.add(sku.toLowerCase()); added++;
+      }
+      setImportSummary({ added, skipped, errors: errors.slice(0, 100) });
+    } catch (err) {
+      setImportSummary({ added: 0, skipped: 0, errors: ['ملف Excel غير صالح أو لا يمكن قراءته.'] });
+    } finally { setImportingProducts(false); }
+  };
+
   const handleAddBrand = () => {
     if (!newBrand.trim()) return;
     onAddBrand({
@@ -213,6 +305,9 @@ export default function Products({
           <p className="text-gray-500 text-sm">{products.length} منتج</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={downloadProductTemplate} className="btn-secondary text-sm flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
+          <button onClick={() => productImportRef.current?.click()} disabled={importingProducts} className="btn-secondary text-sm flex items-center gap-2"><Upload size={14} /> {importingProducts ? 'جاري الاستيراد...' : 'استيراد Excel'}</button>
+          <input ref={productImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportProducts} />
           <button
             onClick={() => setShowJrard(!showJrard)}
             className="btn-secondary text-sm"
@@ -224,6 +319,17 @@ export default function Products({
           </button>
         </div>
       </div>
+
+      {importSummary && (
+        <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold text-violet-300">نتيجة استيراد المنتجات</h3>
+            <button onClick={() => setImportSummary(null)} className="text-gray-500 hover:text-white">×</button>
+          </div>
+          <div className="text-sm text-gray-300">تمت إضافة <b className="text-green-400">{importSummary.added}</b> منتج، وتم تخطي <b className="text-yellow-400">{importSummary.skipped}</b>.</div>
+          {importSummary.errors.length > 0 && <div className="mt-2 text-xs text-red-300 space-y-1 max-h-40 overflow-auto">{importSummary.errors.map((e, i) => <div key={i}>• {e}</div>)}</div>}
+        </div>
+      )}
 
       {/* ==================== جرد المخزون ==================== */}
       {showJrard && (
