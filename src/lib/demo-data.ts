@@ -6,6 +6,7 @@ import type {
   Expense,
   NoonOrder,
   Partner,
+  Employee,
   Payment,
   Product,
   PurchaseInvoice,
@@ -84,6 +85,7 @@ export function hydrateState(raw: Partial<AppState>): AppState {
     dailyJournals: raw.dailyJournals ?? [],
     brands: raw.brands?.length ? raw.brands : base.brands,
     partners: raw.partners ?? base.partners,
+    employees: raw.employees ?? base.employees,
     profitDistributions: raw.profitDistributions ?? [],
     weeklyInventoryCounts: raw.weeklyInventoryCounts ?? [],
     stockTransfers: raw.stockTransfers ?? [],
@@ -272,6 +274,8 @@ export function generateDemoData(): AppState {
     },
   ];
 
+  const employees: Employee[] = [];
+
   const partners: Partner[] = [
     { id: "pt1", name: "الشريك الأول", capitalAmount: 400000, isActive: true, createdAt: isoTime(60), updatedAt: isoTime(10) },
     { id: "pt2", name: "الشريك الثاني", capitalAmount: 250000, isActive: true, createdAt: isoTime(60), updatedAt: isoTime(10) },
@@ -305,6 +309,7 @@ export function generateDemoData(): AppState {
     ],
     brands: defaultBrands,
     partners,
+    employees,
     profitDistributions: [],
     weeklyInventoryCounts: [],
     stockTransfers: [],

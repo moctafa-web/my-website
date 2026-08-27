@@ -199,12 +199,14 @@ export interface Expense {
 // ==================== TREASURY ====================
 export interface TreasuryTransaction {
   id: string;
-  type: 'sale' | 'purchase' | 'expense' | 'transfer' | 'opening' | 'payment_in' | 'payment_out' | 'adjustment';
+  type: 'sale' | 'purchase' | 'expense' | 'transfer' | 'opening' | 'payment_in' | 'payment_out' | 'adjustment' | 'partner_in' | 'partner_out' | 'employee_in' | 'employee_out';
   description: string;
   amount: number;
   treasury: 'cash' | 'bank';
   direction: 'in' | 'out';
   referenceId?: string;
+  partyType?: 'partner' | 'employee';
+  partyName?: string;
   date: string;
   createdAt: string;
 }
@@ -335,6 +337,17 @@ export interface Brand {
 }
 
 // ==================== PARTNERS (الشركاء) ====================
+export interface Employee {
+  id: string;
+  name: string;
+  phone?: string;
+  role?: string;
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Partner {
   id: string;
   name: string;
@@ -493,6 +506,7 @@ export interface AppState {
   dailyJournals: DailyJournal[];
   brands: Brand[];
   partners: Partner[];
+  employees: Employee[];
   profitDistributions: ProfitDistribution[];
   // ✅ Phase 1: Weekly Physical Counts
   weeklyInventoryCounts: WeeklyInventoryCount[];

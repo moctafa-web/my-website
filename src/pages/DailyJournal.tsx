@@ -13,6 +13,7 @@ const TYPE_LABELS: Record<string, string> = {
   sale: 'مبيعات', purchase: 'مشتريات', expense: 'مصاريف',
   payment_in: 'تحصيل ديون (عملاء)', payment_out: 'سداد ديون (موردين)',
   adjustment: 'تسوية يدوية', transfer: 'تحويل بين الخزينتين', opening: 'رصيد افتتاحي',
+  partner_in: 'استلام من شريك', partner_out: 'سحب للشريك', employee_in: 'استلام من عامل', employee_out: 'سحب للعامل',
 };
 
 export default function DailyJournal({ journals, treasuryTransactions, onSaveJournal }: Props) {

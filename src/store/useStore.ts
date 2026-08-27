@@ -3,7 +3,7 @@ import {
   AppState, Product, Customer, Supplier, SaleInvoice, PurchaseInvoice,
   Payment, Expense, TreasuryTransaction, NoonOrder, DailyClosing,
   DailyJournal, SerialItem, Brand, AppSettings, Partner, ProfitDistribution,
-  WeeklyInventoryCount, StockTransfer, DailyOperationEntry, DailyInventoryScan
+  WeeklyInventoryCount, StockTransfer, DailyOperationEntry, DailyInventoryScan, Employee
 } from '../types';
 import { normalizeForCompare, generateId } from '../utils/helpers';
 import { makeTransactionId } from './domains/id.store';
@@ -38,7 +38,7 @@ export function useStore() {
         const [
           products, serials, customers, suppliers, saleInvoices, purchaseInvoices,
           payments, expenses, noonOrders, brands, dailyJournals, partners,
-          profitDistributions, treasuryTransactions, dailyClosings, weeklyInventoryCounts,
+          profitDistributions, employees, treasuryTransactions, dailyClosings, weeklyInventoryCounts,
           stockTransfers, dailyOperations, dailyInventoryScans,
           settingsRows, treasuryRows,
         ] = await Promise.all([
@@ -55,6 +55,7 @@ export function useStore() {
           loadCollection<DailyJournal>('dailyJournals'),
           loadCollection<Partner>('partners'),
           loadCollection<ProfitDistribution>('profitDistributions'),
+          loadCollection<Employee>('employees'),
           loadCollection<TreasuryTransaction>('treasuryTransactions'),
           loadCollection<DailyClosing>('dailyClosings'),
           loadCollection<WeeklyInventoryCount>('weeklyInventoryCounts'),
@@ -85,6 +86,7 @@ export function useStore() {
           brands: brands.length ? brands : prev.brands,
           partners,
           profitDistributions,
+          employees,
           treasuryTransactions,
           dailyClosings,
           weeklyInventoryCounts,
@@ -1229,6 +1231,69 @@ export function useStore() {
     deleteFromFirebase('partners', id);
   }, []);
 
+  // ==================== EMPLOYEES (العاملين) ====================
+  const addEmployee = useCallback((employee: Employee): { success: boolean; message?: string } => {
+    let isDuplicate = false;
+    setState(prev => {
+      const exists = prev.employees.some(e => e.name.trim().toLowerCase() === employee.name.trim().toLowerCase());
+      if (exists) { isDuplicate = true; return prev; }
+      return { ...prev, employees: [...prev.employees, employee] };
+    });
+    if (isDuplicate) return { success: false, message: `يوجد عامل بنفس الاسم: ${employee.name}` };
+    saveToFirebase('employees', employee.id, employee);
+    return { success: true };
+  }, []);
+
+  const updateEmployee = useCallback((employee: Employee) => {
+    setState(prev => ({ ...prev, employees: prev.employees.map(e => e.id === employee.id ? employee : e) }));
+    saveToFirebase('employees', employee.id, employee);
+  }, []);
+
+  const deleteEmployee = useCallback((id: string) => {
+    setState(prev => ({ ...prev, employees: prev.employees.filter(e => e.id !== id) }));
+    deleteFromFirebase('employees', id);
+  }, []);
+
+  const addPartyMoneyMovement = useCallback((
+    partyType: 'partner' | 'employee',
+    partyId: string,
+    partyName: string,
+    treasury: 'cash' | 'bank',
+    direction: 'in' | 'out',
+    amount: number,
+    note: string,
+  ): { success: boolean; message?: string } => {
+    if (!Number.isFinite(amount) || amount <= 0) return { success: false, message: 'المبلغ يجب أن يكون أكبر من صفر' };
+    let result: { success: boolean; message?: string } = { success: true };
+    setState(prev => {
+      const currentBalance = treasury === 'cash' ? prev.cashBalance : prev.bankBalance;
+      if (direction === 'out' && amount > currentBalance) {
+        result = { success: false, message: `الرصيد المتاح في ${treasury === 'cash' ? 'الخزينة' : 'البنك'} غير كافٍ` };
+        return prev;
+      }
+      const type: TreasuryTransaction['type'] = partyType === 'partner'
+        ? (direction === 'in' ? 'partner_in' : 'partner_out')
+        : (direction === 'in' ? 'employee_in' : 'employee_out');
+      const transaction: TreasuryTransaction = {
+        id: `tr_${generateId()}`,
+        type,
+        description: `${direction === 'in' ? 'استلام من' : 'سحب إلى'} ${partyType === 'partner' ? 'الشريك' : 'العامل'}: ${partyName}${note ? ` — ${note}` : ''}`,
+        amount, treasury, direction, referenceId: partyId, partyType, partyName,
+        date: new Date().toISOString().slice(0, 10),
+        createdAt: new Date().toISOString(),
+      };
+      const next = {
+        ...prev,
+        cashBalance: treasury === 'cash' ? (direction === 'in' ? prev.cashBalance + amount : prev.cashBalance - amount) : prev.cashBalance,
+        bankBalance: treasury === 'bank' ? (direction === 'in' ? prev.bankBalance + amount : prev.bankBalance - amount) : prev.bankBalance,
+        treasuryTransactions: [...prev.treasuryTransactions, transaction],
+      };
+      saveToFirebase('treasuryTransactions', transaction.id, transaction);
+      return next;
+    });
+    return result;
+  }, []);
+
   // ==================== PROFIT DISTRIBUTION (توزيع الأرباح) ====================
   const saveDistribution = useCallback((distribution: ProfitDistribution) => {
     setState(prev => {
@@ -1427,6 +1492,7 @@ export function useStore() {
     updateSettings,
     // ✅ الشركاء
     addPartner, updatePartner, deletePartner,
+    addEmployee, updateEmployee, deleteEmployee, addPartyMoneyMovement,
     // ✅ توزيع الأرباح
     saveDistribution, deleteDistribution,
     // ✅ Phase 1: Weekly Inventory

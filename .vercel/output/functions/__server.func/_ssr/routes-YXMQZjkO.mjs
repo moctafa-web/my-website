@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-DFV5uJyU.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-YXMQZjkO.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -16241,7 +16241,7 @@ function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = []
 		]
 	});
 }
-function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjustTreasury, partners, onAddPartner, onUpdatePartner, onDeletePartner, profitDistributions, onSaveDistribution, onDeleteDistribution, saleInvoices, expenses, noonOrders }) {
+function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjustTreasury, partners, onAddPartner, onUpdatePartner, onDeletePartner, employees, onAddEmployee, onUpdateEmployee, onDeleteEmployee, onAddPartyMoneyMovement, profitDistributions, onSaveDistribution, onDeleteDistribution, saleInvoices, expenses, noonOrders }) {
 	const [activeTab, setActiveTab] = (0, import_react.useState)("treasury");
 	const [treasuryType, setTreasuryType] = (0, import_react.useState)("cash");
 	const [showAdjust, setShowAdjust] = (0, import_react.useState)(false);
@@ -16252,6 +16252,26 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 		desc: ""
 	});
 	const [showPartnerForm, setShowPartnerForm] = (0, import_react.useState)(false);
+	const [showEmployeeForm, setShowEmployeeForm] = (0, import_react.useState)(false);
+	const [editingEmployee, setEditingEmployee] = (0, import_react.useState)(null);
+	const [employeeForm, setEmployeeForm] = (0, import_react.useState)({
+		name: "",
+		phone: "",
+		role: "",
+		notes: ""
+	});
+	const [employeeError, setEmployeeError] = (0, import_react.useState)(null);
+	const [confirmDeleteEmployee, setConfirmDeleteEmployee] = (0, import_react.useState)(null);
+	const [showPartyMovement, setShowPartyMovement] = (0, import_react.useState)(false);
+	const [partyMovementForm, setPartyMovementForm] = (0, import_react.useState)({
+		partyType: "partner",
+		partyId: "",
+		direction: "in",
+		treasury: "cash",
+		amount: "",
+		note: ""
+	});
+	const [partyMovementError, setPartyMovementError] = (0, import_react.useState)(null);
 	const [editingPartner, setEditingPartner] = (0, import_react.useState)(null);
 	const [partnerForm, setPartnerForm] = (0, import_react.useState)({
 		name: "",
@@ -16329,6 +16349,88 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 		...p,
 		percent: totalCapital > 0 ? p.capitalAmount / totalCapital * 100 : 0
 	}));
+	const partyBalances = (0, import_react.useMemo)(() => {
+		const map = /* @__PURE__ */ new Map();
+		transactions.forEach((t) => {
+			if (!t.partyType || !t.referenceId) return;
+			const signed = t.direction === "in" ? t.amount : -t.amount;
+			map.set(`${t.partyType}:${t.referenceId}`, (map.get(`${t.partyType}:${t.referenceId}`) || 0) + signed);
+		});
+		return map;
+	}, [transactions]);
+	const openAddEmployee = () => {
+		setEditingEmployee(null);
+		setEmployeeForm({
+			name: "",
+			phone: "",
+			role: "",
+			notes: ""
+		});
+		setEmployeeError(null);
+		setShowEmployeeForm(true);
+	};
+	const openEditEmployee = (e) => {
+		setEditingEmployee(e);
+		setEmployeeForm({
+			name: e.name,
+			phone: e.phone || "",
+			role: e.role || "",
+			notes: e.notes || ""
+		});
+		setEmployeeError(null);
+		setShowEmployeeForm(true);
+	};
+	const handleSaveEmployee = () => {
+		if (!employeeForm.name.trim()) {
+			setEmployeeError("اسم العامل مطلوب");
+			return;
+		}
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const employee = {
+			id: editingEmployee?.id || `emp_${generateId()}`,
+			name: employeeForm.name.trim(),
+			phone: employeeForm.phone.trim() || void 0,
+			role: employeeForm.role.trim() || void 0,
+			notes: employeeForm.notes.trim() || void 0,
+			isActive: editingEmployee?.isActive ?? true,
+			createdAt: editingEmployee?.createdAt || now,
+			updatedAt: now
+		};
+		const result = editingEmployee ? (onUpdateEmployee(employee), { success: true }) : onAddEmployee(employee);
+		if (!result.success) {
+			setEmployeeError(result.message || "تعذر حفظ العامل");
+			return;
+		}
+		setShowEmployeeForm(false);
+	};
+	const openPartyMovement = (partyType, partyId, direction) => {
+		setPartyMovementError(null);
+		setPartyMovementForm({
+			partyType,
+			partyId,
+			direction,
+			treasury: "cash",
+			amount: "",
+			note: ""
+		});
+		setShowPartyMovement(true);
+	};
+	const movementParties = partyMovementForm.partyType === "partner" ? partners.filter((p) => p.isActive) : employees.filter((e) => e.isActive);
+	const handlePartyMovement = () => {
+		const amount = parseFloat(partyMovementForm.amount);
+		const party = movementParties.find((p) => p.id === partyMovementForm.partyId);
+		if (!party) {
+			setPartyMovementError("اختر الشخص أولاً");
+			return;
+		}
+		const result = onAddPartyMoneyMovement(partyMovementForm.partyType, party.id, party.name, partyMovementForm.treasury, partyMovementForm.direction, amount, partyMovementForm.note.trim());
+		if (!result.success) {
+			setPartyMovementError(result.message || "تعذر تسجيل الحركة");
+			return;
+		}
+		setShowPartyMovement(false);
+		setPartyMovementError(null);
+	};
 	const monthlyStats = (0, import_react.useMemo)(() => {
 		const [year, month] = selectedMonth.split("-").map(Number);
 		const isInMonth = (dateStr) => {
@@ -16568,7 +16670,7 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 					},
 					{
 						key: "partners",
-						label: "👥 الشركاء"
+						label: "👥 الشركاء والعاملين"
 					},
 					{
 						key: "profit",
@@ -16830,11 +16932,19 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 						className: "flex justify-between items-center",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
 							className: "font-bold text-white",
-							children: "قائمة الشركاء"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-							onClick: openAddPartner,
-							className: "btn-primary flex items-center gap-2 text-sm",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 }), " إضافة شريك"]
+							children: "الشركاء"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: openPartyMovement ? () => openPartyMovement("partner", activePartners[0]?.id || "", "in") : void 0,
+								disabled: activePartners.length === 0,
+								className: "btn-secondary flex items-center gap-2 text-sm disabled:opacity-40",
+								children: "💰 حركة مالية"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: openAddPartner,
+								className: "btn-primary flex items-center gap-2 text-sm",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 }), " إضافة شريك"]
+							})]
 						})]
 					}),
 					partners.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -16883,16 +16993,35 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 										className: "flex items-center gap-4",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "text-right",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "font-black text-white text-lg",
-												children: formatCurrency(partner.capitalAmount)
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "text-xs text-violet-400",
-												children: [percent.toFixed(1), "% من رأس المال"]
-											})]
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "font-black text-white text-lg",
+													children: formatCurrency(partner.capitalAmount)
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "text-xs text-violet-400",
+													children: [percent.toFixed(1), "% من رأس المال"]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: `text-xs mt-1 ${(partyBalances.get(`partner:${partner.id}`) || 0) >= 0 ? "text-green-400" : "text-red-400"}`,
+													children: ["صافي حركة: ", formatCurrency(partyBalances.get(`partner:${partner.id}`) || 0)]
+												})
+											]
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex gap-1",
 											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => openPartyMovement("partner", partner.id, "in"),
+													className: "p-1.5 rounded-lg text-green-400 hover:bg-green-900/20",
+													title: "استلام من الشريك",
+													children: "+💰"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => openPartyMovement("partner", partner.id, "out"),
+													className: "p-1.5 rounded-lg text-red-400 hover:bg-red-900/20",
+													title: "سحب للشريك",
+													children: "-💰"
+												}),
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 													onClick: () => onUpdatePartner({
 														...partner,
@@ -16928,6 +17057,97 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 								})]
 							}, partner.id);
 						})
+					})
+				]
+			}),
+			activeTab === "partners" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "bg-elevated border border-emerald-900/30 rounded-2xl p-4 space-y-3",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center justify-between",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+							className: "font-bold text-white",
+							children: "العاملون"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs text-gray-500 mt-1",
+							children: "سجل من دخل منه مال للمحل أو سحب منه مال، بدون اعتباره مصروفًا."
+						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							onClick: openAddEmployee,
+							className: "btn-primary flex items-center gap-2 text-sm",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 }), " إضافة عامل"]
+						})]
+					}),
+					employees.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "text-center py-8 text-gray-500",
+						children: "لا يوجد عاملون بعد"
+					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "grid gap-2",
+						children: employees.map((employee) => {
+							const balance = partyBalances.get(`employee:${employee.id}`) || 0;
+							return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: `border rounded-xl p-3 ${employee.isActive ? "border-white/10" : "border-white/5 opacity-50"}`,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between gap-3",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "font-bold text-white",
+											children: employee.name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-xs text-gray-500",
+											children: [employee.role || "عامل", employee.phone ? ` • ${employee.phone}` : ""]
+										})] }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-right",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: `font-bold ${balance >= 0 ? "text-green-400" : "text-red-400"}`,
+												children: formatCurrency(balance)
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "text-[11px] text-gray-500",
+												children: "صافي داخل للمحل"
+											})]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex gap-1",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => openPartyMovement("employee", employee.id, "in"),
+													className: "p-1.5 rounded-lg text-green-400 hover:bg-green-900/20",
+													children: "+💰"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => openPartyMovement("employee", employee.id, "out"),
+													className: "p-1.5 rounded-lg text-red-400 hover:bg-red-900/20",
+													children: "-💰"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => onUpdateEmployee({
+														...employee,
+														isActive: !employee.isActive,
+														updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+													}),
+													className: "p-1.5 rounded-lg text-gray-400 hover:bg-white/10",
+													children: employee.isActive ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14 })
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => openEditEmployee(employee),
+													className: "p-1.5 rounded-lg text-gray-400 hover:text-blue-400",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SquarePen, { size: 14 })
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => setConfirmDeleteEmployee(employee),
+													className: "p-1.5 rounded-lg text-gray-400 hover:text-red-400",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 14 })
+												})
+											]
+										})
+									]
+								})
+							}, employee.id);
+						})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "bg-muted-bg rounded-xl p-3 text-xs text-gray-400",
+						children: "💡 الحركة المالية هنا تدخل تلقائيًا في حركات الخزينة وتقفيلة اليومية، وليست مصروفًا ولا إيرادًا."
 					})
 				]
 			}),
@@ -17246,6 +17466,136 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 					})]
 				})]
 			}),
+			showPartyMovement && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+							className: "font-bold text-white mb-1",
+							children: "💰 حركة مالية للشخص"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs text-gray-500 mb-4",
+							children: "لن تُسجل كمصروف أو إيراد؛ ستتغير الخزينة وتظهر في اليومية."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-3",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "grid grid-cols-2 gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => setPartyMovementForm((p) => ({
+											...p,
+											partyType: "partner",
+											partyId: "",
+											direction: "in"
+										})),
+										className: `py-2 rounded-xl border text-sm ${partyMovementForm.partyType === "partner" ? "bg-violet-900/30 border-violet-500/50 text-violet-300" : "border-white/10 text-gray-400"}`,
+										children: "👥 شريك"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => setPartyMovementForm((p) => ({
+											...p,
+											partyType: "employee",
+											partyId: "",
+											direction: "out"
+										})),
+										className: `py-2 rounded-xl border text-sm ${partyMovementForm.partyType === "employee" ? "bg-emerald-900/30 border-emerald-500/50 text-emerald-300" : "border-white/10 text-gray-400"}`,
+										children: "👤 عامل"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+									value: partyMovementForm.partyId,
+									onChange: (e) => setPartyMovementForm((p) => ({
+										...p,
+										partyId: e.target.value
+									})),
+									className: "input-dark w-full",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: "",
+										children: "اختر الشخص"
+									}), movementParties.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: p.id,
+										children: p.name
+									}, p.id))]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "grid grid-cols-2 gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => setPartyMovementForm((p) => ({
+											...p,
+											direction: "in"
+										})),
+										className: `py-2 rounded-xl border text-sm ${partyMovementForm.direction === "in" ? "bg-green-900/30 border-green-500/50 text-green-300" : "border-white/10 text-gray-400"}`,
+										children: "⬆️ من الشخص إلى المحل"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => setPartyMovementForm((p) => ({
+											...p,
+											direction: "out"
+										})),
+										className: `py-2 rounded-xl border text-sm ${partyMovementForm.direction === "out" ? "bg-red-900/30 border-red-500/50 text-red-300" : "border-white/10 text-gray-400"}`,
+										children: "⬇️ من المحل إلى الشخص"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "grid grid-cols-2 gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => setPartyMovementForm((p) => ({
+											...p,
+											treasury: "cash"
+										})),
+										className: `py-2 rounded-xl border text-sm ${partyMovementForm.treasury === "cash" ? "bg-green-900/30 border-green-500/50 text-green-300" : "border-white/10 text-gray-400"}`,
+										children: "💵 كاش"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => setPartyMovementForm((p) => ({
+											...p,
+											treasury: "bank"
+										})),
+										className: `py-2 rounded-xl border text-sm ${partyMovementForm.treasury === "bank" ? "bg-blue-900/30 border-blue-500/50 text-blue-300" : "border-white/10 text-gray-400"}`,
+										children: "🏦 بنك"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "number",
+									value: partyMovementForm.amount,
+									onChange: (e) => setPartyMovementForm((p) => ({
+										...p,
+										amount: e.target.value
+									})),
+									className: "input-dark w-full",
+									placeholder: "المبلغ"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "text",
+									value: partyMovementForm.note,
+									onChange: (e) => setPartyMovementForm((p) => ({
+										...p,
+										note: e.target.value
+									})),
+									className: "input-dark w-full",
+									placeholder: "السبب / ملاحظة (اختياري)"
+								}),
+								partyMovementError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-sm text-red-400 bg-red-900/20 rounded-xl px-3 py-2",
+									children: partyMovementError
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-2 mt-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: handlePartyMovement,
+								className: "btn-primary flex-1",
+								children: "تسجيل الحركة"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setShowPartyMovement(false),
+								className: "btn-secondary flex-1",
+								children: "إلغاء"
+							})]
+						})
+					]
+				})
+			}),
 			showAdjust && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -17324,6 +17674,107 @@ function Finance({ cashBalance, bankBalance, transactions, dailyClosings, adjust
 								children: "تأكيد"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								onClick: () => setShowAdjust(false),
+								className: "btn-secondary flex-1",
+								children: "إلغاء"
+							})]
+						})
+					]
+				})
+			}),
+			showEmployeeForm && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "bg-elevated border border-emerald-900/40 rounded-2xl p-5 w-full max-w-sm",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+							className: "font-bold text-white mb-4",
+							children: editingEmployee ? "✏️ تعديل بيانات العامل" : "👤 إضافة عامل جديد"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-3",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark w-full",
+									value: employeeForm.name,
+									onChange: (e) => setEmployeeForm((f) => ({
+										...f,
+										name: e.target.value
+									})),
+									placeholder: "اسم العامل *",
+									autoFocus: true
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark w-full",
+									value: employeeForm.phone,
+									onChange: (e) => setEmployeeForm((f) => ({
+										...f,
+										phone: e.target.value
+									})),
+									placeholder: "الهاتف"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark w-full",
+									value: employeeForm.role,
+									onChange: (e) => setEmployeeForm((f) => ({
+										...f,
+										role: e.target.value
+									})),
+									placeholder: "الوظيفة"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark w-full",
+									value: employeeForm.notes,
+									onChange: (e) => setEmployeeForm((f) => ({
+										...f,
+										notes: e.target.value
+									})),
+									placeholder: "ملاحظات"
+								}),
+								employeeError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-sm text-red-400",
+									children: employeeError
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-2 mt-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: handleSaveEmployee,
+								className: "btn-primary flex-1",
+								children: "حفظ"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setShowEmployeeForm(false),
+								className: "btn-secondary flex-1",
+								children: "إلغاء"
+							})]
+						})
+					]
+				})
+			}),
+			confirmDeleteEmployee && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "bg-elevated border border-red-900/40 rounded-2xl p-5 w-full max-w-sm",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+							className: "font-bold text-white mb-3",
+							children: "حذف العامل؟"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "text-sm text-gray-400 mb-4",
+							children: [confirmDeleteEmployee.name, " — الحركات السابقة ستظل محفوظة."]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => {
+									onDeleteEmployee(confirmDeleteEmployee.id);
+									setConfirmDeleteEmployee(null);
+								},
+								className: "btn-primary flex-1 bg-red-700",
+								children: "حذف"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setConfirmDeleteEmployee(null),
 								className: "btn-secondary flex-1",
 								children: "إلغاء"
 							})]
@@ -20668,7 +21119,11 @@ var TYPE_LABELS = {
 	payment_out: "سداد ديون (موردين)",
 	adjustment: "تسوية يدوية",
 	transfer: "تحويل بين الخزينتين",
-	opening: "رصيد افتتاحي"
+	opening: "رصيد افتتاحي",
+	partner_in: "استلام من شريك",
+	partner_out: "سحب للشريك",
+	employee_in: "استلام من عامل",
+	employee_out: "سحب للعامل"
 };
 function DailyJournal({ journals, treasuryTransactions, onSaveJournal }) {
 	const [date, setDate] = (0, import_react.useState)(getTodayStr());
@@ -21811,6 +22266,7 @@ function hydrateState(raw) {
 		dailyJournals: raw.dailyJournals ?? [],
 		brands: raw.brands?.length ? raw.brands : base.brands,
 		partners: raw.partners ?? base.partners,
+		employees: raw.employees ?? base.employees,
 		profitDistributions: raw.profitDistributions ?? [],
 		weeklyInventoryCounts: raw.weeklyInventoryCounts ?? [],
 		stockTransfers: raw.stockTransfers ?? [],
@@ -22988,6 +23444,7 @@ function generateDemoData() {
 			createdAt: isoTime(1, 19)
 		}
 	];
+	const employees = [];
 	const partners = [{
 		id: "pt1",
 		name: "الشريك الأول",
@@ -23037,6 +23494,7 @@ function generateDemoData() {
 		}],
 		brands: defaultBrands,
 		partners,
+		employees,
 		profitDistributions: [],
 		weeklyInventoryCounts: [],
 		stockTransfers: [],
@@ -23109,7 +23567,7 @@ function useStore() {
 				console.error("Error loading local cache:", error);
 			}
 			try {
-				const [products, serials, customers, suppliers, saleInvoices, purchaseInvoices, payments, expenses, noonOrders, brands, dailyJournals, partners, profitDistributions, treasuryTransactions, dailyClosings, weeklyInventoryCounts, stockTransfers, dailyOperations, dailyInventoryScans, settingsRows, treasuryRows] = await Promise.all([
+				const [products, serials, customers, suppliers, saleInvoices, purchaseInvoices, payments, expenses, noonOrders, brands, dailyJournals, partners, profitDistributions, employees, treasuryTransactions, dailyClosings, weeklyInventoryCounts, stockTransfers, dailyOperations, dailyInventoryScans, settingsRows, treasuryRows] = await Promise.all([
 					loadCollection("products"),
 					loadCollection("serials"),
 					loadCollection("customers"),
@@ -23123,6 +23581,7 @@ function useStore() {
 					loadCollection("dailyJournals"),
 					loadCollection("partners"),
 					loadCollection("profitDistributions"),
+					loadCollection("employees"),
 					loadCollection("treasuryTransactions"),
 					loadCollection("dailyClosings"),
 					loadCollection("weeklyInventoryCounts"),
@@ -23150,6 +23609,7 @@ function useStore() {
 					brands: brands.length ? brands : prev.brands,
 					partners,
 					profitDistributions,
+					employees,
 					treasuryTransactions,
 					dailyClosings,
 					weeklyInventoryCounts,
@@ -24337,6 +24797,79 @@ function useStore() {
 		}));
 		deleteFromFirebase("partners", id);
 	}, []);
+	const addEmployee = (0, import_react.useCallback)((employee) => {
+		let isDuplicate = false;
+		setState((prev) => {
+			if (prev.employees.some((e) => e.name.trim().toLowerCase() === employee.name.trim().toLowerCase())) {
+				isDuplicate = true;
+				return prev;
+			}
+			return {
+				...prev,
+				employees: [...prev.employees, employee]
+			};
+		});
+		if (isDuplicate) return {
+			success: false,
+			message: `يوجد عامل بنفس الاسم: ${employee.name}`
+		};
+		saveToFirebase("employees", employee.id, employee);
+		return { success: true };
+	}, []);
+	const updateEmployee = (0, import_react.useCallback)((employee) => {
+		setState((prev) => ({
+			...prev,
+			employees: prev.employees.map((e) => e.id === employee.id ? employee : e)
+		}));
+		saveToFirebase("employees", employee.id, employee);
+	}, []);
+	const deleteEmployee = (0, import_react.useCallback)((id) => {
+		setState((prev) => ({
+			...prev,
+			employees: prev.employees.filter((e) => e.id !== id)
+		}));
+		deleteFromFirebase("employees", id);
+	}, []);
+	const addPartyMoneyMovement = (0, import_react.useCallback)((partyType, partyId, partyName, treasury, direction, amount, note) => {
+		if (!Number.isFinite(amount) || amount <= 0) return {
+			success: false,
+			message: "المبلغ يجب أن يكون أكبر من صفر"
+		};
+		let result = { success: true };
+		setState((prev) => {
+			const currentBalance = treasury === "cash" ? prev.cashBalance : prev.bankBalance;
+			if (direction === "out" && amount > currentBalance) {
+				result = {
+					success: false,
+					message: `الرصيد المتاح في ${treasury === "cash" ? "الخزينة" : "البنك"} غير كافٍ`
+				};
+				return prev;
+			}
+			const type = partyType === "partner" ? direction === "in" ? "partner_in" : "partner_out" : direction === "in" ? "employee_in" : "employee_out";
+			const transaction = {
+				id: `tr_${generateId()}`,
+				type,
+				description: `${direction === "in" ? "استلام من" : "سحب إلى"} ${partyType === "partner" ? "الشريك" : "العامل"}: ${partyName}${note ? ` — ${note}` : ""}`,
+				amount,
+				treasury,
+				direction,
+				referenceId: partyId,
+				partyType,
+				partyName,
+				date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+				createdAt: (/* @__PURE__ */ new Date()).toISOString()
+			};
+			const next = {
+				...prev,
+				cashBalance: treasury === "cash" ? direction === "in" ? prev.cashBalance + amount : prev.cashBalance - amount : prev.cashBalance,
+				bankBalance: treasury === "bank" ? direction === "in" ? prev.bankBalance + amount : prev.bankBalance - amount : prev.bankBalance,
+				treasuryTransactions: [...prev.treasuryTransactions, transaction]
+			};
+			saveToFirebase("treasuryTransactions", transaction.id, transaction);
+			return next;
+		});
+		return result;
+	}, []);
 	const saveDistribution = (0, import_react.useCallback)((distribution) => {
 		setState((prev) => {
 			const profitDistributions = prev.profitDistributions.some((d) => d.id === distribution.id) ? prev.profitDistributions.map((d) => d.id === distribution.id ? distribution : d) : [...prev.profitDistributions, distribution];
@@ -24548,6 +25081,10 @@ function useStore() {
 		addPartner,
 		updatePartner,
 		deletePartner,
+		addEmployee,
+		updateEmployee,
+		deleteEmployee,
+		addPartyMoneyMovement,
 		saveDistribution,
 		deleteDistribution,
 		addWeeklyInventoryCount,
@@ -24750,6 +25287,11 @@ function ErpApp() {
 				onAddPartner: store.addPartner,
 				onUpdatePartner: store.updatePartner,
 				onDeletePartner: store.deletePartner,
+				employees: state.employees,
+				onAddEmployee: store.addEmployee,
+				onUpdateEmployee: store.updateEmployee,
+				onDeleteEmployee: store.deleteEmployee,
+				onAddPartyMoneyMovement: store.addPartyMoneyMovement,
 				profitDistributions: state.profitDistributions,
 				onSaveDistribution: store.saveDistribution,
 				onDeleteDistribution: store.deleteDistribution,

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { TreasuryTransaction, DailyClosing, Partner, ProfitDistribution, SaleInvoice, PurchaseInvoice, Expense, NoonOrder } from '../types';
+import { TreasuryTransaction, DailyClosing, Partner, Employee, ProfitDistribution, SaleInvoice, PurchaseInvoice, Expense, NoonOrder } from '../types';
 import { formatCurrency, formatDateTime, generateId, printElement, getTodayStr } from '../utils/helpers';
 import { Plus, Edit, Trash2, X, Check, Users, TrendingUp, ChevronDown, ChevronUp, Printer, Calendar } from 'lucide-react';
 
@@ -14,6 +14,11 @@ interface Props {
   onAddPartner: (p: Partner) => { success: boolean; message?: string };
   onUpdatePartner: (p: Partner) => void;
   onDeletePartner: (id: string) => void;
+  employees: Employee[];
+  onAddEmployee: (e: Employee) => { success: boolean; message?: string };
+  onUpdateEmployee: (e: Employee) => void;
+  onDeleteEmployee: (id: string) => void;
+  onAddPartyMoneyMovement: (partyType: 'partner' | 'employee', partyId: string, partyName: string, treasury: 'cash' | 'bank', direction: 'in' | 'out', amount: number, note: string) => { success: boolean; message?: string };
   // ✅ توزيع الأرباح
   profitDistributions: ProfitDistribution[];
   onSaveDistribution: (d: ProfitDistribution) => void;
@@ -29,6 +34,7 @@ export default function Finance({
   cashBalance, bankBalance, transactions, dailyClosings,
   adjustTreasury,
   partners, onAddPartner, onUpdatePartner, onDeletePartner,
+  employees, onAddEmployee, onUpdateEmployee, onDeleteEmployee, onAddPartyMoneyMovement,
   profitDistributions, onSaveDistribution, onDeleteDistribution,
   saleInvoices, expenses, noonOrders,
 }: Props) {
@@ -40,6 +46,14 @@ export default function Finance({
 
   // ── شركاء ──
   const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [employeeForm, setEmployeeForm] = useState({ name: '', phone: '', role: '', notes: '' });
+  const [employeeError, setEmployeeError] = useState<string | null>(null);
+  const [confirmDeleteEmployee, setConfirmDeleteEmployee] = useState<Employee | null>(null);
+  const [showPartyMovement, setShowPartyMovement] = useState(false);
+  const [partyMovementForm, setPartyMovementForm] = useState({ partyType: 'partner' as 'partner' | 'employee', partyId: '', direction: 'in' as 'in' | 'out', treasury: 'cash' as 'cash' | 'bank', amount: '', note: '' });
+  const [partyMovementError, setPartyMovementError] = useState<string | null>(null);
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
   const [partnerForm, setPartnerForm] = useState({ name: '', capitalAmount: '', notes: '' });
   const [partnerError, setPartnerError] = useState<string | null>(null);
@@ -127,6 +141,61 @@ export default function Finance({
     ...p,
     percent: totalCapital > 0 ? (p.capitalAmount / totalCapital) * 100 : 0,
   }));
+
+  const partyBalances = useMemo(() => {
+    const map = new Map<string, number>();
+    transactions.forEach(t => {
+      if (!t.partyType || !t.referenceId) return;
+      const signed = t.direction === 'in' ? t.amount : -t.amount;
+      map.set(`${t.partyType}:${t.referenceId}`, (map.get(`${t.partyType}:${t.referenceId}`) || 0) + signed);
+    });
+    return map;
+  }, [transactions]);
+
+
+  const openAddEmployee = () => {
+    setEditingEmployee(null);
+    setEmployeeForm({ name: '', phone: '', role: '', notes: '' });
+    setEmployeeError(null);
+    setShowEmployeeForm(true);
+  };
+
+  const openEditEmployee = (e: Employee) => {
+    setEditingEmployee(e);
+    setEmployeeForm({ name: e.name, phone: e.phone || '', role: e.role || '', notes: e.notes || '' });
+    setEmployeeError(null);
+    setShowEmployeeForm(true);
+  };
+
+  const handleSaveEmployee = () => {
+    if (!employeeForm.name.trim()) { setEmployeeError('اسم العامل مطلوب'); return; }
+    const now = new Date().toISOString();
+    const employee: Employee = {
+      id: editingEmployee?.id || `emp_${generateId()}`,
+      name: employeeForm.name.trim(), phone: employeeForm.phone.trim() || undefined, role: employeeForm.role.trim() || undefined,
+      notes: employeeForm.notes.trim() || undefined, isActive: editingEmployee?.isActive ?? true, createdAt: editingEmployee?.createdAt || now, updatedAt: now,
+    };
+    const result = editingEmployee ? (onUpdateEmployee(employee), { success: true }) : onAddEmployee(employee);
+    if (!result.success) { setEmployeeError(result.message || 'تعذر حفظ العامل'); return; }
+    setShowEmployeeForm(false);
+  };
+
+  const openPartyMovement = (partyType: 'partner' | 'employee', partyId: string, direction: 'in' | 'out') => {
+    setPartyMovementError(null);
+    setPartyMovementForm({ partyType, partyId, direction, treasury: 'cash', amount: '', note: '' });
+    setShowPartyMovement(true);
+  };
+
+  const movementParties = partyMovementForm.partyType === 'partner' ? partners.filter(p => p.isActive) : employees.filter(e => e.isActive);
+  const handlePartyMovement = () => {
+    const amount = parseFloat(partyMovementForm.amount);
+    const party = movementParties.find(p => p.id === partyMovementForm.partyId);
+    if (!party) { setPartyMovementError('اختر الشخص أولاً'); return; }
+    const result = onAddPartyMoneyMovement(partyMovementForm.partyType, party.id, party.name, partyMovementForm.treasury, partyMovementForm.direction, amount, partyMovementForm.note.trim());
+    if (!result.success) { setPartyMovementError(result.message || 'تعذر تسجيل الحركة'); return; }
+    setShowPartyMovement(false);
+    setPartyMovementError(null);
+  };
 
   // ── حساب ربح/خسارة الشهر المختار ──
   const monthlyStats = useMemo(() => {
@@ -315,7 +384,7 @@ export default function Finance({
         {[
           { key: 'treasury', label: 'حركات الخزينة' },
           { key: 'closings', label: 'تقفيلات اليومية' },
-          { key: 'partners', label: '👥 الشركاء' },
+          { key: 'partners', label: '👥 الشركاء والعاملين' },
           { key: 'profit', label: '📊 توزيع الأرباح' },
         ].map(tab => (
           <button key={tab.key}
@@ -468,10 +537,10 @@ export default function Finance({
 
           {/* زر إضافة */}
           <div className="flex justify-between items-center">
-            <h3 className="font-bold text-white">قائمة الشركاء</h3>
-            <button onClick={openAddPartner} className="btn-primary flex items-center gap-2 text-sm">
+            <h3 className="font-bold text-white">الشركاء</h3>
+            <div className="flex gap-2"><button onClick={openPartyMovement ? () => openPartyMovement('partner', activePartners[0]?.id || '', 'in') : undefined} disabled={activePartners.length === 0} className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-40">💰 حركة مالية</button><button onClick={openAddPartner} className="btn-primary flex items-center gap-2 text-sm">
               <Plus size={14} /> إضافة شريك
-            </button>
+            </button></div>
           </div>
 
           {/* قائمة الشركاء */}
@@ -511,8 +580,11 @@ export default function Finance({
                         <div className="text-right">
                           <div className="font-black text-white text-lg">{formatCurrency(partner.capitalAmount)}</div>
                           <div className="text-xs text-violet-400">{percent.toFixed(1)}% من رأس المال</div>
+                          <div className={`text-xs mt-1 ${((partyBalances.get(`partner:${partner.id}`) || 0) >= 0) ? 'text-green-400' : 'text-red-400'}`}>صافي حركة: {formatCurrency(partyBalances.get(`partner:${partner.id}`) || 0)}</div>
                         </div>
                         <div className="flex gap-1">
+                          <button onClick={() => openPartyMovement('partner', partner.id, 'in')} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20" title="استلام من الشريك">+💰</button>
+                          <button onClick={() => openPartyMovement('partner', partner.id, 'out')} className="p-1.5 rounded-lg text-red-400 hover:bg-red-900/20" title="سحب للشريك">-💰</button>
                           {/* زر تفعيل/إيقاف */}
                           <button
                             onClick={() => onUpdatePartner({ ...partner, isActive: !partner.isActive, updatedAt: new Date().toISOString() })}
@@ -553,6 +625,39 @@ export default function Finance({
               })}
             </div>
           )}
+        </div>
+      )}
+
+
+      {/* ==================== العاملين ==================== */}
+      {activeTab === 'partners' && (
+        <div className="bg-elevated border border-emerald-900/30 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-white">العاملون</h3>
+              <p className="text-xs text-gray-500 mt-1">سجل من دخل منه مال للمحل أو سحب منه مال، بدون اعتباره مصروفًا.</p>
+            </div>
+            <button onClick={openAddEmployee} className="btn-primary flex items-center gap-2 text-sm"><Plus size={14}/> إضافة عامل</button>
+          </div>
+          {employees.length === 0 ? <div className="text-center py-8 text-gray-500">لا يوجد عاملون بعد</div> : <div className="grid gap-2">
+            {employees.map(employee => {
+              const balance = partyBalances.get(`employee:${employee.id}`) || 0;
+              return <div key={employee.id} className={`border rounded-xl p-3 ${employee.isActive ? 'border-white/10' : 'border-white/5 opacity-50'}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div><div className="font-bold text-white">{employee.name}</div><div className="text-xs text-gray-500">{employee.role || 'عامل'}{employee.phone ? ` • ${employee.phone}` : ''}</div></div>
+                  <div className="text-right"><div className={`font-bold ${balance >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(balance)}</div><div className="text-[11px] text-gray-500">صافي داخل للمحل</div></div>
+                  <div className="flex gap-1">
+                    <button onClick={() => openPartyMovement('employee', employee.id, 'in')} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20">+💰</button>
+                    <button onClick={() => openPartyMovement('employee', employee.id, 'out')} className="p-1.5 rounded-lg text-red-400 hover:bg-red-900/20">-💰</button>
+                    <button onClick={() => onUpdateEmployee({ ...employee, isActive: !employee.isActive, updatedAt: new Date().toISOString() })} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10">{employee.isActive ? <Check size={14}/> : <X size={14}/>}</button>
+                    <button onClick={() => openEditEmployee(employee)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400"><Edit size={14}/></button>
+                    <button onClick={() => setConfirmDeleteEmployee(employee)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400"><Trash2 size={14}/></button>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>}
+          <div className="bg-muted-bg rounded-xl p-3 text-xs text-gray-400">💡 الحركة المالية هنا تدخل تلقائيًا في حركات الخزينة وتقفيلة اليومية، وليست مصروفًا ولا إيرادًا.</div>
         </div>
       )}
 
@@ -792,6 +897,38 @@ export default function Finance({
         </div>
       )}
 
+
+      {/* ══ مودال حركة الشريك/العامل ══ */}
+      {showPartyMovement && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
+            <h3 className="font-bold text-white mb-1">💰 حركة مالية للشخص</h3>
+            <p className="text-xs text-gray-500 mb-4">لن تُسجل كمصروف أو إيراد؛ ستتغير الخزينة وتظهر في اليومية.</p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setPartyMovementForm(p => ({ ...p, partyType: 'partner', partyId: '', direction: 'in' }))} className={`py-2 rounded-xl border text-sm ${partyMovementForm.partyType === 'partner' ? 'bg-violet-900/30 border-violet-500/50 text-violet-300' : 'border-white/10 text-gray-400'}`}>👥 شريك</button>
+                <button onClick={() => setPartyMovementForm(p => ({ ...p, partyType: 'employee', partyId: '', direction: 'out' }))} className={`py-2 rounded-xl border text-sm ${partyMovementForm.partyType === 'employee' ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-300' : 'border-white/10 text-gray-400'}`}>👤 عامل</button>
+              </div>
+              <select value={partyMovementForm.partyId} onChange={e => setPartyMovementForm(p => ({ ...p, partyId: e.target.value }))} className="input-dark w-full">
+                <option value="">اختر الشخص</option>{movementParties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setPartyMovementForm(p => ({ ...p, direction: 'in' }))} className={`py-2 rounded-xl border text-sm ${partyMovementForm.direction === 'in' ? 'bg-green-900/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>⬆️ من الشخص إلى المحل</button>
+                <button onClick={() => setPartyMovementForm(p => ({ ...p, direction: 'out' }))} className={`py-2 rounded-xl border text-sm ${partyMovementForm.direction === 'out' ? 'bg-red-900/30 border-red-500/50 text-red-300' : 'border-white/10 text-gray-400'}`}>⬇️ من المحل إلى الشخص</button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setPartyMovementForm(p => ({ ...p, treasury: 'cash' }))} className={`py-2 rounded-xl border text-sm ${partyMovementForm.treasury === 'cash' ? 'bg-green-900/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>💵 كاش</button>
+                <button onClick={() => setPartyMovementForm(p => ({ ...p, treasury: 'bank' }))} className={`py-2 rounded-xl border text-sm ${partyMovementForm.treasury === 'bank' ? 'bg-blue-900/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}>🏦 بنك</button>
+              </div>
+              <input type="number" value={partyMovementForm.amount} onChange={e => setPartyMovementForm(p => ({ ...p, amount: e.target.value }))} className="input-dark w-full" placeholder="المبلغ" />
+              <input type="text" value={partyMovementForm.note} onChange={e => setPartyMovementForm(p => ({ ...p, note: e.target.value }))} className="input-dark w-full" placeholder="السبب / ملاحظة (اختياري)" />
+              {partyMovementError && <div className="text-sm text-red-400 bg-red-900/20 rounded-xl px-3 py-2">{partyMovementError}</div>}
+            </div>
+            <div className="flex gap-2 mt-4"><button onClick={handlePartyMovement} className="btn-primary flex-1">تسجيل الحركة</button><button onClick={() => setShowPartyMovement(false)} className="btn-secondary flex-1">إلغاء</button></div>
+          </div>
+        </div>
+      )}
+
       {/* ══ مودال تعديل الخزينة ══ */}
       {showAdjust && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
@@ -831,6 +968,26 @@ export default function Finance({
             </div>
           </div>
         </div>
+      )}
+
+
+      {showEmployeeForm && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-elevated border border-emerald-900/40 rounded-2xl p-5 w-full max-w-sm">
+            <h3 className="font-bold text-white mb-4">{editingEmployee ? '✏️ تعديل بيانات العامل' : '👤 إضافة عامل جديد'}</h3>
+            <div className="space-y-3">
+              <input className="input-dark w-full" value={employeeForm.name} onChange={e => setEmployeeForm(f => ({ ...f, name: e.target.value }))} placeholder="اسم العامل *" autoFocus />
+              <input className="input-dark w-full" value={employeeForm.phone} onChange={e => setEmployeeForm(f => ({ ...f, phone: e.target.value }))} placeholder="الهاتف" />
+              <input className="input-dark w-full" value={employeeForm.role} onChange={e => setEmployeeForm(f => ({ ...f, role: e.target.value }))} placeholder="الوظيفة" />
+              <input className="input-dark w-full" value={employeeForm.notes} onChange={e => setEmployeeForm(f => ({ ...f, notes: e.target.value }))} placeholder="ملاحظات" />
+              {employeeError && <div className="text-sm text-red-400">{employeeError}</div>}
+            </div>
+            <div className="flex gap-2 mt-4"><button onClick={handleSaveEmployee} className="btn-primary flex-1">حفظ</button><button onClick={() => setShowEmployeeForm(false)} className="btn-secondary flex-1">إلغاء</button></div>
+          </div>
+        </div>
+      )}
+      {confirmDeleteEmployee && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"><div className="bg-elevated border border-red-900/40 rounded-2xl p-5 w-full max-w-sm"><h3 className="font-bold text-white mb-3">حذف العامل؟</h3><p className="text-sm text-gray-400 mb-4">{confirmDeleteEmployee.name} — الحركات السابقة ستظل محفوظة.</p><div className="flex gap-2"><button onClick={() => { onDeleteEmployee(confirmDeleteEmployee.id); setConfirmDeleteEmployee(null); }} className="btn-primary flex-1 bg-red-700">حذف</button><button onClick={() => setConfirmDeleteEmployee(null)} className="btn-secondary flex-1">إلغاء</button></div></div></div>
       )}
 
       {/* ══ مودال إضافة/تعديل شريك ══ */}
