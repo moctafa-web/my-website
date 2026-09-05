@@ -9,7 +9,7 @@ import { normalizeForCompare, generateId } from '../utils/helpers';
 import { makeTransactionId } from './domains/id.store';
 import { applyTreasuryChange } from './domains/treasury.store';
 import { completePendingPurchaseState } from './domains/purchases.store';
-import { generateDemoData, STORAGE_KEY, hydrateState } from '../lib/demo-data';
+import { generateDemoData } from '../lib/demo-data';
 import { saveToFirebase, deleteFromFirebase, loadCollection } from '../services/firebasePersistence';
 
 export function useStore() {
@@ -25,15 +25,6 @@ export function useStore() {
     let cancelled = false;
 
     const loadData = async () => {
-      try {
-        // Local cache is used immediately so the UI stays responsive, then
-        // Firestore becomes the source of truth when it is reachable.
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw && !cancelled) setState(hydrateState(JSON.parse(raw)));
-      } catch (error) {
-        console.error('Error loading local cache:', error);
-      }
-
       try {
         const [
           products, serials, customers, suppliers, saleInvoices, purchaseInvoices,
@@ -116,15 +107,6 @@ export function useStore() {
     void loadData();
     return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (error) {
-      console.error('Error saving local data:', error);
-    }
-  }, [state, hydrated]);
 
   useEffect(() => {
     if (!treasurySyncRef.current.ready) return;
@@ -1508,5 +1490,6 @@ export function useStore() {
     backfillPaymentRecords,
     recalculatePartyTotals,
     adjustTreasury,
+    isLoading: !hydrated,
   };
 }
