@@ -257,6 +257,7 @@ export default function App() {
             fullState={state}
             onBackfillPaymentRecords={store.backfillPaymentRecords}
             onRecalculatePartyTotals={store.recalculatePartyTotals}
+            onRestoreBackup={store.restoreFullState}
           />
         );
 

@@ -1309,10 +1309,53 @@ export function useStore() {
   }, []);
 
   // ==================== DANGEROUS OPERATIONS ====================
-  // الأنواع اللي فعلاً بيتم تحميلها وتزامنها مع Firebase بشكل كامل عند بدء التشغيل
-  // (لسه فيه أنواع بيانات تانية زي الخزنة والجرد الأسبوعي وحركات التحويل مش متزامنة بالكامل حالياً - بند منفصل)
+  // استعادة نسخة احتياطية كاملة: لازم تكتب كل عنصر فعليًا على Firebase
+  // مش بس تغيّر الحالة المحلية (state) - وإلا الاستعادة تفضل حبيسة في المتصفح
+  // اللي عمل فيه الاستعادة بس، ومتظهرش على أي متصفح/جهاز تاني.
   const restoreFullState = useCallback(async (restored: AppState) => {
     setState(restored);
+
+    const collections: Array<[string, unknown[]]> = [
+      ['products', restored.products],
+      ['serials', restored.serials],
+      ['customers', restored.customers],
+      ['suppliers', restored.suppliers],
+      ['saleInvoices', restored.saleInvoices],
+      ['purchaseInvoices', restored.purchaseInvoices],
+      ['payments', restored.payments],
+      ['expenses', restored.expenses],
+      ['noonOrders', restored.noonOrders],
+      ['brands', restored.brands],
+      ['dailyJournals', restored.dailyJournals],
+      ['partners', restored.partners],
+      ['profitDistributions', restored.profitDistributions],
+      ['employees', restored.employees],
+      ['treasuryTransactions', restored.treasuryTransactions],
+      ['dailyClosings', restored.dailyClosings],
+      ['weeklyInventoryCounts', restored.weeklyInventoryCounts || []],
+      ['stockTransfers', restored.stockTransfers || []],
+      ['dailyOperations', restored.dailyOperations || []],
+      ['dailyInventoryScans', restored.dailyInventoryScans || []],
+    ];
+
+    for (const [collectionName, items] of collections) {
+      for (const item of items) {
+        const id = (item as { id?: string }).id;
+        if (id) await saveToFirebase(collectionName, id, item);
+      }
+    }
+
+    await saveToFirebase('settings', 'main', restored.settings);
+    await saveToFirebase('treasury', 'main', {
+      cashBalance: restored.cashBalance,
+      bankBalance: restored.bankBalance,
+    });
+
+    treasurySyncRef.current = {
+      ready: true,
+      syncedTxIds: new Set(restored.treasuryTransactions.map(t => t.id)),
+      syncedClosingIds: new Set(restored.dailyClosings.map(c => c.id)),
+    };
   }, []);
 
   const resetAllData = useCallback(async () => {

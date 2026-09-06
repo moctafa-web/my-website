@@ -1,34 +1,34 @@
-import { useEffect } from "react";
-import { HeadContent, Outlet, Scripts, createFileRoute, createRootRoute, createRouter, lazyRouteComponent, useRouter } from "@tanstack/react-router";
-import { Fragment, jsx, jsxs } from "react/jsx-runtime";
-import { TriangleAlert } from "lucide-react";
-import { z } from "zod";
-//#region src/lib/error-component.tsx
+import { o as __toESM, r as __exportAll } from "../_runtime.mjs";
+import { L as require_react, _ as useRouter, f as createRouter, g as createRootRoute, h as createFileRoute, l as Scripts, m as lazyRouteComponent, p as Outlet, u as HeadContent, v as require_jsx_runtime } from "../_libs/@tanstack/react-router+[...].mjs";
+import { c as TriangleAlert } from "../_libs/lucide-react.mjs";
+import { a as union, i as string, n as number, r as object, t as literal } from "../_libs/zod.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/router-CVhhgWbC.js
+var router_CVhhgWbC_exports = /* @__PURE__ */ __exportAll({ getRouter: () => getRouter });
+var import_react = /* @__PURE__ */ __toESM(require_react());
+var import_jsx_runtime = require_jsx_runtime();
 function AppErrorComponent({ error }) {
-	return /* @__PURE__ */ jsxs("main", {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
 		className: "flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50",
 		children: [
-			/* @__PURE__ */ jsx("span", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 				className: "text-red-500",
 				"aria-hidden": "true",
-				children: /* @__PURE__ */ jsx(TriangleAlert, {
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, {
 					className: "size-10",
 					strokeWidth: 2
 				})
 			}),
-			/* @__PURE__ */ jsx("h1", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
 				className: "text-lg font-semibold",
 				children: "Something went wrong"
 			}),
-			/* @__PURE__ */ jsx("p", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "max-w-md text-sm break-words text-zinc-500 dark:text-zinc-400",
 				children: error.message || "An unexpected error occurred. Try reloading the page."
 			})
 		]
 	});
 }
-//#endregion
-//#region src/lib/auth/provider.tsx
 /**
 * App-wide client provider mounted once near the root (in `src/routes/__root.tsx`):
 *
@@ -40,10 +40,8 @@ function AppErrorComponent({ error }) {
 * (e.g. a toast or theme provider) without churning the root shell.
 */
 function AuthProvider({ children }) {
-	return /* @__PURE__ */ jsx(Fragment, { children });
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children });
 }
-//#endregion
-//#region src/lib/preview-embedder-origin.ts
 function isGrokEmbedderOrigin(origin) {
 	try {
 		const url = new URL(origin);
@@ -80,8 +78,6 @@ function resolveParentEmbedderOrigin(parentIsSelf, referrer, ancestorOrigin, gue
 	} catch {}
 	return null;
 }
-//#endregion
-//#region src/lib/preview-host-bridge.ts
 /**
 * Guest side of the grok-web ↔ sandbox preview postMessage bridge.
 *
@@ -89,19 +85,19 @@ function resolveParentEmbedderOrigin(parentIsSelf, referrer, ancestorOrigin, gue
 * Top-level runs (download/export, local `npm run dev`, deployed sites) noop.
 */
 var PREVIEW_BRIDGE_CHANNEL = "grok-preview-bridge";
-var EnvelopeSchema = z.object({
-	channel: z.literal(PREVIEW_BRIDGE_CHANNEL),
-	version: z.number().int().positive(),
-	type: z.string().min(1)
+var EnvelopeSchema = object({
+	channel: literal(PREVIEW_BRIDGE_CHANNEL),
+	version: number().int().positive(),
+	type: string().min(1)
 });
-var HelloSchema = EnvelopeSchema.extend({ type: z.literal("hello") });
+var HelloSchema = EnvelopeSchema.extend({ type: literal("hello") });
 var NavigateSchema = EnvelopeSchema.extend({
-	type: z.literal("navigate"),
-	path: z.string().min(1)
+	type: literal("navigate"),
+	path: string().min(1)
 });
 var HistorySchema = EnvelopeSchema.extend({
-	type: z.literal("history"),
-	delta: z.union([z.literal(-1), z.literal(1)])
+	type: literal("history"),
+	delta: union([literal(-1), literal(1)])
 });
 function isSafeBridgePath(path) {
 	if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return false;
@@ -260,15 +256,13 @@ function collectRoutePathsFromTree(routeTree) {
 	walk(routeTree);
 	return [...paths];
 }
-//#endregion
-//#region src/components/preview-host-bridge.tsx
 /**
 * Mount once in `__root.tsx` so the Grok preview chrome can drive navigation
 * (and later receive registered routes). Noops when the app is not embedded.
 */
 function PreviewHostBridge() {
 	const router = useRouter();
-	useEffect(() => {
+	(0, import_react.useEffect)(() => {
 		return installPreviewHostBridge({
 			navigate: (path) => {
 				router.history.push(path);
@@ -278,11 +272,7 @@ function PreviewHostBridge() {
 	}, [router]);
 	return null;
 }
-//#endregion
-//#region src/styles.css?url
 var styles_default = "/assets/styles-BiBwJS8d.css";
-//#endregion
-//#region src/routes/__root.tsx
 var APP_NAME = "ONE — نظام المبيعات والمحاسبة";
 var Route$1 = createRootRoute({
 	head: () => ({
@@ -335,34 +325,28 @@ var Route$1 = createRootRoute({
 			}
 		]
 	}),
-	component: () => /* @__PURE__ */ jsxs("html", {
+	component: () => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("html", {
 		lang: "ar",
 		dir: "rtl",
 		className: "antialiased",
 		suppressHydrationWarning: true,
-		children: [/* @__PURE__ */ jsx("head", { children: /* @__PURE__ */ jsx(HeadContent, {}) }), /* @__PURE__ */ jsxs("body", {
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("head", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HeadContent, {}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("body", {
 			className: "bg-bg text-fg",
 			children: [
-				/* @__PURE__ */ jsx(PreviewHostBridge, {}),
-				/* @__PURE__ */ jsx(AuthProvider, { children: /* @__PURE__ */ jsx(Outlet, {}) }),
-				/* @__PURE__ */ jsx(Scripts, {})
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(PreviewHostBridge, {}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthProvider, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Outlet, {}) }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Scripts, {})
 			]
 		})]
 	})
 });
-//#endregion
-//#region src/routes/index.tsx
-var $$splitComponentImporter = () => import("./routes-QmS0-ehs.js");
-//#endregion
-//#region src/routeTree.gen.ts
+var $$splitComponentImporter = () => import("./routes-DSdmgUQp.mjs");
 var rootRouteChildren = { IndexRoute: createFileRoute("/")({ component: lazyRouteComponent($$splitComponentImporter, "component") }).update({
 	id: "/",
 	path: "/",
 	getParentRoute: () => Route$1
 }) };
 var routeTree = Route$1._addFileChildren(rootRouteChildren)._addFileTypes();
-//#endregion
-//#region src/router.tsx
 function getRouter() {
 	return createRouter({
 		routeTree,
@@ -370,4 +354,4 @@ function getRouter() {
 	});
 }
 //#endregion
-export { getRouter };
+export { getRouter, router_CVhhgWbC_exports as t };
