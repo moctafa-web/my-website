@@ -24,7 +24,15 @@ import Login from "./pages/Login";
 
 export default function ErpApp() {
   const { user, loading: authLoading } = useAuth();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [currentPage, setCurrentPage] = useState(() => {
+    if (typeof window === "undefined") return "dashboard";
+    return window.location.pathname.replace(/^\//, "") || "dashboard";
+  });
+  const navigate = (page: string) => {
+    const nextPath = page === "dashboard" ? "/" : `/${page}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, "", nextPath);
+    setCurrentPage(page);
+  };
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
   const [pendingSerialId, setPendingSerialId] = useState<string | null>(null);
@@ -37,6 +45,15 @@ export default function ErpApp() {
 
   const store = useStore();
   const { state, isLoading, loadError } = store;
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const page = window.location.pathname.replace(/^\//, "") || "dashboard";
+      setCurrentPage(page);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -70,30 +87,30 @@ export default function ErpApp() {
           <Dashboard
             state={state}
             onNavigate={setCurrentPage}
-            onNewSale={() => setCurrentPage("sales")}
-            onNewPurchase={() => setCurrentPage("purchases")}
+            onNewSale={() => navigate("sales")}
+            onNewPurchase={() => navigate("purchases")}
             adjustTreasury={store.adjustTreasury}
             onCompletePendingSerial={(serialId) => {
               setPendingSerialId(serialId);
-              setCurrentPage("purchases");
+              navigate("purchases");
             }}
             onOpenStatement={(type, id) => {
               if (type === "customer") {
                 setPendingCustomerStatementId(id);
-                setCurrentPage("customers");
+                navigate("customers");
               } else {
                 setPendingSupplierStatementId(id);
-                setCurrentPage("suppliers");
+                navigate("suppliers");
               }
             }}
             onViewTodayInvoices={(kind) => {
               const today = getTodayStr();
               if (kind === "sales") {
                 setPendingSalesDateFilter(today);
-                setCurrentPage("sales");
+                navigate("sales");
               } else {
                 setPendingPurchasesDateFilter(today);
-                setCurrentPage("purchases");
+                navigate("purchases");
               }
             }}
           />
@@ -113,7 +130,7 @@ export default function ErpApp() {
             onUpdateSaleInvoice={store.updateSaleInvoice}
             onNavigateToSales={(customerId) => {
               setPendingCustomerId(customerId);
-              setCurrentPage("sales");
+              navigate("sales");
             }}
             preselectedStatementCustomerId={pendingCustomerStatementId}
             onPreselectedStatementHandled={() => setPendingCustomerStatementId(null)}
@@ -202,7 +219,7 @@ export default function ErpApp() {
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
             onNavigateToPurchases={(supplierId) => {
               setPendingSupplierId(supplierId);
-              setCurrentPage("purchases");
+              navigate("purchases");
             }}
             preselectedStatementSupplierId={pendingSupplierStatementId}
             onPreselectedStatementHandled={() => setPendingSupplierStatementId(null)}

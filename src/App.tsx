@@ -208,6 +208,11 @@ export default function App() {
             onAddPartner={store.addPartner}
             onUpdatePartner={store.updatePartner}
             onDeletePartner={store.deletePartner}
+            employees={state.employees}
+            onAddEmployee={store.addEmployee}
+            onUpdateEmployee={store.updateEmployee}
+            onDeleteEmployee={store.deleteEmployee}
+            onAddPartyMoneyMovement={store.addPartyMoneyMovement}
             // ✅ توزيع الأرباح
             profitDistributions={state.profitDistributions}
             onSaveDistribution={store.saveDistribution}

@@ -1,0 +1,940 @@
+// src/pages/Products.tsx
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Product, Brand, SerialItem, ViewMode, ProductCategory } from '../types';
+import { formatCurrency, generateId, categoryLabel, getTodayStr, generateSKU, generateUPC } from '../utils/helpers';
+import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, QrCode, RefreshCw, Upload, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import ProductQRModal from '../components/ProductQRModal';
+
+const CATEGORIES = ['phones', 'tablets', 'laptops', 'accessories', 'other'];
+const CAT_SUB: Record<string, string[]> = {
+  tablets: ['iPad Pro', 'iPad Air', 'iPad Mini'],
+  laptops: ['MacBook Pro', 'MacBook Air', 'MacBook NEO'],
+  accessories: ['DJI', 'RAY-BAN', 'Pencil', 'Watch', 'AirPods', 'Insta360', 'Magic Keyboard', 'Samsung', 'Others'],
+};
+
+const DEFAULT_BRANDS = [
+  'Apple', 'Samsung', 'Xiaomi', 'DJI', 'RAY-BAN',
+  'AirPods', 'Insta360', 'Magic Keyboard', 'Others',
+];
+
+interface Props {
+  products: Product[];
+  serials: SerialItem[];
+  brands: Brand[];
+  onAddProduct: (p: Product) => { success: boolean; message?: string } | void;
+  onUpdateProduct: (p: Product) => void;
+  onDeleteProduct: (id: string) => void;
+  onAddBrand: (b: Brand) => void;
+}
+
+const BLANK_PRODUCT: Omit<Product, 'id' | 'createdAt' | 'updatedAt'> = {
+  name: '', description: '', sku: '', upc: '', barcode: '',
+  category: 'phones', brand: 'Apple', productType: 'serial',
+  costPrice: 0, salePrice: 0, stock: 0, minStock: 2,
+};
+
+export default function Products({
+  products, serials, brands,
+  onAddProduct, onUpdateProduct, onDeleteProduct, onAddBrand,
+}: Props) {
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (localStorage.getItem('products_view') as ViewMode) || 'grid'
+  );
+  const [search, setSearch]       = useState('');
+  const [filterCat, setFilterCat] = useState('all');
+  const [filterSub, setFilterSub] = useState('');
+  const [openCat, setOpenCat]     = useState<string | null>(null);
+  const [showForm, setShowForm]   = useState(false);
+  const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [form, setForm]           = useState({ ...BLANK_PRODUCT });
+  const [newBrand, setNewBrand]   = useState('');
+  const [showJrard, setShowJrard] = useState(false);
+  const [jrardData, setJrardData] = useState<Record<string, string>>({});
+  const [qrProduct, setQrProduct] = useState<Product | null>(null);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [importingProducts, setImportingProducts] = useState(false);
+  const [importSummary, setImportSummary] = useState<{added:number; skipped:number; errors:string[]} | null>(null);
+  const productImportRef = useRef<HTMLInputElement | null>(null);
+
+  // ✅ إصلاح العلامات التجارية: لو brands فاضية أو أقل من العدد المتوقع، أضف الافتراضية
+  useEffect(() => {
+    if (brands.length === 0) return;
+    const existingNames = brands.map(b => b.name.toLowerCase());
+    DEFAULT_BRANDS.forEach(name => {
+      if (!existingNames.includes(name.toLowerCase())) {
+        onAddBrand({
+          id: generateId(),
+          name,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    });
+  }, []); // يشتغل مرة واحدة بس عند أول تحميل
+
+  const setView = (v: ViewMode) => {
+    setViewMode(v);
+    localStorage.setItem('products_view', v);
+  };
+
+  const filtered = useMemo(() => {
+    let list = products;
+    if (filterCat !== 'all') list = list.filter(p => p.category === filterCat);
+    if (filterSub) list = list.filter(p =>
+      p.name.toLowerCase().includes(filterSub.toLowerCase())
+    );
+    if (search) list = list.filter(p =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.sku.toLowerCase().includes(search.toLowerCase()) ||
+      (p.upc || '').includes(search) ||
+      (p.barcode || '').includes(search) ||
+      p.brand.toLowerCase().includes(search.toLowerCase())
+    );
+    return list;
+  }, [products, filterCat, filterSub, search]);
+
+  const openAdd = () => {
+    setEditProduct(null);
+    setForm({ ...BLANK_PRODUCT });
+    setDuplicateError(null);
+    setShowForm(true);
+  };
+
+  const openEdit = (p: Product) => {
+    setEditProduct(p);
+    setForm({
+      name: p.name,
+      description: p.description || '',
+      sku: p.sku,
+      upc: p.upc || '',
+      barcode: p.barcode || '',
+      category: p.category,
+      brand: p.brand,
+      productType: p.productType,
+      costPrice: p.costPrice,
+      salePrice: p.salePrice,
+      stock: p.stock,
+      minStock: p.minStock || 2,
+    });
+    setDuplicateError(null);
+    setShowForm(true);
+  };
+
+  const handleSave = () => {
+    if (!form.name) return;
+
+    // UPC إلزامي - لو فاضي يتولد تلقائي
+    const finalUPC = form.upc?.trim() || generateUPC();
+    // SKU إلزامي - لو فاضي يتولد تلقائي
+    const finalSKU = form.sku?.trim() || generateSKU(form.name);
+
+    const now = new Date().toISOString();
+
+    if (editProduct) {
+      // تحقق من تكرار UPC مع منتجات تانية (مش نفسه)
+      const upcDup = products.find(p =>
+        p.id !== editProduct.id &&
+        p.upc && p.upc.trim() &&
+        p.upc.trim() === finalUPC.trim()
+      );
+      if (upcDup) {
+        setDuplicateError(`UPC مكرر مع منتج: ${upcDup.name}`);
+        return;
+      }
+      onUpdateProduct({
+        ...editProduct,
+        ...form,
+        sku: finalSKU,
+        upc: finalUPC,
+        updatedAt: now,
+      });
+      setShowForm(false);
+    } else {
+      // تحقق من تكرار UPC في الإضافة
+      const upcDup = products.find(p =>
+        p.upc && p.upc.trim() && p.upc.trim() === finalUPC.trim()
+      );
+      if (upcDup) {
+        setDuplicateError(`UPC مكرر مع منتج: ${upcDup.name}`);
+        return;
+      }
+
+      const result = onAddProduct({
+        id: generateId(),
+        ...form,
+        sku: finalSKU,
+        upc: finalUPC,
+        stock: Number(form.stock),
+        costPrice: Number(form.costPrice),
+        salePrice: Number(form.salePrice),
+        minStock: Number(form.minStock),
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (result && result.success === false) {
+        setDuplicateError(result.message || 'هذا المنتج موجود بالفعل');
+        return;
+      }
+      setShowForm(false);
+    }
+  };
+
+  const downloadProductTemplate = () => {
+    const rows = [
+      {
+        'اسم المنتج *': 'iPad Pro M5 256GB WiFi',
+        'UPC *': '0195949823456',
+        'SKU': 'IPAD-PRO-M5-256-WIFI',
+        'البراند': 'Apple',
+        'التصنيف': 'tablets',
+        'نوع المنتج': 'serial',
+        'الوصف': '',
+        'سعر التكلفة': 0,
+        'سعر البيع': 0,
+        'الكمية': 0,
+        'الحد الأدنى': 2,
+        'Barcode': '',
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [28, 18, 24, 16, 16, 14, 28, 14, 14, 10, 12, 18].map(w => ({ width: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Products');
+    XLSX.writeFile(wb, 'products_import_template.xlsx');
+  };
+
+  const handleImportProducts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportingProducts(true);
+    setImportSummary(null);
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array', raw: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
+      let added = 0, skipped = 0;
+      const errors: string[] = [];
+      const existingUpcs = new Set(products.map(p => String(p.upc || '').trim()).filter(Boolean));
+      const existingSkus = new Set(products.map(p => String(p.sku || '').trim().toLowerCase()).filter(Boolean));
+      const get = (row: Record<string, any>, keys: string[]) => {
+        const key = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
+        return key ? row[key] : '';
+      };
+      const catMap: Record<string, ProductCategory> = {
+        phones: 'phones', 'هواتف': 'phones', 'موبايلات': 'phones',
+        tablets: 'tablets', 'تابلت': 'tablets',
+        laptops: 'laptops', 'لابتوب': 'laptops', 'كمبيوتر': 'laptops',
+        accessories: 'accessories', 'اكسسوارات': 'accessories',
+        other: 'other', 'أخرى': 'other', 'اخرى': 'other',
+      };
+      const typeMap: Record<string, 'serial'|'normal'> = {
+        serial: 'serial', 'سيريال': 'serial', 'serialed': 'serial',
+        normal: 'normal', 'عادي': 'normal', 'بدون سيريال': 'normal',
+      };
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const name = String(get(row, ['اسم المنتج *','اسم المنتج','product name','name']) || '').trim();
+        const upc = String(get(row, ['upc *','upc']) || '').trim();
+        if (!name) { errors.push(`السطر ${i + 2}: اسم المنتج فارغ`); skipped++; continue; }
+        if (!upc) { errors.push(`السطر ${i + 2}: UPC فارغ`); skipped++; continue; }
+        if (existingUpcs.has(upc)) { errors.push(`السطر ${i + 2}: UPC مكرر أو موجود بالفعل (${upc})`); skipped++; continue; }
+        const skuRaw = String(get(row, ['sku','SKU']) || '').trim();
+        const sku = skuRaw || generateSKU(name);
+        if (existingSkus.has(sku.toLowerCase())) { errors.push(`السطر ${i + 2}: SKU مكرر (${sku})`); skipped++; continue; }
+        const categoryRaw = String(get(row, ['التصنيف','category']) || 'phones').trim().toLowerCase();
+        const productTypeRaw = String(get(row, ['نوع المنتج','product type']) || 'serial').trim().toLowerCase();
+        const category = catMap[categoryRaw] || 'other';
+        const productType = typeMap[productTypeRaw] || 'serial';
+        const brand = String(get(row, ['البراند','brand']) || 'Others').trim() || 'Others';
+        const now = new Date().toISOString();
+        const result = onAddProduct({
+          id: generateId(), name, description: String(get(row, ['الوصف','description']) || ''), sku,
+          upc, barcode: String(get(row, ['barcode','باركود']) || ''), category, brand, productType,
+          costPrice: Number(get(row, ['سعر التكلفة','cost price','costprice']) || 0) || 0,
+          salePrice: Number(get(row, ['سعر البيع','sale price','saleprice']) || 0) || 0,
+          stock: Number(get(row, ['الكمية','stock','quantity']) || 0) || 0,
+          minStock: Number(get(row, ['الحد الأدنى','min stock','minstock']) || 2) || 2,
+          createdAt: now, updatedAt: now,
+        });
+        if (result && result.success === false) { errors.push(`السطر ${i + 2}: ${result.message || 'تعذر إضافة المنتج'}`); skipped++; continue; }
+        existingUpcs.add(upc); existingSkus.add(sku.toLowerCase()); added++;
+      }
+      setImportSummary({ added, skipped, errors: errors.slice(0, 100) });
+    } catch (err) {
+      setImportSummary({ added: 0, skipped: 0, errors: ['ملف Excel غير صالح أو لا يمكن قراءته.'] });
+    } finally { setImportingProducts(false); }
+  };
+
+  const handleAddBrand = () => {
+    if (!newBrand.trim()) return;
+    onAddBrand({
+      id: generateId(),
+      name: newBrand.trim(),
+      createdAt: new Date().toISOString(),
+    });
+    setForm(p => ({ ...p, brand: newBrand.trim() }));
+    setNewBrand('');
+  };
+
+  const availableSerials = (productId: string) =>
+    serials.filter(s => s.productId === productId && s.status === 'available').length;
+
+  const getRealStock = (p: Product) =>
+    p.productType === 'serial' ? availableSerials(p.id) : p.stock;
+
+  const catBtnClass = (id: string) =>
+    `px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${
+      filterCat === id && !filterSub
+        ? 'bg-violet-700/40 border-violet-500/50 text-violet-300'
+        : 'border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20'
+    }`;
+
+  // ==================== جرد المخزون ====================
+  // ✅ إصلاح: بنستخدم `products` مباشرة (مش filtered) عشان يظهر كل المنتجات في الجرد
+  const jrardProducts = useMemo(() => products, [products]);
+
+  return (
+    <div className="p-4 lg:p-6 space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-white">📦 المنتجات</h2>
+          <p className="text-gray-500 text-sm">{products.length} منتج</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadProductTemplate} className="btn-secondary text-sm flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
+          <button onClick={() => productImportRef.current?.click()} disabled={importingProducts} className="btn-secondary text-sm flex items-center gap-2"><Upload size={14} /> {importingProducts ? 'جاري الاستيراد...' : 'استيراد Excel'}</button>
+          <input ref={productImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportProducts} />
+          <button
+            onClick={() => setShowJrard(!showJrard)}
+            className="btn-secondary text-sm"
+          >
+            📋 جرد المخزون
+          </button>
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> منتج جديد
+          </button>
+        </div>
+      </div>
+
+      {importSummary && (
+        <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold text-violet-300">نتيجة استيراد المنتجات</h3>
+            <button onClick={() => setImportSummary(null)} className="text-gray-500 hover:text-white">×</button>
+          </div>
+          <div className="text-sm text-gray-300">تمت إضافة <b className="text-green-400">{importSummary.added}</b> منتج، وتم تخطي <b className="text-yellow-400">{importSummary.skipped}</b>.</div>
+          {importSummary.errors.length > 0 && <div className="mt-2 text-xs text-red-300 space-y-1 max-h-40 overflow-auto">{importSummary.errors.map((e, i) => <div key={i}>• {e}</div>)}</div>}
+        </div>
+      )}
+
+      {/* ==================== جرد المخزون ==================== */}
+      {showJrard && (
+        <div className="bg-elevated border border-yellow-700/30 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-yellow-300">
+              📋 جرد المخزون - مقارنة النظام بالواقع
+            </h3>
+            <div className="flex gap-2">
+              <span className="text-xs text-gray-400 self-center">
+                {jrardProducts.length} منتج
+              </span>
+              <button
+                onClick={() => {
+                  const rows = jrardProducts.map(p => {
+                    const inSystem = getRealStock(p);
+                    const actual = jrardData[p.id] !== undefined
+                      ? parseInt(jrardData[p.id]) : NaN;
+                    const diff = !isNaN(actual) ? actual - inSystem : NaN;
+                    return `<tr>
+                      <td>${p.name}</td>
+                      <td style="text-align:center">${p.sku}</td>
+                      <td style="text-align:center">${inSystem}</td>
+                      <td style="text-align:center">${!isNaN(actual) ? actual : '-'}</td>
+                      <td style="text-align:center">${
+                        !isNaN(diff)
+                          ? diff === 0 ? 'تطابق'
+                          : diff < 0 ? `عجز ${Math.abs(diff)}`
+                          : `زيادة ${diff}`
+                          : '-'
+                      }</td>
+                    </tr>`;
+                  }).join('');
+                  const w = window.open('', '_blank', 'width=800,height=600');
+                  if (!w) return;
+                  w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar">
+                    <head><meta charset="UTF-8"/><title>جرد المخزون</title>
+                    <style>
+                      body{font-family:Arial,sans-serif;direction:rtl;padding:20px}
+                      table{width:100%;border-collapse:collapse}
+                      th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:13px}
+                      th{background:#1a1a2e;color:white}
+                    </style></head>
+                    <body>
+                      <h2 style="margin-bottom:15px">جرد المخزون - ${getTodayStr()}</h2>
+                      <table>
+                        <thead><tr>
+                          <th>المنتج</th><th>SKU</th>
+                          <th>في النظام</th><th>الفعلي</th><th>الفرق</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                      </table>
+                      <script>window.onload=()=>window.print()<\/script>
+                    </body></html>`);
+                  w.document.close();
+                }}
+                className="btn-secondary text-sm"
+              >
+                🖨️ طباعة الجرد
+              </button>
+            </div>
+          </div>
+
+          {jrardProducts.length === 0 ? (
+            <div className="text-center text-gray-500 py-8">
+              لا توجد منتجات بعد
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gray-400 border-b border-white/10">
+                    <th className="text-right py-2 px-3">المنتج</th>
+                    <th className="text-center py-2 px-3">في النظام</th>
+                    <th className="text-center py-2 px-3">المتبقي الحقيقي</th>
+                    <th className="text-center py-2 px-3">الفرق</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jrardProducts.map(p => {
+                    const inSystem = getRealStock(p);
+                    const actual = jrardData[p.id] !== undefined
+                      ? parseInt(jrardData[p.id]) : NaN;
+                    const diff = !isNaN(actual) ? actual - inSystem : NaN;
+                    return (
+                      <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
+                        <td className="py-2 px-3">
+                          <div className="font-medium text-white">{p.name}</div>
+                          <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
+                        </td>
+                        <td className="py-2 px-3 text-center font-bold text-white">
+                          {inSystem}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="number"
+                            value={jrardData[p.id] || ''}
+                            onChange={e => setJrardData(prev => ({
+                              ...prev, [p.id]: e.target.value,
+                            }))}
+                            className="w-20 bg-muted-bg border border-violet-900/30 rounded-lg px-2 py-1 text-center text-white text-sm"
+                            placeholder="?"
+                          />
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {!isNaN(diff) ? (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                              diff === 0
+                                ? 'bg-green-900/40 text-green-400'
+                                : diff < 0
+                                ? 'bg-red-900/40 text-red-400'
+                                : 'bg-yellow-900/40 text-yellow-400'
+                            }`}>
+                              {diff === 0
+                                ? '✓ تطابق'
+                                : diff < 0
+                                ? `⚠️ عجز ${Math.abs(diff)}`
+                                : `📈 زيادة ${diff}`}
+                            </span>
+                          ) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => { setFilterCat('all'); setFilterSub(''); setOpenCat(null); }}
+            className={catBtnClass('all')}>🌐 الكل</button>
+          <button onClick={() => { setFilterCat('phones'); setFilterSub(''); setOpenCat(null); }}
+            className={catBtnClass('phones')}>📱 موبايلات</button>
+
+          {(['tablets', 'laptops', 'accessories'] as const).map(cat => (
+            <div key={cat} className="relative">
+              <button
+                onClick={() => setOpenCat(openCat === cat ? null : cat)}
+                className={catBtnClass(cat) + ' flex items-center gap-1'}
+              >
+                {cat === 'tablets' ? '📲 تابلت' : cat === 'laptops' ? '💻 لابتوب' : '🎧 إكسسوارات'}
+                <ChevronDown size={12} />
+              </button>
+              {openCat === cat && (
+                <div className="absolute top-full mt-1 right-0 bg-muted-bg border border-violet-900/40 rounded-xl p-2 z-20 min-w-[160px]">
+                  {CAT_SUB[cat].map(sub => (
+                    <button key={sub}
+                      onClick={() => { setFilterCat(cat); setFilterSub(sub); setOpenCat(null); }}
+                      className="block w-full text-right px-3 py-1.5 text-xs text-gray-300 hover:bg-violet-700/20 rounded-lg">
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <button onClick={() => { setFilterCat('other'); setFilterSub(''); setOpenCat(null); }}
+            className={catBtnClass('other')}>📦 أخرى</button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex-1 relative">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+            <input
+              type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="بحث بالاسم، SKU، UPC، أو البراند..."
+              className="input-dark w-full pr-9"
+            />
+          </div>
+          <div className="flex items-center gap-1 bg-muted-bg border border-violet-900/30 rounded-xl p-1">
+            {(['grid', 'list', 'compact'] as ViewMode[]).map(v => (
+              <button key={v} onClick={() => setView(v)}
+                className={`p-2 rounded-lg transition-colors ${
+                  viewMode === v ? 'bg-violet-700/40 text-violet-300' : 'text-gray-500 hover:text-gray-300'
+                }`}>
+                {v === 'grid' ? <Grid size={15} /> : v === 'list' ? <List size={15} /> : <AlignJustify size={15} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Products Grid/List/Compact */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.map(p => (
+            <ProductCard key={p.id} product={p}
+              availableSerials={availableSerials(p.id)}
+              onEdit={() => openEdit(p)}
+              onDelete={() => onDeleteProduct(p.id)}
+              onShowQR={() => setQrProduct(p)}
+            />
+          ))}
+        </div>
+      )}
+
+      {viewMode === 'list' && (
+        <div className="space-y-2">
+          {filtered.map(p => (
+            <ProductListRow key={p.id} product={p}
+              availableSerials={availableSerials(p.id)}
+              onEdit={() => openEdit(p)}
+              onDelete={() => onDeleteProduct(p.id)}
+              onShowQR={() => setQrProduct(p)}
+            />
+          ))}
+        </div>
+      )}
+
+      {viewMode === 'compact' && (
+        <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-violet-900/20">
+              <tr>
+                <th className="text-right py-3 px-4 text-gray-400 font-medium">المنتج</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium">المخزون</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium">سعر الشراء</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium">سعر البيع</th>
+                <th className="text-center py-3 px-3 text-gray-400 font-medium">النوع</th>
+                <th className="py-3 px-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(p => (
+                <tr key={p.id} className="border-t border-white/5 hover:bg-white/5">
+                  <td className="py-2.5 px-4">
+                    <div className="font-medium text-white text-sm">{p.name}</div>
+                    <div className="text-xs text-gray-500">{p.sku} • {p.brand}</div>
+                  </td>
+                  <td className="py-2.5 px-3 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                      getRealStock(p) === 0 ? 'bg-red-900/40 text-red-400' :
+                      getRealStock(p) <= 2 ? 'bg-yellow-900/40 text-yellow-400' :
+                      'bg-green-900/40 text-green-400'
+                    }`}>
+                      {getRealStock(p)}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-gray-300 text-xs">
+                    {p.costPrice.toLocaleString('ar-EG')}
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-white text-xs font-medium">
+                    {p.salePrice.toLocaleString('ar-EG')}
+                  </td>
+                  <td className="py-2.5 px-3 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      p.productType === 'serial'
+                        ? 'bg-blue-900/40 text-blue-400'
+                        : 'bg-gray-800 text-gray-400'
+                    }`}>
+                      {p.productType === 'serial' ? 'سيريال' : 'عادي'}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-1 justify-end">
+                      <button onClick={() => setQrProduct(p)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-900/20">
+                        <QrCode size={13} />
+                      </button>
+                      <button onClick={() => openEdit(p)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400 hover:bg-violet-900/20">
+                        <Edit size={13} />
+                      </button>
+                      <button onClick={() => onDeleteProduct(p.id)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {filtered.length === 0 && (
+        <div className="text-center text-gray-500 py-16">لا توجد منتجات</div>
+      )}
+
+      {/* ==================== Add/Edit Modal ==================== */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setShowForm(false)}>
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4"
+            onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-white mb-5">
+              {editProduct ? '✏️ تعديل منتج' : '➕ إضافة منتج جديد'}
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+              {/* اسم المنتج */}
+              <div className="md:col-span-2">
+                <label className="form-label">اسم المنتج *</label>
+                <input type="text" value={form.name}
+                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                  className="input-dark w-full"
+                  placeholder="مثال: iPhone 15 Pro Max 256GB"
+                />
+              </div>
+
+              {/* SKU */}
+              <div>
+                <label className="form-label">كود المنتج (SKU)</label>
+                <div className="flex gap-2">
+                  <input type="text" value={form.sku}
+                    onChange={e => setForm(p => ({ ...p, sku: e.target.value }))}
+                    className="input-dark flex-1"
+                    placeholder="اتركه فاضي للتوليد التلقائي"
+                  />
+                  <button
+                    onClick={() => setForm(p => ({ ...p, sku: generateSKU(form.name) }))}
+                    className="px-3 py-2 rounded-xl bg-violet-700/20 border border-violet-600/30 text-violet-400 hover:bg-violet-700/40 transition-colors text-xs flex items-center gap-1"
+                    title="توليد SKU تلقائي"
+                  >
+                    <RefreshCw size={13} /> توليد
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  لو فاضي، سيتولد تلقائياً عند الحفظ
+                </p>
+              </div>
+
+              {/* UPC */}
+              <div>
+                <label className="form-label">
+                  UPC / Barcode *
+                  <span className="text-red-400 mr-1">•</span>
+                  <span className="text-xs text-gray-500 font-normal">(إلزامي - يتولد تلقائياً لو فاضي)</span>
+                </label>
+                <div className="flex gap-2">
+                  <input type="text" value={form.upc}
+                    onChange={e => setForm(p => ({ ...p, upc: e.target.value }))}
+                    className="input-dark flex-1"
+                    placeholder="195949035951 أو اتركه للتوليد"
+                  />
+                  <button
+                    onClick={() => setForm(p => ({ ...p, upc: generateUPC() }))}
+                    className="px-3 py-2 rounded-xl bg-green-700/20 border border-green-600/30 text-green-400 hover:bg-green-700/40 transition-colors text-xs flex items-center gap-1"
+                    title="توليد UPC تلقائي"
+                  >
+                    <RefreshCw size={13} /> توليد
+                  </button>
+                </div>
+              </div>
+
+              {/* الفئة */}
+              <div>
+                <label className="form-label">الفئة *</label>
+                <select value={form.category}
+                  onChange={e => setForm(p => ({ ...p, category: e.target.value as ProductCategory }))}
+                  className="input-dark w-full">
+                  <option value="phones">📱 موبايلات</option>
+                  <option value="tablets">📲 تابلت</option>
+                  <option value="laptops">💻 لابتوب</option>
+                  <option value="accessories">🎧 إكسسوارات</option>
+                  <option value="other">📦 أخرى</option>
+                </select>
+              </div>
+
+              {/* العلامة التجارية */}
+              <div>
+                <label className="form-label">العلامة التجارية</label>
+                <select value={form.brand}
+                  onChange={e => setForm(p => ({ ...p, brand: e.target.value }))}
+                  className="input-dark w-full">
+                  {brands.map(b => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                </select>
+                <div className="flex gap-2 mt-2">
+                  <input type="text" value={newBrand}
+                    onChange={e => setNewBrand(e.target.value)}
+                    className="input-dark flex-1"
+                    placeholder="إضافة براند جديد..."
+                  />
+                  <button onClick={handleAddBrand} className="btn-secondary text-xs px-3">
+                    إضافة
+                  </button>
+                </div>
+              </div>
+
+              {/* نوع المنتج */}
+              <div>
+                <label className="form-label">نوع المنتج *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setForm(p => ({ ...p, productType: 'normal' }))}
+                    className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${
+                      form.productType === 'normal'
+                        ? 'bg-green-700/30 border-green-500/50 text-green-300'
+                        : 'border-white/10 text-gray-400'
+                    }`}>
+                    📦 عادي (بدون سيريال)
+                  </button>
+                  <button
+                    onClick={() => setForm(p => ({ ...p, productType: 'serial' }))}
+                    className={`py-2 px-3 rounded-xl border text-xs font-medium transition-colors ${
+                      form.productType === 'serial'
+                        ? 'bg-blue-700/30 border-blue-500/50 text-blue-300'
+                        : 'border-white/10 text-gray-400'
+                    }`}>
+                    🔢 بسيريال (IMEI)
+                  </button>
+                </div>
+              </div>
+
+              {/* سعر الشراء */}
+              <div>
+                <label className="form-label">سعر الشراء</label>
+                <input type="number" value={form.costPrice}
+                  onChange={e => setForm(p => ({ ...p, costPrice: parseFloat(e.target.value) || 0 }))}
+                  className="input-dark w-full"
+                />
+              </div>
+
+              {/* سعر البيع */}
+              <div>
+                <label className="form-label">سعر البيع</label>
+                <input type="number" value={form.salePrice}
+                  onChange={e => setForm(p => ({ ...p, salePrice: parseFloat(e.target.value) || 0 }))}
+                  className="input-dark w-full"
+                />
+              </div>
+
+              {/* المخزون */}
+              <div>
+                <label className="form-label">المخزون الحالي</label>
+                <input type="number" value={form.stock}
+                  onChange={e => setForm(p => ({ ...p, stock: parseInt(e.target.value) || 0 }))}
+                  className="input-dark w-full"
+                />
+              </div>
+
+              {/* حد التنبيه */}
+              <div>
+                <label className="form-label">حد التنبيه</label>
+                <input type="number" value={form.minStock}
+                  onChange={e => setForm(p => ({ ...p, minStock: parseInt(e.target.value) || 0 }))}
+                  className="input-dark w-full"
+                />
+              </div>
+
+              {/* الوصف */}
+              <div className="md:col-span-2">
+                <label className="form-label">الوصف</label>
+                <textarea value={form.description}
+                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+                  className="input-dark w-full h-20 resize-none"
+                  placeholder="وصف المنتج..."
+                />
+              </div>
+            </div>
+
+            {duplicateError && (
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-3 text-red-400">
+                ⚠️ {duplicateError}
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-5">
+              <button onClick={handleSave} className="btn-primary flex-1">💾 حفظ</button>
+              <button
+                onClick={() => { setShowForm(false); setDuplicateError(null); }}
+                className="btn-secondary flex-1"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Modal */}
+      {qrProduct && (
+        <ProductQRModal product={qrProduct} onClose={() => setQrProduct(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   ProductCard
+══════════════════════════════════════════ */
+function ProductCard({
+  product, availableSerials, onEdit, onDelete, onShowQR,
+}: {
+  product: Product; availableSerials: number;
+  onEdit: () => void; onDelete: () => void; onShowQR: () => void;
+}) {
+  const stock = product.productType === 'serial' ? availableSerials : product.stock;
+  const stockColor = stock === 0 ? 'text-red-400' : stock <= 2 ? 'text-yellow-400' : 'text-green-400';
+  return (
+    <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4 hover:border-violet-700/50 transition-all">
+      <div className="flex items-start justify-between mb-3">
+        <div className="w-10 h-10 rounded-xl bg-violet-900/30 flex items-center justify-center text-xl">
+          {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' :
+           product.category === 'laptops' ? '💻' : product.category === 'accessories' ? '🎧' : '📦'}
+        </div>
+        <div className="flex gap-1">
+          <button onClick={onShowQR}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-900/20">
+            <QrCode size={14} />
+          </button>
+          <button onClick={onEdit}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400 hover:bg-violet-900/20">
+            <Edit size={14} />
+          </button>
+          <button onClick={onDelete}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20">
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+      <h3 className="font-semibold text-white text-sm mb-1 line-clamp-2">{product.name}</h3>
+      <div className="text-xs text-gray-500 mb-1">{product.sku} • {product.brand}</div>
+      {product.upc && (
+        <div className="text-xs text-gray-600 mb-2 font-mono">{product.upc}</div>
+      )}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-xs text-gray-500">سعر البيع</div>
+          <div className="text-sm font-bold text-white">{formatCurrency(product.salePrice)}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs text-gray-500">المخزون</div>
+          <div className={`text-lg font-black ${stockColor}`}>{stock}</div>
+        </div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <span className={`text-xs px-2 py-0.5 rounded-full ${
+          product.productType === 'serial' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'
+        }`}>
+          {product.productType === 'serial' ? 'سيريال' : 'عادي'}
+        </span>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-violet-900/30 text-violet-400">
+          {categoryLabel(product.category)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   ProductListRow
+══════════════════════════════════════════ */
+function ProductListRow({
+  product, availableSerials, onEdit, onDelete, onShowQR,
+}: {
+  product: Product; availableSerials: number;
+  onEdit: () => void; onDelete: () => void; onShowQR: () => void;
+}) {
+  const stock = product.productType === 'serial' ? availableSerials : product.stock;
+  const stockColor = stock === 0 ? 'text-red-400' : stock <= 2 ? 'text-yellow-400' : 'text-green-400';
+  return (
+    <div className="bg-elevated border border-violet-900/30 rounded-xl px-4 py-3 flex items-center justify-between hover:border-violet-700/50 transition-all">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-violet-900/30 flex items-center justify-center text-lg">
+          {product.category === 'phones' ? '📱' : product.category === 'tablets' ? '📲' :
+           product.category === 'laptops' ? '💻' : '🎧'}
+        </div>
+        <div>
+          <div className="font-medium text-white text-sm">{product.name}</div>
+          <div className="text-xs text-gray-500">
+            {product.sku}
+            {product.upc && <span className="mr-2 font-mono">{product.upc}</span>}
+            • {product.brand} • {categoryLabel(product.category)}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-6">
+        <div className="text-right hidden md:block">
+          <div className="text-xs text-gray-500">شراء</div>
+          <div className="text-sm text-gray-300">{product.costPrice.toLocaleString('ar-EG')}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs text-gray-500">بيع</div>
+          <div className="text-sm font-bold text-white">{product.salePrice.toLocaleString('ar-EG')}</div>
+        </div>
+        <div className="text-center">
+          <div className={`text-xl font-black ${stockColor}`}>{stock}</div>
+          <div className="text-xs text-gray-500">مخزون</div>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={onShowQR}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400">
+            <QrCode size={14} />
+          </button>
+          <button onClick={onEdit}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-violet-400">
+            <Edit size={14} />
+          </button>
+          <button onClick={onDelete}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400">
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

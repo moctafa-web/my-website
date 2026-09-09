@@ -128,43 +128,40 @@ export const generateUPC = (): string => {
   return `${raw}${checkDigit}`;                            // 13 رقم (EAN-13 compatible)
 };
 
-// ==================== printElement ====================
-export const printElement = (htmlContent: string, title = 'ONE - طباعة') => {
-  const printWindow = window.open('', '_blank', 'width=800,height=600');
-  if (!printWindow) return;
-  printWindow.document.write(`
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-      <meta charset="UTF-8" />
-      <title>${title}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet" />
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Tajawal', Arial, sans-serif; direction: rtl; background: #fff; color: #1a1a2e; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: right; font-size: 13px; }
-        th { background: #1a1a2e; color: white; font-weight: 600; }
-        tr:nth-child(even) { background: #f8f9fa; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #7c3aed; padding-bottom: 16px; margin-bottom: 20px; }
-        .company-name { font-size: 28px; font-weight: 800; color: #7c3aed; }
-        .invoice-info { text-align: left; font-size: 13px; }
-        .totals { margin-top: 15px; display: flex; justify-content: flex-start; }
-        .totals table { width: 300px; }
-        .total-row { font-weight: 700; background: #1a1a2e !important; color: white !important; }
-        .total-row td { color: white !important; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-        .paid { background: #d1fae5; color: #065f46; }
-        .partial { background: #fef3c7; color: #92400e; }
-        .unpaid { background: #fee2e2; color: #991b1b; }
-        @media print { body { padding: 10px; } }
-      </style>
-    </head>
-    <body>
-      ${htmlContent}
-      <script>window.onload = () => { window.print(); }<\/script>
-    </body>
-    </html>
-  `);
-  printWindow.document.close();
+// ==================== أدوات الطباعة ====================
+const waitForPrintReady = async (printWindow: Window): Promise<void> => {
+  await new Promise<void>(resolve => {
+    if (printWindow.document.readyState === 'complete') resolve();
+    else printWindow.addEventListener('load', () => resolve(), { once: true });
+  });
+  if (printWindow.document.fonts?.ready) await printWindow.document.fonts.ready;
+  await new Promise(resolve => setTimeout(resolve, 350));
 };
+
+export const printDocument = async (htmlContent: string, title = 'ONE - طباعة') => {
+  if (typeof window === 'undefined') return false;
+  const printWindow = window.open('', '_blank', 'width=800,height=600');
+  if (!printWindow) {
+    console.warn('[v0] Printing blocked: allow pop-ups for this site.');
+    return false;
+  }
+
+  const safeTitle = title.replace(/[<>]/g, '');
+  printWindow.document.open();
+  printWindow.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><title>${safeTitle}</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet"/><style>
+    *{box-sizing:border-box;margin:0;padding:0} body{font-family:Tajawal,Arial,sans-serif;direction:rtl;background:#fff;color:#1a1a2e;padding:20px} table{width:100%;border-collapse:collapse;margin:10px 0} th,td{border:1px solid #ddd;padding:8px 12px;text-align:right;font-size:13px} th{background:#1a1a2e;color:#fff;font-weight:600} tr:nth-child(even){background:#f8f9fa}.header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #7c3aed;padding-bottom:16px;margin-bottom:20px}.company-name{font-size:28px;font-weight:800;color:#7c3aed}.invoice-info{text-align:left;font-size:13px}.totals{margin-top:15px;display:flex;justify-content:flex-start}.totals table{width:300px}.total-row{font-weight:700;background:#1a1a2e!important;color:#fff!important}.total-row td{color:#fff!important}.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px}.paid{background:#d1fae5;color:#065f46}.partial{background:#fef3c7;color:#92400e}.unpaid{background:#fee2e2;color:#991b1b}@media print{body{padding:10px}}</style></head><body>${htmlContent}</body></html>`);
+  printWindow.document.close();
+  try {
+    await waitForPrintReady(printWindow);
+    printWindow.focus();
+    printWindow.print();
+    printWindow.onafterprint = () => printWindow.close();
+    return true;
+  } catch (error) {
+    console.error('[v0] Print failed:', error);
+    printWindow.close();
+    return false;
+  }
+};
+
+export const printElement = printDocument;
