@@ -129,10 +129,31 @@ export const generateUPC = (): string => {
 };
 
 // ==================== printElement ====================
+// ملاحظة مهمة: كانت النسخة القديمة بتفتح نافذة متصفح جديدة (window.open) وتطبع منها.
+// بعض المتصفحات (خصوصًا Edge بإعداداته الافتراضية) بتمنع النوافذ الجديدة دي بصمت
+// من غير ما تظهر أي رسالة، فتبقى الطباعة "مش شغالة" من غير أي سبب ظاهر.
+// الحل: بنستخدم iframe مخفي جوا نفس الصفحة بدل نافذة جديدة، فمفيش أي حاجة
+// ليها علاقة بمانع النوافذ المنبثقة، وبتشتغل مضمون على أي متصفح.
 export const printElement = (htmlContent: string, title = 'ONE - طباعة') => {
-  const printWindow = window.open('', '_blank', 'width=800,height=600');
-  if (!printWindow) return;
-  printWindow.document.write(`
+  const existingFrame = document.getElementById('__one_print_frame__');
+  if (existingFrame) existingFrame.remove();
+
+  const iframe = document.createElement('iframe');
+  iframe.id = '__one_print_frame__';
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.visibility = 'hidden';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document;
+  if (!doc) { iframe.remove(); return; }
+
+  doc.open();
+  doc.write(`
     <!DOCTYPE html>
     <html dir="rtl" lang="ar">
     <head>
@@ -162,9 +183,35 @@ export const printElement = (htmlContent: string, title = 'ONE - طباعة') =>
     </head>
     <body>
       ${htmlContent}
-      <script>window.onload = () => { window.print(); }<\/script>
     </body>
     </html>
   `);
-  printWindow.document.close();
+  doc.close();
+
+  const triggerPrint = () => {
+    const win = iframe.contentWindow;
+    if (!win) return;
+    win.focus();
+    win.print();
+  };
+
+  const cleanup = () => {
+    setTimeout(() => iframe.remove(), 1000);
+  };
+
+  const startPrintFlow = () => {
+    // مهلة صغيرة عشان نضمن إن الخط والتنسيق اتحملوا قبل الطباعة
+    setTimeout(() => {
+      triggerPrint();
+      const win = iframe.contentWindow;
+      if (win) win.onafterprint = cleanup;
+      else cleanup();
+    }, 300);
+  };
+
+  if (doc.readyState === 'complete') {
+    startPrintFlow();
+  } else {
+    iframe.onload = startPrintFlow;
+  }
 };
