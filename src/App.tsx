@@ -31,9 +31,10 @@ export default function App() {
   const [showQuickEntry, setShowQuickEntry] = useState(false);
 
   const store = useStore();
-  const { state, isLoading } = store;
+  const { state, isLoading, loadError } = store;
 
   useEffect(() => {
+    console.info('[Build] firebase-source-2026-09-05');
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -56,6 +57,19 @@ export default function App() {
   }
 
   if (!user) return <Login />;
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0f0f1a] px-6">
+        <div className="max-w-xl text-center text-gray-200">
+          <h1 className="text-xl font-semibold">خطأ في تحميل البيانات</h1>
+          <p className="mt-3 text-gray-400">{loadError}</p>
+          <p className="mt-4 text-xs text-gray-500">Build: firebase-source-2026-09-05</p>
+          <button className="mt-6 rounded-lg bg-violet-600 px-5 py-2 text-white" onClick={() => window.location.reload()}>إعادة المحاولة</button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -208,11 +222,6 @@ export default function App() {
             onAddPartner={store.addPartner}
             onUpdatePartner={store.updatePartner}
             onDeletePartner={store.deletePartner}
-            employees={state.employees}
-            onAddEmployee={store.addEmployee}
-            onUpdateEmployee={store.updateEmployee}
-            onDeleteEmployee={store.deleteEmployee}
-            onAddPartyMoneyMovement={store.addPartyMoneyMovement}
             // ✅ توزيع الأرباح
             profitDistributions={state.profitDistributions}
             onSaveDistribution={store.saveDistribution}
@@ -262,7 +271,6 @@ export default function App() {
             fullState={state}
             onBackfillPaymentRecords={store.backfillPaymentRecords}
             onRecalculatePartyTotals={store.recalculatePartyTotals}
-            onRestoreBackup={store.restoreFullState}
           />
         );
 

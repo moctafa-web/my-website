@@ -1,5 +1,5 @@
 import { Customer, AccountStatement, StatementRow } from '../types';
-import { formatCurrency, getTodayStr, printDocument } from '../utils/helpers';
+import { formatCurrency, getTodayStr } from '../utils/helpers';
 
 /**
  * خدمة توليد ملفات PDF
@@ -362,8 +362,18 @@ export const PDFService = {
   /**
    * طباعة HTML (يفتح نافذة الطباعة)
    */
-  async printHTML(html: string, title: string = 'طباعة'): Promise<void> {
-    await printDocument(html, title);
+  printHTML(html: string, title: string = 'طباعة'): void {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.focus();
+
+      // تأخير قليل للسماح للمتصفح بتحميل المحتوى
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    }
   },
 
   /**
