@@ -17,6 +17,7 @@ import NoonOrders from "./pages/NoonOrders";
 import Settings from "./pages/Settings";
 import DailyJournal from "./pages/DailyJournal";
 import HealthCheck from "./pages/HealthCheck";
+import PendingPurchasePrices from "./pages/PendingPurchasePrices";
 import { useStore } from "./store/useStore";
 import { getTodayStr } from "./utils/helpers";
 import { useAuth } from "./auth";
@@ -73,10 +74,7 @@ export default function ErpApp() {
             onNewSale={() => setCurrentPage("sales")}
             onNewPurchase={() => setCurrentPage("purchases")}
             adjustTreasury={store.adjustTreasury}
-            onCompletePendingSerial={(serialId) => {
-              setPendingSerialId(serialId);
-              setCurrentPage("purchases");
-            }}
+            onCompletePendingSerial={() => setCurrentPage("pending-prices")}
             onOpenStatement={(type, id) => {
               if (type === "customer") {
                 setPendingCustomerStatementId(id);
@@ -165,6 +163,17 @@ export default function ErpApp() {
             onPreselectedPendingSerialHandled={() => setPendingSerialId(null)}
             preselectedDateFilter={pendingPurchasesDateFilter}
             onPreselectedDateFilterHandled={() => setPendingPurchasesDateFilter(null)}
+          />
+        );
+      case "pending-prices":
+        return (
+          <PendingPurchasePrices
+            serials={state.serials}
+            purchaseInvoices={state.purchaseInvoices}
+            suppliers={state.suppliers}
+            settings={state.settings}
+            onCompletePendingPurchase={store.completePendingPurchase}
+            onNavigate={setCurrentPage}
           />
         );
       case "inventory":

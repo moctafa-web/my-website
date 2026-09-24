@@ -400,9 +400,14 @@ const pendingSerials = state.serials
               </span>
             )}
           </div>
-          <div className="text-base font-bold text-white mb-1">سيريالات بسعر شراء معلّق</div>
+          <button
+            onClick={() => onNavigate('pending-prices')}
+            className="text-base font-bold text-white mb-1 hover:text-violet-300 transition-colors text-right w-full"
+          >
+            سيريالات بسعر شراء معلّق ↗
+          </button>
           <div className="text-xs text-gray-500 mb-3">
-            أجهزة دخلت المخزون بسعر مؤقت — اضغط "تحديد السعر" لاستكمال سعر الشراء الحقيقي
+            أجهزة دخلت المخزون بسعر مؤقت — اضغط على العنوان لفتح صفحة كاملة وتحديد الأسعار كلها مرة واحدة أو شوية شوية
           </div>
 
           {pendingSerials.length === 0 ? (
@@ -420,14 +425,12 @@ const pendingSerials = state.serials
                     <span className="text-xs text-orange-400 bg-orange-900/40 px-2 py-1 rounded-lg font-bold whitespace-nowrap">
                       سعر معلّق
                     </span>
-                    {onCompletePendingSerial && (
-                      <button
-                        onClick={() => onCompletePendingSerial(s.id)}
-                        className="text-xs bg-violet-700/40 hover:bg-violet-700/60 text-violet-200 px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors"
-                      >
-                        💰 تحديد السعر
-                      </button>
-                    )}
+                    <button
+                      onClick={() => onNavigate('pending-prices')}
+                      className="text-xs bg-violet-700/40 hover:bg-violet-700/60 text-violet-200 px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors"
+                    >
+                      💰 تحديد السعر
+                    </button>
                   </div>
                 </div>
               ))}
