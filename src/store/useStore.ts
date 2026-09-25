@@ -10,7 +10,7 @@ import { makeTransactionId } from './domains/id.store';
 import { applyTreasuryChange } from './domains/treasury.store';
 import { completePendingPurchaseState } from './domains/purchases.store';
 import { generateDemoData } from '../lib/demo-data';
-import { saveToFirebase, deleteFromFirebase, loadCollection } from '../services/firebasePersistence';
+import { saveToFirebase, saveToFirebaseStrict, deleteFromFirebase, loadCollection, deleteCollectionFromFirebase } from '../services/firebasePersistence';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 
@@ -1358,13 +1358,141 @@ export function useStore() {
     };
   }, []);
 
+  /**
+   * يبدأ دورة تشغيل جديدة للنظام.
+   *
+   * يتم التنفيذ على Firebase أولًا (وليس على React state فقط) حتى يختفي
+   * الأثر القديم من كل الأجهزة والمتصفحات بعد إعادة التحميل.
+   *
+   * يتم الاحتفاظ بالـ master data: المنتجات، البراندات، العملاء، الموردين،
+   * الشركاء والعاملين، وإعدادات الشركة.
+   * وتُصفّر حسابات العملاء والموردين ومخزون المنتجات، بينما تُحذف كل
+   * المعاملات/الأجهزة/الأوردرات/الجرد والحركات المالية الخاصة بالدورة السابقة.
+   */
   const resetAllData = useCallback(async () => {
-    treasurySyncRef.current = { ready: true, syncedTxIds: new Set(), syncedClosingIds: new Set() };
-    setState(prev => ({ ...generateDemoData(), settings: prev.settings }));
+    treasurySyncRef.current = { ready: false, syncedTxIds: new Set(), syncedClosingIds: new Set() };
+
+    try {
+      // اقرأ آخر master data من Firebase قبل التنفيذ حتى لا نعتمد على state قديم.
+      const [products, customers, suppliers, brands, partners, employees, settingsRows] = await Promise.all([
+        loadCollection<Product>('products'),
+        loadCollection<Customer>('customers'),
+        loadCollection<Supplier>('suppliers'),
+        loadCollection<Brand>('brands'),
+        loadCollection<Partner>('partners'),
+        loadCollection<Employee>('employees'),
+        loadCollection<AppSettings>('settings'),
+      ]);
+
+      const now = new Date().toISOString();
+
+      // المنتجات تفضل، لكن المخزون يبدأ من صفر.
+      const resetProducts = products.map(product => ({
+        ...product,
+        stock: 0,
+        updatedAt: now,
+      }));
+
+      // أسماء/بيانات العملاء تفضل، لكن حساباتهم تبدأ من الصفر.
+      const resetCustomers = customers.map(customer => ({
+        ...customer,
+        openingBalance: 0,
+        totalInvoices: 0,
+        totalPaid: 0,
+      }));
+
+      // الموردون تفضل أسماؤهم وبياناتهم، لكن حساباتهم تبدأ من الصفر.
+      const resetSuppliers = suppliers.map(supplier => ({
+        ...supplier,
+        openingBalance: 0,
+        totalInvoices: 0,
+        totalPaid: 0,
+      }));
+
+      // اكتب البيانات المحتفظ بها أولًا وبشكل strict حتى لا نعلن نجاحًا مع فشل جزئي.
+      await Promise.all([
+        ...resetProducts.map(product => saveToFirebaseStrict('products', product.id, product)),
+        ...resetCustomers.map(customer => saveToFirebaseStrict('customers', customer.id, customer)),
+        ...resetSuppliers.map(supplier => saveToFirebaseStrict('suppliers', supplier.id, supplier)),
+      ]);
+
+      // كل ما يلي هو تاريخ/حركة الدورة القديمة، لذلك يُحذف من Firebase فعلًا.
+      const collectionsToDelete = [
+        'serials',
+        'saleInvoices',
+        'purchaseInvoices',
+        'payments',
+        'expenses',
+        'noonOrders',
+        'dailyJournals',
+        'profitDistributions',
+        'treasuryTransactions',
+        'dailyClosings',
+        'weeklyInventoryCounts',
+        'stockTransfers',
+        'dailyOperations',
+        'dailyInventoryScans',
+      ];
+      await Promise.all(collectionsToDelete.map(collectionName => deleteCollectionFromFirebase(collectionName)));
+
+      // إعدادات الشركة تفضل، مع إعادة عدادات الفواتير للبداية.
+      const currentSettings = settingsRows.find(item => (item as AppSettings & { id?: string }).id === 'main');
+      const nextSettings: AppSettings = {
+        ...(currentSettings || generateDemoData().settings),
+        lastSaleInvoiceNum: 0,
+        lastPurchaseInvoiceNum: 0,
+      };
+      await saveToFirebaseStrict('settings', 'main', nextSettings);
+      await saveToFirebaseStrict('treasury', 'main', { cashBalance: 0, bankBalance: 0 });
+
+      // حدّث الواجهة فقط بعد نجاح Firebase بالكامل.
+      setState(prev => ({
+        ...prev,
+        products: resetProducts,
+        serials: [],
+        customers: resetCustomers,
+        suppliers: resetSuppliers,
+        saleInvoices: [],
+        purchaseInvoices: [],
+        payments: [],
+        expenses: [],
+        noonOrders: [],
+        dailyJournals: [],
+        profitDistributions: [],
+        treasuryTransactions: [],
+        dailyClosings: [],
+        weeklyInventoryCounts: [],
+        stockTransfers: [],
+        dailyOperations: [],
+        dailyInventoryScans: [],
+        cashBalance: 0,
+        bankBalance: 0,
+        settings: nextSettings,
+        brands,
+        partners,
+        employees,
+      }));
+
+      treasurySyncRef.current = {
+        ready: true,
+        syncedTxIds: new Set(),
+        syncedClosingIds: new Set(),
+      };
+    } catch (error) {
+      console.error('[Firebase] start-new-cycle failed:', error);
+      treasurySyncRef.current.ready = true;
+      throw error;
+    }
   }, []);
 
   const deleteAllNoonOrders = useCallback(async () => {
-    setState(prev => ({ ...prev, noonOrders: [] }));
+    treasurySyncRef.current.ready = false;
+    try {
+      await deleteCollectionFromFirebase('noonOrders');
+      setState(prev => ({ ...prev, noonOrders: [] }));
+    } finally {
+      treasurySyncRef.current.ready = true;
+    }
   }, []);
 
   // ✅ إصلاح لمرة واحدة: يضيف سجلات دفعات مفقودة للفواتير القديمة (اللي اتسجلت مدفوعة قبل إصلاح كشف الحساب)

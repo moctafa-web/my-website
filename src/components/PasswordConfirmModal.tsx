@@ -25,8 +25,12 @@ export default function PasswordConfirmModal({ title, message, confirmLabel = '�
       return;
     }
     setLoading(true);
+    setError('');
     try {
       await onConfirm();
+    } catch (err) {
+      console.error('[Dangerous operation] failed:', err);
+      setError('تعذر تنفيذ العملية. لم يتم اعتبارها ناجحة. راجع اتصال Firebase وحاول مرة أخرى.');
     } finally {
       setLoading(false);
     }

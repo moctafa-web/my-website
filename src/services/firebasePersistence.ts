@@ -23,6 +23,11 @@ export async function saveToFirebase(collectionName: string, id: string, data: u
   }
 }
 
+/** Strict variant used by destructive/migration workflows. */
+export async function saveToFirebaseStrict(collectionName: string, id: string, data: unknown) {
+  await setDoc(doc(db, collectionName, id), cleanForFirebase(data));
+}
+
 export async function deleteFromFirebase(collectionName: string, id: string) {
   try {
     await deleteDoc(doc(db, collectionName, id));
@@ -34,4 +39,15 @@ export async function deleteFromFirebase(collectionName: string, id: string) {
 export async function loadCollection<T>(collectionName: string): Promise<T[]> {
   const snap = await getDocs(collection(db, collectionName));
   return snap.docs.map((d) => ({ ...d.data(), id: d.id }) as T);
+}
+
+/**
+ * Deletes every document in a Firestore collection.
+ * Unlike deleteFromFirebase, this intentionally propagates errors so a
+ * destructive reset cannot report success after a partial/failed delete.
+ */
+export async function deleteCollectionFromFirebase(collectionName: string): Promise<number> {
+  const snap = await getDocs(collection(db, collectionName));
+  await Promise.all(snap.docs.map((item) => deleteDoc(item.ref)));
+  return snap.size;
 }

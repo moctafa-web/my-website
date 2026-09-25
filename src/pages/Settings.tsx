@@ -198,9 +198,15 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
               )}
             </div>
 
-            <button onClick={() => setShowReset(true)} className="w-full py-2 text-sm border border-red-700/40 text-red-400 rounded-xl hover:bg-red-900/20 transition-colors">
-              ⚠️ إعادة تعيين النظام (حذف كل البيانات)
-            </button>
+            <div className="bg-red-900/10 border border-red-700/30 rounded-xl p-4">
+              <div className="text-sm text-red-300 font-medium mb-1">🔄 بدء دورة جديدة</div>
+              <div className="text-xs text-gray-500 mb-3 leading-5">
+                يمسح تاريخ الدورة الحالية من Firebase ويبدأ الحسابات والمخزون من الصفر، مع الاحتفاظ بالمنتجات والبراندات وأسماء العملاء والموردين والشركاء والعاملين وإعدادات الشركة.
+              </div>
+              <button onClick={() => setShowReset(true)} className="w-full py-2 text-sm border border-red-700/40 text-red-400 rounded-xl hover:bg-red-900/20 transition-colors">
+                🔄 بدء دورة جديدة
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -225,12 +231,16 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
         />
       )}
 
-      {/* تأكيد إعادة تعيين النظام بكلمة سر */}
+      {/* تأكيد بدء دورة جديدة بكلمة سر */}
       {showReset && (
         <PasswordConfirmModal
-          title="إعادة تعيين النظام بالكامل"
-          message="سيتم حذف جميع البيانات نهائيًا من قاعدة البيانات (منتجات، فواتير، عملاء، موردين، أوردرات نون، مصروفات...) على كل الأجهزة المتصلة بالنظام. هذا الإجراء نهائي ولا يمكن التراجع عنه."
-          confirmLabel="إعادة تعيين كل شيء"
+          title="🔄 بدء دورة جديدة"
+          message={`سيتم حذف بيانات الدورة الحالية نهائيًا من Firebase: الأجهزة والـ Serial/IMEI، فواتير البيع والشراء، الدفعات، أوردرات نون/أمازون، المصروفات، حركات الخزينة، الإقفالات، الجرد والتحويلات والتشغيل اليومي وتوزيعات الأرباح.
+
+سيتم تصفير حسابات العملاء والموردين ومخزون المنتجات والخزينة، مع الاحتفاظ بالمنتجات والبراندات وأسماء العملاء والموردين والشركاء والعاملين وإعدادات الشركة. سيتم أيضًا إعادة ترقيم الفواتير من البداية.
+
+⚠️ العملية نهائية، ومن الأفضل أخذ نسخة احتياطية قبل التنفيذ.`}
+          confirmLabel="بدء الدورة الجديدة"
           onConfirm={handleConfirmReset}
           onCancel={() => setShowReset(false)}
         />
@@ -240,7 +250,7 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
         <div className="fixed inset-0 bg-black/90 z-[80] flex items-center justify-center">
           <div className="text-center">
             <div className="text-4xl mb-3">✅</div>
-            <p className="text-white">تم إعادة تعيين النظام، جاري إعادة تحميل الصفحة...</p>
+            <p className="text-white">تم بدء الدورة الجديدة بنجاح، جاري إعادة تحميل الصفحة...</p>
           </div>
         </div>
       )}
