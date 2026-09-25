@@ -129,10 +129,8 @@ function main(argv) {
     process.exit(2);
   }
   const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  // Windows resolves `node_modules/.bin` entries as `.cmd` shims, which
-  // `spawn` cannot exec directly (`spawn vite ENOENT`); a shell can. POSIX
-  // needs no shell, and skipping it there keeps signal handling exact.
-  const child = spawn(command, args, { stdio: "inherit", env, shell: IS_WINDOWS });
+  // Using shell: true so it works properly across all platforms (Windows & Linux/Vercel)
+  const child = spawn(command, args, { stdio: "inherit", env, shell: true });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => killChild(child, signal));
