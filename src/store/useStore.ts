@@ -176,7 +176,15 @@ export function useStore() {
   }, []);
 
   const deleteProduct = useCallback((id: string) => {
-    setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
+    setState(prev => {
+      const serialIds = prev.serials.filter(s => s.productId === id).map(s => s.id);
+      serialIds.forEach(serialId => deleteFromFirebase('serials', serialId));
+      return {
+        ...prev,
+        products: prev.products.filter(p => p.id !== id),
+        serials: prev.serials.filter(s => s.productId !== id),
+      };
+    });
     deleteFromFirebase('products', id);
   }, []);
 
@@ -775,9 +783,12 @@ export function useStore() {
         }
       });
 
+      // حذف فاتورة الشراء يلغي كل وحدات السيريال التي أنشأتها الفاتورة،
+      // حتى لو كانت بيعت قبل حذف الفاتورة. وإلا سيظل السيريال المحذوف
+      // محجوزًا ويمنع إعادة شرائه بنفس الرقم.
       const removedSerialIds: string[] = [];
       newState.serials = newState.serials.filter(s => {
-        if (s.purchaseInvoiceId === invoiceId && s.status === 'available') {
+        if (s.purchaseInvoiceId === invoiceId) {
           removedSerialIds.push(s.id);
           return false;
         }
