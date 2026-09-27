@@ -413,7 +413,10 @@ export default function Purchases({
   };
 
   const existingSerialsSet = new Set(
-    serials.map(s => s.serial.trim().toLowerCase()).filter(Boolean)
+  serials
+  .filter(s => Boolean(s.purchaseInvoiceId) || Boolean(s.purchasePricePending))
+  .map(s => s.serial.trim().toLowerCase())
+  .filter(Boolean)
   );
 
   const isDuplicateSerial = (serial: string, currentItemId: string, currentIndex: number): boolean => {

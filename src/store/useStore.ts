@@ -200,7 +200,20 @@ export function useStore() {
   }, []);
 
   const addSerials = useCallback((newSerials: SerialItem[]) => {
-    setState(prev => ({ ...prev, serials: [...prev.serials, ...newSerials] }));
+    setState(prev => {
+      const incomingKeys = new Set(newSerials.map(s => normalizeForCompare(s.serial)).filter(Boolean));
+      const staleSerialIds = prev.serials
+        .filter(s => incomingKeys.has(normalizeForCompare(s.serial)) && !s.purchaseInvoiceId)
+        .map(s => s.id);
+      staleSerialIds.forEach(id => deleteFromFirebase('serials', id));
+      return {
+        ...prev,
+        serials: [
+          ...prev.serials.filter(s => !staleSerialIds.includes(s.id)),
+          ...newSerials,
+        ],
+      };
+    });
     newSerials.forEach(s => saveToFirebase('serials', s.id, s));
   }, []);
 

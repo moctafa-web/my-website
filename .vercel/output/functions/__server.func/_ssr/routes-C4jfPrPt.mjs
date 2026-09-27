@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CuKKtHzo.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-C4jfPrPt.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -7338,7 +7338,7 @@ function Purchases({ purchaseInvoices, suppliers, products, serials, brands, set
 			[newItem.id]: ""
 		}));
 	};
-	const existingSerialsSet = new Set(serials.map((s) => s.serial.trim().toLowerCase()).filter(Boolean));
+	const existingSerialsSet = new Set(serials.filter((s) => Boolean(s.purchaseInvoiceId) || Boolean(s.purchasePricePending)).map((s) => s.serial.trim().toLowerCase()).filter(Boolean));
 	const isDuplicateSerial = (serial, currentItemId, currentIndex) => {
 		const normalized = serial.trim().toLowerCase();
 		if (!normalized) return false;
@@ -24030,10 +24030,15 @@ function useStore() {
 		saveToFirebase("serials", serial.id, serial);
 	}, []);
 	const addSerials = (0, import_react.useCallback)((newSerials) => {
-		setState((prev) => ({
-			...prev,
-			serials: [...prev.serials, ...newSerials]
-		}));
+		setState((prev) => {
+			const incomingKeys = new Set(newSerials.map((s) => normalizeForCompare(s.serial)).filter(Boolean));
+			const staleSerialIds = prev.serials.filter((s) => incomingKeys.has(normalizeForCompare(s.serial)) && !s.purchaseInvoiceId).map((s) => s.id);
+			staleSerialIds.forEach((id) => deleteFromFirebase("serials", id));
+			return {
+				...prev,
+				serials: [...prev.serials.filter((s) => !staleSerialIds.includes(s.id)), ...newSerials]
+			};
+		});
 		newSerials.forEach((s) => saveToFirebase("serials", s.id, s));
 	}, []);
 	const completePendingPurchase = (0, import_react.useCallback)((serialId, newCostPrice, supplierId, supplierName, paymentMethod, paidAmount, invoiceNumber) => {
