@@ -194,7 +194,7 @@ export default function Purchases({
         if (quantity !== 1) { errors.push(`السطر ${rowNo}: منتج السيريال يجب أن تكون كميته 1 لكل سيريال (كرر السطر لكل جهاز)`); return; }
         if (!serial) { errors.push(`السطر ${rowNo}: المنتج "${product.name}" سيريال ويحتاج Serial/IMEI`); return; }
         const key=serial.toLowerCase(); if (serialsInFile.has(key)) { errors.push(`السطر ${rowNo}: السيريال ${serial} مكرر داخل الملف`); return; }
-        if (serials.some(s=>String(s.serial).trim().toLowerCase()===key && !s.purchasePricePending)) { errors.push(`السطر ${rowNo}: السيريال ${serial} موجود بالفعل في المخزون`); return; }
+        if (serials.some(s => String(s.serial).trim().toLowerCase() === key && (s.status === 'available' || s.status === 'transferred' || s.purchasePricePending))) { errors.push(`السطر ${rowNo}: السيريال ${serial} موجود حالياً كقطعة مملوكة ومتاحة للتشغيل`); return; }
         serialsInFile.add(key);
       }
       rows.push({row:rowNo,productId:product.id,product,productName:product.name,sku:product.sku,upc:product.upc||'',quantity,unitPrice,serials:serial?[{serial,imei1,imei2}]:[]});
@@ -430,14 +430,16 @@ export default function Purchases({
     }
     if (existingSerialsSet.has(normalized)) {
       const existingSerial = serials.find(s => s.serial.trim().toLowerCase() === normalized);
-      if (existingSerial?.purchasePricePending) return false;
-      if (editingInvoice) {
-        const wasInThisInvoice = editingInvoice.items.some(it =>
-          it.serials?.some(s => s.serial.trim().toLowerCase() === normalized)
-        );
-        if (wasInThisInvoice) return false;
-      }
-      return true;
+      const wasInThisInvoice = editingInvoice?.items.some(it =>
+        it.serials?.some(s => s.serial.trim().toLowerCase() === normalized)
+      );
+      if (wasInThisInvoice && existingSerial?.purchaseInvoiceId === editingInvoice?.id) return false;
+      // A sold/returned historical row is not current stock and may be purchased again.
+      return Boolean(existingSerial && (
+        existingSerial.status === 'available' ||
+        existingSerial.status === 'transferred' ||
+        existingSerial.purchasePricePending
+      ));
     }
     return false;
   };

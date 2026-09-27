@@ -354,13 +354,16 @@ export function useStore() {
         if (product?.productType === 'serial') {
           if (item.serials && item.serials.length > 0) {
             item.serials.forEach(sl => {
+              const normalizedSerial = normalizeForCompare(sl.serial);
+              const serialToSell = [...newState.serials].reverse().find(s =>
+                normalizeForCompare(s.serial) === normalizedSerial && s.status === 'available'
+              );
+              if (!serialToSell) return;
               newState.serials = newState.serials.map(s => {
-                if (s.serial === sl.serial) {
-                  const updated = { ...s, status: 'sold' as const, saleInvoiceId: invoice.id, salePrice: item.unitPrice };
-                  updatedSerials.push(updated);
-                  return updated;
-                }
-                return s;
+                if (s.id !== serialToSell.id) return s;
+                const updated = { ...s, status: 'sold' as const, saleInvoiceId: invoice.id, salePrice: item.unitPrice };
+                updatedSerials.push(updated);
+                return updated;
               });
             });
           }

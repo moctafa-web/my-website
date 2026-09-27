@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder, Customer, WeeklyInventoryCount, StockTransfer as StockTransferType } from '../types';
+import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder, Customer, AppSettings, WeeklyInventoryCount, StockTransfer as StockTransferType } from '../types';
 import { formatCurrency, categoryLabel, printElement, getTodayStr } from '../utils/helpers';
-import { Search, Printer, Package, Hash, Eye, CheckCircle2, X } from 'lucide-react';
+import { Search, Printer, Package, Hash, Eye, CheckCircle2, X, Trash2 } from 'lucide-react';
 import PasswordConfirmModal from '../components/PasswordConfirmModal';
 import InventoryReports from './InventoryReports';
 import PhysicalInventoryCount from './PhysicalInventoryCount';
@@ -18,7 +18,9 @@ interface Props {
   purchaseInvoices?: PurchaseInvoice[];
   noonOrders?: NoonOrder[];
   customers?: Customer[];
+  settings?: AppSettings;
   onUpdateProduct?: (p: Product) => void;
+  onDeleteProduct?: (id: string) => void;
   weeklyInventoryCounts?: WeeklyInventoryCount[];
   onAddCount?: (count: WeeklyInventoryCount) => void;
   onUpdateCount?: (count: WeeklyInventoryCount) => void;
@@ -42,7 +44,7 @@ interface UnifiedSuggestion {
 }
 
 export default function Inventory({
-  products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], onUpdateProduct,
+  products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onDeleteProduct,
   weeklyInventoryCounts = [], onAddCount, onUpdateCount,
   stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan,
 }: Props) {
@@ -55,6 +57,7 @@ export default function Inventory({
   const [filterCat, setFilterCat] = useState('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'sold' | 'transferred'>('all');
   const [showSerials, setShowSerials] = useState<string | null>(null);
+  const [deleteProductTarget, setDeleteProductTarget] = useState<Product | null>(null);
 
   const [showJrard, setShowJrard] = useState(false);
   const [jrardData, setJrardData] = useState<Record<string, string>>({});
@@ -780,7 +783,7 @@ export default function Inventory({
                       <div key={s.id} className="text-xs bg-red-900/20 rounded-lg px-3 py-1.5 flex items-center justify-between">
                         <span className="font-mono text-red-300">{s.serial}</span>
                         <span className="text-red-400">
-                          {!s.purchaseInvoiceId ? 'بدون فاتورة شراء' :
+                          {!s.purchaseInvoiceId ? 'بدون ف��تورة شراء' :
                            s.status === 'sold' && !s.saleInvoiceId ? 'مباع بدون فاتورة بيع' :
                            s.status === 'transferred' && !s.noonOrderId ? 'محوّل بدون أوردر' : ''}
                         </span>
@@ -850,7 +853,7 @@ export default function Inventory({
                 </div>
               )}
 
-              {/* حركة فواتير البيع */}
+              {/* حركة فواتير ��لبيع */}
               {sales.length > 0 && (
                 <div className="bg-surface border border-green-900/30 rounded-xl p-3">
                   <div className="text-green-400 font-bold text-sm mb-2">🛒 فواتير البيع ({sales.length})</div>
@@ -1196,12 +1199,20 @@ export default function Inventory({
                     <td className="py-3 px-3 text-center text-gray-300 text-sm">{formatCurrency(p.costPrice)}</td>
                     <td className="py-3 px-3 text-center text-white font-medium text-sm">{formatCurrency(p.salePrice)}</td>
                     <td className="py-3 px-3 text-center">
+                      <div className="flex items-center justify-center gap-3">
                       {p.productType === 'serial' && (
+
                         <button onClick={() => setShowSerials(showSerials === p.id ? null : p.id)}
                           className="text-xs text-violet-400 hover:text-violet-300">
                           {showSerials === p.id ? '▲ إخفاء' : '▼ سيريالات'}
                         </button>
                       )}
+                      {settings?.productDeletionModeEnabled && onDeleteProduct && (
+                        <button onClick={() => setDeleteProductTarget(p)} className="text-xs text-red-400 hover:text-red-300" title="حذف المنتج نهائيًا">
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                      </div>
                     </td>
                   </tr>
                   {showSerials === p.id && (
@@ -1232,6 +1243,25 @@ export default function Inventory({
           </tbody>
         </table>
       </div>
+
+      {deleteProductTarget && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-elevated border border-red-700/40 rounded-2xl p-6 w-full max-w-md" dir="rtl">
+            <h2 className="text-lg font-bold text-red-300 mb-3">حذف المنتج نهائيًا</h2>
+            <p className="text-sm text-gray-300 leading-7 mb-2">سيتم حذف المنتج وكل السيريالات المرتبطة به من المخزون.</p>
+            <p className="text-xs text-yellow-300 mb-5">هذا إجراء مؤقت وخطير ولا يمكن التراجع عنه. الفواتير القديمة لن يتم تعديلها.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteProductTarget(null)} className="btn-secondary">إلغاء</button>
+              <button
+                onClick={() => { onDeleteProduct?.(deleteProductTarget.id); setDeleteProductTarget(null); setShowSerials(null); }}
+                className="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white text-sm font-medium flex items-center gap-2"
+              >
+                <Trash2 size={15} /> حذف نهائيًا
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ==================== Modal: عرض فاتورة مبيعات ==================== */}
       {viewSaleInvoice && (

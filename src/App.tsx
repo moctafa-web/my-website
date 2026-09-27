@@ -174,7 +174,9 @@ export default function App() {
             purchaseInvoices={state.purchaseInvoices}
             noonOrders={state.noonOrders}
             customers={state.customers}
+            settings={state.settings}
             onUpdateProduct={store.updateProduct}
+            onDeleteProduct={store.deleteProduct}
           />
         );
 

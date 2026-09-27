@@ -159,6 +159,25 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
             </div>
 
             {/* حذف أوردرات نون/أمازون فقط - مفيد أثناء مرحلة التجربة */}
+            <div className="bg-amber-900/10 border border-amber-700/30 rounded-xl p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm text-amber-300 font-medium mb-1">وضع حذف المنتجات المؤقت</div>
+                  <div className="text-xs text-gray-500">عند التفعيل يظهر زر حذف المنتج نهائيًا من صفحة المخزون. استخدمه فقط لتنظيف المنتجات أو السيريالات الخاطئة.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForm(p => ({ ...p, productDeletionModeEnabled: !p.productDeletionModeEnabled }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${form.productDeletionModeEnabled ? 'bg-amber-600' : 'bg-gray-700'}`}
+                  aria-pressed={!!form.productDeletionModeEnabled}
+                  aria-label="تفعيل وضع حذف المنتجات"
+                >
+                  <span className={`inline-block h-5 w-5 mt-0.5 rounded-full bg-white transition-transform ${form.productDeletionModeEnabled ? '-translate-x-0.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div className="text-xs mt-2 text-gray-500">الحالة: {form.productDeletionModeEnabled ? 'مفعل' : 'متوقف'}</div>
+            </div>
+
             <div className="bg-orange-900/10 border border-orange-700/30 rounded-xl p-4">
               <div className="text-sm text-orange-300 font-medium mb-1">🏪 أوردرات نون/أمازون</div>
               <div className="text-xs text-gray-500 mb-3">يوجد حاليًا {noonOrdersCount} أوردر مسجل في النظام</div>

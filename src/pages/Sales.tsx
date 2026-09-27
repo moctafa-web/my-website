@@ -359,8 +359,8 @@ export default function Sales({
     }));
   };
 
-  const selectProduct = (itemId: string, product: Product) => {
-    const availSerial = serials.find(s => s.productId === product.id && s.status === 'available');
+  const selectProduct = (itemId: string, product: Product, selectedSerial?: SerialItem) => {
+    const availSerial = selectedSerial || serials.find(s => s.productId === product.id && s.status === 'available');
     updateItem(itemId, {
       productId: product.id,
       productName: product.name,
@@ -370,9 +370,15 @@ export default function Sales({
         ? [{ serial: availSerial?.serial || '', imei1: availSerial?.imei1 || '', imei2: availSerial?.imei2 || '' }]
         : [],
     });
-    setItemSearch(prev => ({ ...prev, [itemId]: product.name }));
+    setItemSearch(prev => ({ ...prev, [itemId]: selectedSerial?.serial || product.name }));
     setShowItemDrop(prev => ({ ...prev, [itemId]: false }));
     setStockError(null);
+  };
+
+  const findProductBySerial = (value: string): SerialItem | undefined => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return undefined;
+    return serials.find(s => s.serial.trim().toLowerCase() === normalized && s.status === 'available');
   };
 
   const getFilteredProducts = (search: string) => {
@@ -1185,7 +1191,16 @@ const validateStock = (): string | null => {
                           <div className="flex gap-1">
                             <input type="text" value={itemSearch[item.id] || ''}
                               onChange={e => {
-                                setItemSearch(prev => ({ ...prev, [item.id]: e.target.value }));
+                                const value = e.target.value;
+                                const matchedSerial = findProductBySerial(value);
+                                if (matchedSerial) {
+                                  const matchedProduct = products.find(p => p.id === matchedSerial.productId);
+                                  if (matchedProduct) {
+                                    selectProduct(item.id, matchedProduct, matchedSerial);
+                                    return;
+                                  }
+                                }
+                                setItemSearch(prev => ({ ...prev, [item.id]: value }));
                                 setShowItemDrop(prev => ({ ...prev, [item.id]: true }));
                               }}
                               onFocus={() => setShowItemDrop(prev => ({ ...prev, [item.id]: true }))}

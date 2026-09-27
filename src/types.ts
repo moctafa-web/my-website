@@ -531,4 +531,6 @@ export interface AppSettings {
   purchasePrefix: string;
   lastSaleInvoiceNum: number;
   lastPurchaseInvoiceNum: number;
-}
+  /** Enables the temporary destructive product deletion controls. */
+  productDeletionModeEnabled?: boolean;
+  }
