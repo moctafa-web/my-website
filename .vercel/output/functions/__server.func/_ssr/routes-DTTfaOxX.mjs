@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CGAvNwzh.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-DTTfaOxX.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -12828,54 +12828,79 @@ var makeTransactionId = () => `tr_${generateId()}`;
 var makePendingPaymentId = (serialId) => `paid_pending_${serialId}_${generateId()}`;
 var makePendingInvoiceId = () => `inv_pending_${generateId()}`;
 var makeInventoryCountId = () => `count-${generateId()}`;
+var getWeekNumber = (date = /* @__PURE__ */ new Date()) => {
+	const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+	const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 864e5;
+	return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+};
+var finalCategory = (theoreticalQty, physicalQty) => {
+	if (physicalQty === theoreticalQty) return "matched";
+	if (physicalQty < theoreticalQty) return "shortage";
+	return "surplus";
+};
+var emptyWorkingCategory = () => "pending";
 function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAddCount, onUpdateCount }) {
 	const [viewMode, setViewMode] = (0, import_react.useState)("list");
 	const [selectedCount, setSelectedCount] = (0, import_react.useState)(null);
 	const [countLines, setCountLines] = (0, import_react.useState)([]);
-	const [newCountName, setNewCountName] = (0, import_react.useState)("");
-	const [showScanner, setShowScanner] = (0, import_react.useState)(false);
+	const [scannerInput, setScannerInput] = (0, import_react.useState)("");
+	const [unrecognizedScans, setUnrecognizedScans] = (0, import_react.useState)([]);
+	const [showReport, setShowReport] = (0, import_react.useState)(false);
 	const [scanFeedback, setScanFeedback] = (0, import_react.useState)(null);
 	const [countedSerials, setCountedSerials] = (0, import_react.useState)(/* @__PURE__ */ new Set());
-	const getWeekNumber = (date = /* @__PURE__ */ new Date()) => {
-		const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
-		const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 864e5;
-		return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-	};
 	const currentWeek = getWeekNumber();
 	const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+	const isEditingSavedCount = !!selectedCount;
+	const buildNewLines = () => products.map((product) => {
+		const theoreticalQty = product.productType === "serial" ? serials.filter((s) => s.productId === product.id && s.status === "available").length : product.stock || 0;
+		return {
+			productId: product.id,
+			productName: product.name,
+			sku: product.sku,
+			theoreticalQty,
+			physicalQty: 0,
+			difference: 0,
+			category: emptyWorkingCategory(),
+			notes: ""
+		};
+	}).filter((line) => line.theoreticalQty > 0);
 	const startNewCount = () => {
-		const lines = products.map((product) => {
-			let theoreticalQty = 0;
-			if (product.productType === "serial") theoreticalQty = serials.filter((s) => s.productId === product.id && s.status === "available").length;
-			else theoreticalQty = product.stock || 0;
-			return {
-				productId: product.id,
-				productName: product.name,
-				sku: product.sku,
-				theoreticalQty,
-				physicalQty: 0,
-				difference: 0,
-				category: "matched",
-				notes: ""
-			};
-		}).filter((line) => line.theoreticalQty > 0);
-		setCountLines(lines);
-		setCountedSerials(/* @__PURE__ */ new Set());
-		setViewMode("count");
 		setSelectedCount(null);
+		setCountLines(buildNewLines());
+		setCountedSerials(/* @__PURE__ */ new Set());
+		setUnrecognizedScans([]);
+		setShowReport(false);
+		setScanFeedback(null);
+		setScannerInput("");
+		setViewMode("count");
+	};
+	const openSavedCountForEdit = (count) => {
+		setSelectedCount(count);
+		setCountLines(count.lines.map((line) => ({
+			...line,
+			category: emptyWorkingCategory()
+		})));
+		setCountedSerials(new Set(count.countedSerialIds || []));
+		setUnrecognizedScans([...count.unrecognizedScans || []]);
+		setShowReport(false);
+		setScanFeedback(null);
+		setScannerInput("");
+		setViewMode("count");
 	};
 	const scanSerialIntoCount = (code) => {
 		const normalized = code.trim().toLowerCase();
+		if (!normalized) return;
 		const serial = serials.find((s) => s.status === "available" && [
 			s.serial,
 			s.imei1,
 			s.imei2
 		].filter(Boolean).some((value) => String(value).toLowerCase() === normalized));
 		if (!serial) {
+			setUnrecognizedScans((prev) => prev.includes(code.trim()) ? prev : [...prev, code.trim()]);
 			setScanFeedback({
 				id: Date.now(),
 				type: "error",
-				message: `⚠️ لم يتم العثور على سيريال متاح: ${code}`
+				message: `⚠️ زيادة/غير موجود بالنظام: ${code.trim()}`
 			});
 			return;
 		}
@@ -12890,14 +12915,12 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 		setCountedSerials((prev) => new Set(prev).add(serial.id));
 		setCountLines((lines) => lines.map((line) => {
 			if (line.productId !== serial.productId) return line;
-			const physicalQty = Math.min(line.physicalQty + 1, Math.max(line.theoreticalQty, line.physicalQty + 1));
-			const difference = physicalQty - line.theoreticalQty;
-			const category = difference === 0 ? "matched" : difference < 0 ? "shortage" : "surplus";
+			const physicalQty = line.physicalQty + 1;
 			return {
 				...line,
 				physicalQty,
-				difference,
-				category,
+				difference: physicalQty - line.theoreticalQty,
+				category: emptyWorkingCategory(),
 				notes: line.notes ? `${line.notes}, ${serial.serial}` : serial.serial
 			};
 		}));
@@ -12908,48 +12931,89 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 		});
 	};
 	const updatePhysicalQty = (productId, physicalQty) => {
-		setCountLines((lines) => lines.map((line) => {
-			if (line.productId !== productId) return line;
-			const difference = physicalQty - line.theoreticalQty;
-			const category = difference === 0 ? "matched" : difference < 0 ? "shortage" : "surplus";
-			return {
-				...line,
-				physicalQty,
-				difference,
-				category
-			};
-		}));
+		const safeQty = Math.max(0, Number.isFinite(physicalQty) ? physicalQty : 0);
+		setCountLines((lines) => lines.map((line) => line.productId === productId ? {
+			...line,
+			physicalQty: safeQty,
+			difference: safeQty - line.theoreticalQty,
+			category: emptyWorkingCategory()
+		} : line));
 	};
+	const finalizeLines = (lines) => lines.map((line) => {
+		const category = finalCategory(line.theoreticalQty, line.physicalQty);
+		let notes = line.notes || "";
+		if (category === "shortage" && line.productId) {
+			const missing = serials.filter((s) => s.productId === line.productId && s.status === "available" && !countedSerials.has(s.id)).map((s) => s.serial).filter(Boolean);
+			if (missing.length) notes = `سيريالات لم يتم جردها: ${missing.join(", ")}`;
+		}
+		return {
+			...line,
+			category,
+			notes
+		};
+	});
 	const saveCount = () => {
-		if (countLines.length === 0) return;
-		const totalTheoretical = countLines.reduce((sum, l) => sum + l.theoreticalQty, 0);
-		const totalPhysical = countLines.reduce((sum, l) => sum + l.physicalQty, 0);
+		if (!countLines.length) return;
+		const finalizedLines = finalizeLines(countLines);
+		const totalTheoretical = finalizedLines.reduce((sum, l) => sum + l.theoreticalQty, 0);
+		const totalPhysical = finalizedLines.reduce((sum, l) => sum + l.physicalQty, 0);
 		const totalDifference = totalPhysical - totalTheoretical;
-		const accuracyPercentage = countLines.filter((l) => l.category === "matched").length / countLines.length * 100;
-		const shortageItems = countLines.filter((l) => l.category === "shortage").length;
-		const surplusItems = countLines.filter((l) => l.category === "surplus").length;
-		onAddCount({
+		const matchedCount = finalizedLines.filter((l) => l.category === "matched").length;
+		const shortageItems = finalizedLines.filter((l) => l.category === "shortage").length;
+		const surplusItems = finalizedLines.filter((l) => l.category === "surplus").length;
+		const accuracyPercentage = finalizedLines.length ? matchedCount / finalizedLines.length * 100 : 0;
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const saved = selectedCount ? {
+			...selectedCount,
+			lines: finalizedLines,
+			unrecognizedScans: [...unrecognizedScans],
+			countedSerialIds: Array.from(countedSerials),
+			status: "completed",
+			endDate: getTodayStr(),
+			totalTheoretical,
+			totalPhysical,
+			totalDifference,
+			accuracyPercentage,
+			shortageItems,
+			surplusItems
+		} : {
 			id: makeInventoryCountId(),
 			weekNumber: currentWeek,
 			year: currentYear,
 			startDate: getTodayStr(),
 			endDate: getTodayStr(),
-			lines: countLines,
-			status: "draft",
+			lines: finalizedLines,
+			unrecognizedScans: [...unrecognizedScans],
+			countedSerialIds: Array.from(countedSerials),
+			status: "completed",
 			totalTheoretical,
 			totalPhysical,
 			totalDifference,
 			accuracyPercentage,
 			shortageItems,
 			surplusItems,
-			createdAt: (/* @__PURE__ */ new Date()).toISOString()
-		});
-		setCountLines([]);
-		setViewMode("list");
+			createdAt: now
+		};
+		if (selectedCount) onUpdateCount(saved);
+		else onAddCount(saved);
+		setSelectedCount(saved);
+		setCountLines(finalizedLines.map((line) => ({ ...line })));
+		setShowReport(true);
+		setScanFeedback(null);
 	};
-	const matchedCount = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "matched").length, [countLines]);
-	const shortageCount = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "shortage").length, [countLines]);
-	const surplusCount = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "surplus").length, [countLines]);
+	const matchedLines = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "matched"), [countLines]);
+	const shortageLines = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "shortage"), [countLines]);
+	const surplusLines = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "surplus"), [countLines]);
+	const pendingLines = (0, import_react.useMemo)(() => countLines.filter((l) => l.category === "pending"), [countLines]);
+	const resetToList = () => {
+		setViewMode("list");
+		setSelectedCount(null);
+		setCountLines([]);
+		setShowReport(false);
+		setUnrecognizedScans([]);
+		setCountedSerials(/* @__PURE__ */ new Set());
+		setScannerInput("");
+	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-4",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -12965,17 +13029,14 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 					" - ",
 					currentYear
 				]
-			})] }), viewMode === "list" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "flex items-center gap-2",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-					onClick: startNewCount,
-					className: "btn-primary flex items-center gap-2",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 16 }), " جرد جديد"]
-				})
+			})] }), viewMode === "list" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				onClick: startNewCount,
+				className: "btn-primary flex items-center gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 16 }), " جرد جديد"]
 			})]
 		}), viewMode === "list" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "space-y-3",
-			children: (weeklyInventoryCounts || []).length > 0 ? (weeklyInventoryCounts || []).map((count) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			children: (weeklyInventoryCounts || []).length > 0 ? weeklyInventoryCounts.map((count) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "bg-elevated border border-violet-900/30 rounded-2xl p-4",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "flex items-center justify-between mb-3",
@@ -12996,12 +13057,9 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 							className: `px-3 py-1 rounded-lg text-xs font-medium ${count.status === "approved" ? "bg-green-900/30 text-green-300" : count.status === "completed" ? "bg-blue-900/30 text-blue-300" : "bg-yellow-900/30 text-yellow-300"}`,
 							children: count.status === "approved" ? "✅ معتمد" : count.status === "completed" ? "✓ مكتمل" : "📝 مسودة"
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							onClick: () => {
-								setSelectedCount(count);
-								setViewMode("count");
-							},
+							onClick: () => openSavedCountForEdit(count),
 							className: "btn-secondary text-xs",
-							children: "عرض التفاصيل"
+							children: "عرض / تعديل"
 						})]
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -13059,12 +13117,36 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 		}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "space-y-4",
 			children: [
-				showScanner && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BarcodeScanner, {
-					title: "سكانر الجرد",
-					mode: "continuous",
-					feedback: scanFeedback,
-					onDetected: scanSerialIntoCount,
-					onClose: () => setShowScanner(false)
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "bg-elevated border border-emerald-700/30 rounded-2xl p-4",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "font-bold text-white",
+							children: "🔗 الجرد بالسكانر اللاسلكي"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-xs text-gray-500 mt-1",
+							children: "وصل Deli S228W بالموبايل أو اللابتوب بوضع Keyboard/HID. السكانر يكتب الكود في الخانة ويضغط Enter تلقائيًا."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							autoFocus: true,
+							value: scannerInput,
+							onChange: (e) => setScannerInput(e.target.value),
+							onKeyDown: (e) => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									scanSerialIntoCount(scannerInput);
+									setScannerInput("");
+								}
+							},
+							placeholder: "جاهز لاستقبال Serial / IMEI من السكانر...",
+							className: "input-dark w-full mt-3"
+						}),
+						scanFeedback && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: `text-xs mt-2 ${scanFeedback.type === "success" ? "text-emerald-300" : "text-red-300"}`,
+							children: scanFeedback.message
+						})
+					]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "grid grid-cols-4 gap-3",
@@ -13073,7 +13155,7 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 							className: "bg-emerald-900/20 border border-emerald-700/30 rounded-xl p-3 text-center",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-emerald-300 font-mono text-lg",
-								children: matchedCount
+								children: matchedLines.length
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-xs text-gray-500",
 								children: "مطابق"
@@ -13083,7 +13165,7 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 							className: "bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-red-300 font-mono text-lg",
-								children: shortageCount
+								children: shortageLines.length
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-xs text-gray-500",
 								children: "ناقص"
@@ -13093,20 +13175,20 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 							className: "bg-orange-900/20 border border-orange-700/30 rounded-xl p-3 text-center",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-orange-300 font-mono text-lg",
-								children: surplusCount
+								children: surplusLines.length + unrecognizedScans.length
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-xs text-gray-500",
 								children: "زيادة"
 							})]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "bg-purple-900/20 border border-purple-700/30 rounded-xl p-3 text-center",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "text-purple-300 font-mono text-lg",
-								children: [countLines.length > 0 ? (matchedCount / countLines.length * 100).toFixed(1) : 0, "%"]
+							className: "bg-gray-800/40 border border-gray-700/30 rounded-xl p-3 text-center",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-gray-300 font-mono text-lg",
+								children: pendingLines.length
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "text-xs text-gray-500",
-								children: "نسبة دقة"
+								children: "لم يُحسم"
 							})]
 						})
 					]
@@ -13119,31 +13201,31 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 							className: "border-b border-violet-900/30",
 							children: [
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-right px-3 py-2 text-gray-400 font-medium",
+									className: "text-right px-3 py-2 text-gray-400",
 									children: "#"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-right px-3 py-2 text-gray-400 font-medium",
+									className: "text-right px-3 py-2 text-gray-400",
 									children: "المنتج"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-center px-3 py-2 text-gray-400 font-medium",
+									className: "text-center px-3 py-2 text-gray-400",
 									children: "SKU"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-center px-3 py-2 text-gray-400 font-medium",
+									className: "text-center px-3 py-2 text-gray-400",
 									children: "نظري"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-center px-3 py-2 text-gray-400 font-medium",
+									className: "text-center px-3 py-2 text-gray-400",
 									children: "فعلي"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-center px-3 py-2 text-gray-400 font-medium",
+									className: "text-center px-3 py-2 text-gray-400",
 									children: "فرق"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "text-center px-3 py-2 text-gray-400 font-medium",
+									className: "text-center px-3 py-2 text-gray-400",
 									children: "الحالة"
 								})
 							]
@@ -13177,47 +13259,334 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 									})
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
-									className: `px-3 py-2 text-center font-mono font-bold ${line.category === "matched" ? "text-emerald-300" : line.category === "shortage" ? "text-red-300" : "text-orange-300"}`,
+									className: "px-3 py-2 text-center font-mono font-bold text-gray-400",
 									children: [line.difference > 0 ? "+" : "", line.difference]
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
 									className: "px-3 py-2 text-center",
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: `text-xs px-2 py-1 rounded-full font-medium ${line.category === "matched" ? "bg-emerald-900/30 text-emerald-300" : line.category === "shortage" ? "bg-red-900/30 text-red-300" : "bg-orange-900/30 text-orange-300"}`,
-										children: line.category === "matched" ? "✓" : line.category === "shortage" ? "-" : "+"
+										className: `text-xs px-2 py-1 rounded-full font-medium ${line.category === "matched" ? "bg-emerald-900/30 text-emerald-300" : line.category === "shortage" ? "bg-red-900/30 text-red-300" : line.category === "surplus" ? "bg-orange-900/30 text-orange-300" : "bg-gray-700/50 text-gray-300"}`,
+										children: line.category === "matched" ? "✓ مطابق" : line.category === "shortage" ? "− ناقص" : line.category === "surplus" ? "+ زيادة" : "— لم يُحسم"
 									})
 								})
 							]
 						}, line.productId)) })]
 					})
 				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "flex items-center gap-2 justify-end",
+				showReport && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "print-area bg-white text-black rounded-2xl p-6 border border-violet-700/40",
 					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							onClick: () => setShowScanner(true),
-							className: "btn-secondary flex items-center gap-1",
-							children: "📷 سكانر"
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between gap-2 border-b pb-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "font-bold text-2xl",
+								children: "ONE — تقرير نتيجة الجرد الأسبوعي"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "text-sm mt-1",
+								children: [
+									"أسبوع ",
+									selectedCount?.weekNumber || currentWeek,
+									" - ",
+									selectedCount?.year || currentYear,
+									" • التاريخ: ",
+									selectedCount?.endDate || getTodayStr()
+								]
+							})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: () => window.print(),
+								className: "btn-primary flex items-center gap-2 print:hidden",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Printer, { size: 16 }), " طباعة التقرير"]
+							})]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-							onClick: () => {
-								setViewMode("list");
-								setCountLines([]);
-							},
-							className: "btn-secondary flex items-center gap-1",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14 }), " إلغاء"]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-4 gap-3 mt-5",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-emerald-50 text-center",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-bold text-lg",
+										children: matchedLines.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-sm",
+										children: "مطابق"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-red-50 text-center",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-bold text-lg",
+										children: shortageLines.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-sm",
+										children: "ناقص"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-orange-50 text-center",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-bold text-lg",
+										children: surplusLines.length + unrecognizedScans.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-sm",
+										children: "زيادة / غير موجود"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-blue-50 text-center",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-bold text-lg",
+										children: countLines.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-sm",
+										children: "إجمالي الأصناف"
+									})]
+								})
+							]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							onClick: () => setShowScanner(true),
-							className: "btn-secondary flex items-center gap-1",
-							children: "📷 سكانر"
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+							className: "mt-6",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+								className: "font-bold text-lg mb-2",
+								children: "✅ المطابق"
+							}), matchedLines.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+								className: "w-full text-sm border-collapse",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b-2",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2 text-right",
+											children: "المنتج"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "SKU"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "نظري"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "فعلي"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "فرق"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "الحالة"
+										})
+									]
+								}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: matchedLines.map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2",
+											children: l.productName
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.sku || "-"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.theoreticalQty
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.physicalQty
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: "0"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: "مطابق"
+										})
+									]
+								}, l.productId)) })]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-sm",
+								children: "لا توجد أصناف مطابقة."
+							})]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-							onClick: saveCount,
-							className: "btn-primary flex items-center gap-1",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 14 }), " حفظ الجرد"]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+							className: "mt-6",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+								className: "font-bold text-lg mb-2",
+								children: "🔴 الناقص"
+							}), shortageLines.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+								className: "w-full text-sm border-collapse",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b-2",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2 text-right",
+											children: "المنتج"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "SKU"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "نظري"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "فعلي"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "فرق"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2 text-right",
+											children: "السيريالات غير المجردة"
+										})
+									]
+								}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: shortageLines.map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2",
+											children: l.productName
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.sku || "-"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.theoreticalQty
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.physicalQty
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.difference
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-xs",
+											children: l.notes || "-"
+										})
+									]
+								}, l.productId)) })]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-sm",
+								children: "لا توجد أصناف ناقصة."
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+							className: "mt-6",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+								className: "font-bold text-lg mb-2",
+								children: "🟠 الزيادة / غير موجود بالنظام"
+							}), surplusLines.length || unrecognizedScans.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [surplusLines.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+								className: "w-full text-sm border-collapse mb-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b-2",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2 text-right",
+											children: "المنتج"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "SKU"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "نظري"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "فعلي"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "فرق"
+										})
+									]
+								}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: surplusLines.map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2",
+											children: l.productName
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.sku || "-"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.theoreticalQty
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: l.physicalQty
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+											className: "p-2 text-center",
+											children: ["+", l.difference]
+										})
+									]
+								}, l.productId)) })]
+							}) : null, unrecognizedScans.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "font-semibold mb-1",
+								children: "أكواد تم مسحها وغير موجودة في النظام:"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "flex flex-wrap gap-2",
+								children: unrecognizedScans.map((code) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "px-2 py-1 rounded bg-orange-50 font-mono text-sm",
+									children: code
+								}, code))
+							})] }) : null] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-sm",
+								children: "لا توجد زيادة أو أكواد غير معروفة."
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "mt-8 pt-4 border-t text-sm grid grid-cols-3 gap-4",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "إجمالي نظري:" }),
+									" ",
+									countLines.reduce((s, l) => s + l.theoreticalQty, 0)
+								] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "إجمالي فعلي:" }),
+									" ",
+									countLines.reduce((s, l) => s + l.physicalQty, 0)
+								] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "الفرق:" }),
+									" ",
+									countLines.reduce((s, l) => s + l.difference, 0)
+								] })
+							]
 						})
 					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-2 justify-end",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						onClick: resetToList,
+						className: "btn-secondary flex items-center gap-1",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14 }), " إلغاء"]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						onClick: saveCount,
+						className: "btn-primary flex items-center gap-1",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 14 }),
+							" ",
+							isEditingSavedCount ? "حفظ التعديلات" : "حفظ الجرد"
+						]
+					})]
 				})
 			]
 		})]
@@ -14105,10 +14474,11 @@ function InventoryLedger({ products, serials, purchaseInvoices, saleInvoices, st
 }
 function DailyInventoryScanner({ products, serials, sessions, onAddSession, onUpdateSession }) {
 	const [session, setSession] = (0, import_react.useState)(null);
-	const [showScanner, setShowScanner] = (0, import_react.useState)(false);
+	const [showReport, setShowReport] = (0, import_react.useState)(false);
 	const [feedback, setFeedback] = (0, import_react.useState)(null);
 	const [manual, setManual] = (0, import_react.useState)("");
 	const [date, setDate] = (0, import_react.useState)(getTodayStr());
+	const [scannerInput, setScannerInput] = (0, import_react.useState)("");
 	const start = () => {
 		setSession({
 			id: `daily-count-${generateId()}`,
@@ -14283,14 +14653,21 @@ function DailyInventoryScanner({ products, serials, sessions, onAddSession, onUp
 	};
 	const save = () => {
 		if (!session) return;
-		onAddSession({
+		const completed = {
 			...session,
 			date,
 			status: "completed",
 			completedAt: (/* @__PURE__ */ new Date()).toISOString()
-		});
-		setSession(null);
+		};
+		onAddSession(completed);
+		setSession(completed);
+		setShowReport(true);
 	};
+	const printReport = () => window.print();
+	const scannedIds = new Set(session?.lines.map((l) => l.serialId).filter(Boolean));
+	const expectedSerials = serials.filter((s) => s.status === "available");
+	const missingSerials = expectedSerials.filter((s) => !scannedIds.has(s.id));
+	const extraLines = session?.lines.filter((l) => l.result === "unknown" || l.result === "not-available") || [];
 	const summary = (0, import_react.useMemo)(() => ({
 		matched: session?.lines.filter((x) => x.result === "matched").length || 0,
 		issues: session?.lines.filter((x) => x.result !== "matched").length || 0,
@@ -14298,231 +14675,461 @@ function DailyInventoryScanner({ products, serials, sessions, onAddSession, onUp
 	}), [session]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-4",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-				className: "text-lg font-bold text-white",
-				children: "جرد يومي بالسكانر"
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+			className: "text-lg font-bold text-white",
+			children: "جرد يومي بالسكانر"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			className: "text-xs text-muted mt-1",
+			children: "امسح كل Serial/IMEI، والنظام يسجل المطابق والمكرر والمفقود فورًا."
+		})] }), !session ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "card p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "font-bold",
+				children: "ابدأ جلسة جرد اليوم"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "text-xs text-muted mt-1",
-				children: "امسح كل Serial/IMEI، والنظام يسجل المطابق والمكرر والمفقود فورًا."
-			})] }),
-			!session ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "card p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "font-bold",
-					children: "ابدأ جلسة جرد اليوم"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "text-xs text-muted mt-1",
-					children: "الجلسة تحفظ في Firebase ويمكن الرجوع لها لاحقًا."
-				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-					onClick: start,
-					className: "btn-primary flex items-center gap-2",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScanLine, { size: 16 }), " بدء الجرد"]
-				})]
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "card overflow-hidden",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "p-3 border-b border-border font-bold",
-						children: "آخر جلسات الجرد"
-					}),
-					sessions.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "p-3 border-b border-border/60 flex items-center justify-between",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "font-medium",
-							children: s.date
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "text-xs text-muted",
-							children: [
-								s.lines.filter((l) => l.result === "matched").length,
-								" مطابق • ",
-								s.lines.filter((l) => l.result !== "matched").length,
-								" مشكلة"
-							]
-						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "text-xs text-muted",
-							children: s.status === "completed" ? "مكتمل" : "مسودة"
-						})]
-					}, s.id)),
-					!sessions.length && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "p-8 text-center text-muted",
-						children: "لا يوجد جرد يومي سابق."
-					})
-				]
-			})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "space-y-4",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "grid grid-cols-3 gap-2",
+				children: "الجلسة تحفظ في Firebase ويمكن الرجوع لها لاحقًا."
+			})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				onClick: start,
+				className: "btn-primary flex items-center gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScanLine, { size: 16 }), " بدء الجرد"]
+			})]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "card overflow-hidden",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "p-3 border-b border-border font-bold",
+					children: "آخر جلسات الجرد"
+				}),
+				sessions.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "p-3 border-b border-border/60 flex items-center justify-between",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "font-medium",
+						children: s.date
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "text-xs text-muted",
 						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "card p-3",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-xs text-muted",
-									children: "تم جرده"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-xl font-bold text-emerald-300",
-									children: summary.matched
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "card p-3",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-xs text-muted",
-									children: "مشاكل"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-xl font-bold text-red-300",
-									children: summary.issues
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "card p-3",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-xs text-muted",
-									children: "الإجمالي"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-xl font-bold",
-									children: summary.total
-								})]
-							})
+							s.lines.filter((l) => l.result === "matched").length,
+							" مطابق • ",
+							s.lines.filter((l) => l.result !== "matched").length,
+							" مشكلة"
 						]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "card p-4 flex flex-col md:flex-row gap-2",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								onClick: () => setShowScanner(true),
-								className: "btn-primary flex-1 flex items-center justify-center gap-2",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScanLine, { size: 18 }), " افتح السكانر"]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-								className: "btn-secondary flex items-center justify-center gap-2 cursor-pointer",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileSpreadsheet, { size: 18 }),
-									" استيراد Excel",
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "file",
-										accept: ".xlsx,.xls,.csv",
-										className: "hidden",
-										onChange: (e) => {
-											const f = e.target.files?.[0];
-											if (f) importExcel(f);
-											e.currentTarget.value = "";
+					})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-xs text-muted",
+						children: s.status === "completed" ? "مكتمل" : "مسودة"
+					})]
+				}, s.id)),
+				!sessions.length && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "p-8 text-center text-muted",
+					children: "لا يوجد جرد يومي سابق."
+				})
+			]
+		})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "space-y-4",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "grid grid-cols-3 gap-2",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "card p-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs text-muted",
+								children: "تم جرده"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xl font-bold text-emerald-300",
+								children: summary.matched
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "card p-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs text-muted",
+								children: "مشاكل"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xl font-bold text-red-300",
+								children: summary.issues
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "card p-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs text-muted",
+								children: "الإجمالي"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xl font-bold",
+								children: summary.total
+							})]
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "card p-4 flex flex-col md:flex-row gap-2",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "card p-3 flex-1 border border-emerald-700/30",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-sm font-bold",
+									children: "🔗 السكانر اللاسلكي"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-xs text-muted mt-1",
+									children: "وصل Deli S228W بالموبايل أو اللابتوب، واضغط داخل الخانة مرة واحدة. السكانر سيكتب الكود ويضغط Enter تلقائيًا."
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									autoFocus: true,
+									value: scannerInput,
+									onChange: (e) => setScannerInput(e.target.value),
+									onKeyDown: (e) => {
+										if (e.key === "Enter") {
+											e.preventDefault();
+											processCode(scannerInput);
+											setScannerInput("");
 										}
+									},
+									placeholder: "جاهز لاستقبال Serial / IMEI من السكانر...",
+									className: "input-dark mt-2 w-full"
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "btn-secondary flex items-center justify-center gap-2 cursor-pointer",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileSpreadsheet, { size: 18 }),
+								" استيراد Excel",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "file",
+									accept: ".xlsx,.xls,.csv",
+									className: "hidden",
+									onChange: (e) => {
+										const f = e.target.files?.[0];
+										if (f) importExcel(f);
+										e.currentTarget.value = "";
+									}
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							value: manual,
+							onChange: (e) => setManual(e.target.value),
+							placeholder: "إدخال يدوي اختياري Serial / IMEI",
+							className: "input-dark flex-1",
+							onKeyDown: (e) => {
+								if (e.key === "Enter") {
+									processCode(manual);
+									setManual("");
+								}
+							}
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							onClick: save,
+							className: "btn-secondary flex items-center gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 16 }), " حفظ الجرد"]
+						})
+					]
+				}),
+				showReport && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "print-area card p-4 border border-violet-700/40",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "font-bold text-lg",
+								children: "تقرير نتيجة الجرد اليومي"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "text-xs text-muted mt-1",
+								children: [
+									date,
+									" • إجمالي السيريالات المتاحة بالنظام: ",
+									expectedSerials.length
+								]
+							})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: printReport,
+								className: "btn-primary flex items-center gap-2 print:hidden",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Printer, { size: 16 }), " طباعة التقرير"]
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-3 gap-2 mt-4",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-emerald-900/20",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-emerald-300 font-bold",
+										children: expectedSerials.length - missingSerials.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs text-muted",
+										children: "مطابق"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-red-900/20",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-red-300 font-bold",
+										children: missingSerials.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs text-muted",
+										children: "ناقص / لم يتم جرده"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3 rounded-lg bg-orange-900/20",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-orange-300 font-bold",
+										children: extraLines.length
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs text-muted",
+										children: "زيادة / غير موجود بالنظام"
+									})]
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "mt-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+								className: "font-bold mb-2",
+								children: "المطابق"
+							}), session.lines.filter((l) => l.result === "matched").length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "overflow-x-auto",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+									className: "w-full text-sm",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+										className: "border-b border-border",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "المنتج"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "Serial"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "الكود الممسوح"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "الحالة"
+											})
+										]
+									}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: session.lines.filter((l) => l.result === "matched").map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+										className: "border-b border-border/50",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2",
+												children: l.productName
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 font-mono",
+												children: l.serial || "-"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 font-mono",
+												children: l.code
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 text-emerald-300",
+												children: "مطابق"
+											})
+										]
+									}, l.id)) })]
+								})
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-sm",
+								children: "لا توجد قراءات مطابقة."
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "mt-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+								className: "font-bold mb-2",
+								children: "المفقود من الجرد"
+							}), missingSerials.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "overflow-x-auto",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+									className: "w-full text-sm",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+										className: "border-b border-border",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "المنتج"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "Serial"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "IMEI1"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "IMEI2"
+											})
+										]
+									}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: missingSerials.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+										className: "border-b border-border/50",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2",
+												children: s.productName
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 font-mono",
+												children: s.serial || "-"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 font-mono",
+												children: s.imei1 || "-"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 font-mono",
+												children: s.imei2 || "-"
+											})
+										]
+									}, s.id)) })]
+								})
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-emerald-300 text-sm",
+								children: "لا يوجد سيريال ناقص — كل السيريالات المتاحة تم جردها."
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "mt-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+								className: "font-bold mb-2",
+								children: "الزيادة / الأكواد غير الموجودة في النظام"
+							}), extraLines.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "overflow-x-auto",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+									className: "w-full text-sm",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+										className: "border-b border-border",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "الكود"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "المنتج"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+												className: "p-2 text-right",
+												children: "البيان"
+											})
+										]
+									}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: extraLines.map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+										className: "border-b border-border/50",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 font-mono",
+												children: l.code
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2",
+												children: l.productName
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 text-orange-300",
+												children: l.note || "غير موجود بالنظام"
+											})
+										]
+									}, l.id)) })]
+								})
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-emerald-300 text-sm",
+								children: "لا توجد زيادة أو أكواد غير معروفة."
+							})]
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "card overflow-hidden",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-3 border-b border-border font-bold flex items-center gap-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipboardCheck, { size: 16 }), " قراءات الجلسة"]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "overflow-x-auto",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+							className: "w-full text-sm",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+								className: "border-b border-border text-muted",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+										className: "p-3 text-right",
+										children: "الكود"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+										className: "p-3 text-right",
+										children: "المنتج"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+										className: "p-3 text-center",
+										children: "النتيجة"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+										className: "p-3 text-right",
+										children: "الوقت"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+										className: "p-3 text-center",
+										children: "حذف"
 									})
 								]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								value: manual,
-								onChange: (e) => setManual(e.target.value),
-								placeholder: "أو اكتب Serial / IMEI",
-								className: "input-dark flex-1",
-								onKeyDown: (e) => {
-									if (e.key === "Enter") {
-										processCode(manual);
-										setManual("");
-									}
-								}
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								onClick: save,
-								className: "btn-secondary flex items-center gap-2",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 16 }), " حفظ الجرد"]
-							})
-						]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "card overflow-hidden",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "p-3 border-b border-border font-bold flex items-center gap-2",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipboardCheck, { size: 16 }), " قراءات الجلسة"]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "overflow-x-auto",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
-								className: "w-full text-sm",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-									className: "border-b border-border text-muted",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-											className: "p-3 text-right",
-											children: "الكود"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-											className: "p-3 text-right",
-											children: "المنتج"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-											className: "p-3 text-center",
-											children: "النتيجة"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-											className: "p-3 text-right",
-											children: "الوقت"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-											className: "p-3 text-center",
-											children: "حذف"
+							}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: session.lines.slice().reverse().map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+								className: "border-b border-border/60",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3 font-mono",
+										children: l.code
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3",
+										children: l.productName
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3 text-center",
+										children: l.result === "matched" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "text-emerald-300 flex items-center justify-center gap-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleCheck, { size: 15 }), " مطابق"]
+										}) : l.result === "duplicate" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "text-orange-300 flex items-center justify-center gap-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 15 }), " مكرر"]
+										}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "text-red-300 flex items-center justify-center gap-1",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleX, { size: 15 }),
+												" ",
+												l.result === "unknown" ? "غير معروف" : "غير متاح"
+											]
 										})
-									]
-								}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: session.lines.slice().reverse().map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-									className: "border-b border-border/60",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "p-3 font-mono",
-											children: l.code
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "p-3",
-											children: l.productName
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "p-3 text-center",
-											children: l.result === "matched" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: "text-emerald-300 flex items-center justify-center gap-1",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleCheck, { size: 15 }), " مطابق"]
-											}) : l.result === "duplicate" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: "text-orange-300 flex items-center justify-center gap-1",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 15 }), " مكرر"]
-											}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: "text-red-300 flex items-center justify-center gap-1",
-												children: [
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleX, { size: 15 }),
-													" ",
-													l.result === "unknown" ? "غير معروف" : "غير متاح"
-												]
-											})
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "p-3 text-xs text-muted",
-											children: new Date(l.countedAt).toLocaleTimeString("ar-EG", {
-												hour: "2-digit",
-												minute: "2-digit"
-											})
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "p-3 text-center",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												title: "حذف قراءة الجرد فقط",
-												onClick: () => deleteLine(l.id),
-												className: "text-red-300 hover:text-red-200 p-1",
-												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 16 })
-											})
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3 text-xs text-muted",
+										children: new Date(l.countedAt).toLocaleTimeString("ar-EG", {
+											hour: "2-digit",
+											minute: "2-digit"
 										})
-									]
-								}, l.id)) })]
-							})
-						})]
-					})
-				]
-			}),
-			showScanner && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BarcodeScanner, {
-				title: "جرد يومي بالسكانر",
-				mode: "continuous",
-				feedback,
-				onDetected: processCode,
-				onClose: () => setShowScanner(false)
-			})
-		]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3 text-center",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											title: "حذف قراءة الجرد فقط",
+											onClick: () => deleteLine(l.id),
+											className: "text-red-300 hover:text-red-200 p-1",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 16 })
+										})
+									})
+								]
+							}, l.id)) })]
+						})
+					})]
+				})
+			]
+		})]
 	});
 }
 function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onDeleteProduct, weeklyInventoryCounts = [], onAddCount, onUpdateCount, stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan }) {

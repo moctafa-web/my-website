@@ -390,7 +390,7 @@ export interface InventoryCountLine {
   theoreticalQty: number;      // الكمية النظرية من النظام
   physicalQty: number;           // الكمية الفعلية المحسوبة يدوياً
   difference: number;            // الفرق (negative = ناقص، positive = زيادة)
-  category: 'matched' | 'shortage' | 'surplus'; // مطابق/ناقص/زيادة
+  category: 'matched' | 'shortage' | 'surplus'; // الحالة النهائية بعد حفظ الجرد: مطابق/ناقص/زيادة
   notes?: string;
   countedBy?: string;            // من قام بالجرد
 }
@@ -426,6 +426,9 @@ export interface WeeklyInventoryCount {
   startDate: string;             // بداية الأسبوع
   endDate: string;               // نهاية الأسبوع
   lines: InventoryCountLine[];
+  unrecognizedScans?: string[];
+  /** Serial IDs physically scanned during this count; used when reopening/editing a saved count. */
+  countedSerialIds?: string[];
   status: 'draft' | 'completed' | 'approved';
   totalTheoretical: number;      // إجمالي القيمة النظرية
   totalPhysical: number;         // إجمالي القيمة الفعلية
