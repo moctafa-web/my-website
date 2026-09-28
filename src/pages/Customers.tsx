@@ -1,15 +1,16 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Customer, SaleInvoice, Payment } from '../types';
+import { Customer, SaleInvoice, PurchaseInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
 import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar, Upload, Download } from 'lucide-react';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import * as XLSX from 'xlsx';
 import PaymentMethodBadge from '../components/PaymentMethodBadge';
-import { calculateCustomerBalance } from '../store/domains/accounting.store';
+import { calculatePartyBalance } from '../store/domains/accounting.store';
 
 interface Props {
   customers: Customer[];
   saleInvoices: SaleInvoice[];
+  purchaseInvoices: PurchaseInvoice[];
   payments: Payment[];
   cashBalance: number;
   bankBalance: number;
@@ -24,7 +25,7 @@ interface Props {
   onPreselectedStatementHandled?: () => void;
 }
 
-export default function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales, preselectedStatementCustomerId, onPreselectedStatementHandled }: Props) {
+export default function Customers({ customers, saleInvoices, purchaseInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales, preselectedStatementCustomerId, onPreselectedStatementHandled }: Props) {
   const [viewMode, setViewMode] = useViewMode('customers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -34,6 +35,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank' | 'card' | 'transfer' | 'check'>('cash');
+  const [paymentDirection, setPaymentDirection] = useState<'in' | 'out'>('in');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', type: 'individual' as Customer['type'], notes: '', openingBalance: 0 });
@@ -184,7 +186,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       referenceName: showPayment.name,
       amount: parseFloat(paymentAmount),
       paymentMethod,
-      direction: 'in',
+      direction: paymentDirection,
       date: paymentDate || getTodayStr(),
       notes: paymentNotes,
       createdAt: new Date().toISOString(),
@@ -218,15 +220,16 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   };
 
   const getCustomerInvoices = (customerId: string) => saleInvoices.filter(inv => inv.customerId === customerId);
-  const getCustomerPayments = (customerId: string) => payments.filter(p => p.type === 'sale' && p.referenceId === customerId);
+  const getCustomerPayments = (customerId: string) => payments.filter(p => p.referenceId === customerId);
+  const getCustomerPurchases = (customerId: string) => purchaseInvoices.filter(inv => inv.supplierId === customerId);
 
-  const getBalance = (c: Customer) => calculateCustomerBalance(saleInvoices, c);
+  const getBalance = (c: Customer) => calculatePartyBalance({ saleInvoices, purchaseInvoices, payments }, c);
 
   // ✅ لو الرصيد موجب: العميل لسه عليه فلوس (مستحق منه)
   // ✅ لو الرصيد سالب: العميل دفع أكتر من المطلوب (متبقي له عندنا - فرق حساب لصالحه)
   const balanceLabel = (balance: number): { text: string; amount: number; colorClass: string; bgClass: string } => {
-    if (balance > 0) return { text: 'مستحق منه', amount: balance, colorClass: 'text-red-400', bgClass: 'bg-red-900/20' };
-    if (balance < 0) return { text: 'متبقي له (فرق حساب)', amount: Math.abs(balance), colorClass: 'text-green-400', bgClass: 'bg-green-900/20' };
+    if (balance > 0) return { text: 'مستحق لنا', amount: balance, colorClass: 'text-red-400', bgClass: 'bg-red-900/20' };
+    if (balance < 0) return { text: 'مستحق له', amount: Math.abs(balance), colorClass: 'text-green-400', bgClass: 'bg-green-900/20' };
     return { text: 'متطابق', amount: 0, colorClass: 'text-gray-400', bgClass: 'bg-white/5' };
   };
 
@@ -234,10 +237,19 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
   // مع إمكانية فلترة فترة زمنية محددة (من-إلى) لعرض/طباعة جزء من الحساب فقط
   const getFullStatementRows = (c: Customer, filterDates = true) => {
     const invs = getCustomerInvoices(c.id);
+    const purchases = getCustomerPurchases(c.id);
     const pmts = getCustomerPayments(c.id);
     const rows = [
-      ...invs.map(inv => ({ date: inv.date, desc: `فاتورة ${inv.invoiceNumber}`, debit: inv.total, credit: 0, type: 'invoice' as const, ref: inv })),
-      ...pmts.map(p => ({ date: p.date, desc: `دفعة (تحصيل) - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}${p.notes ? ' - ' + p.notes : ''}`, debit: 0, credit: p.amount, type: 'payment' as const, ref: p })),
+      ...invs.map(inv => ({ date: inv.date, desc: `فاتورة بيع ${inv.invoiceNumber}`, debit: inv.total, credit: 0, type: 'invoice' as const, ref: inv })),
+      ...purchases.map(inv => ({ date: inv.date, desc: `فاتورة شراء ${inv.invoiceNumber}`, debit: 0, credit: inv.total, type: 'invoice' as const, ref: inv as any })),
+      ...pmts.map(p => ({
+        date: p.date,
+        desc: `${p.direction === 'in' ? 'دفعة واردة' : 'دفعة خارجة'} - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}${p.notes ? ' - ' + p.notes : ''}`,
+        debit: p.direction === 'out' ? p.amount : 0,
+        credit: p.direction === 'in' ? p.amount : 0,
+        type: 'payment' as const,
+        ref: p
+      })),
     ].sort((a, b) => a.date.localeCompare(b.date));
 
     // نحسب الرصيد الجاري على كل الحركات بترتيبها الطبيعي أولًا (حتى لو هنفلتر العرض بعدين)
@@ -615,10 +627,14 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
       {showPayment && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
-            <h3 className="font-bold text-white mb-1">💰 تحصيل دفعة</h3>
+            <h3 className="font-bold text-white mb-1">💰 حركة مالية</h3>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button onClick={() => setPaymentDirection('in')} className={`py-2 rounded-xl border text-sm ${paymentDirection === 'in' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>⬅️ استلام منه</button>
+              <button onClick={() => setPaymentDirection('out')} className={`py-2 rounded-xl border text-sm ${paymentDirection === 'out' ? 'bg-red-700/30 border-red-500/50 text-red-300' : 'border-white/10 text-gray-400'}`}>➡️ دفع له</button>
+            </div>
             <p className="text-gray-400 text-sm mb-4">{showPayment.name} • {balanceLabel(getBalance(showPayment)).text}: {formatCurrency(balanceLabel(getBalance(showPayment)).amount)}</p>
             <div className="space-y-3">
-              <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="input-dark w-full" placeholder="المبلغ المحصل" />
+              <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="input-dark w-full" placeholder="المبلغ" />
               <div>
                 <label className="form-label">تاريخ الدفعة</label>
                 <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="input-dark w-full" />
@@ -631,7 +647,7 @@ export default function Customers({ customers, saleInvoices, payments, onAddCust
               <input type="text" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} className="input-dark w-full" placeholder="ملاحظات" />
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={handlePayment} className="btn-primary flex-1">✅ تأكيد التحصيل</button>
+              <button onClick={handlePayment} className="btn-primary flex-1">✅ تأكيد الحركة</button>
               <button onClick={() => setShowPayment(null)} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>

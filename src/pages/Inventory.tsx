@@ -210,9 +210,23 @@ export default function Inventory({
   const totalSaleValue = products.reduce((s, p) => s + p.salePrice * getRealStock(p), 0);
   const totalStock = products.reduce((s, p) => s + getRealStock(p), 0);
 
+  // ترتيب تقارير المخزون فقط: البراند أولاً ثم اسم المنتج، مع SKU/UPC كفواصل عند التطابق.
+  // لا نغير ترتيب شاشة المخزون نفسها أو نتائج البحث.
+  const getInventoryReportProducts = () => [...filtered].sort((a, b) => {
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const brandCompare = collator.compare(String(a.brand || ''), String(b.brand || ''));
+    if (brandCompare !== 0) return brandCompare;
+    const nameCompare = collator.compare(String(a.name || ''), String(b.name || ''));
+    if (nameCompare !== 0) return nameCompare;
+    const skuCompare = collator.compare(String(a.sku || ''), String(b.sku || ''));
+    if (skuCompare !== 0) return skuCompare;
+    return collator.compare(String(a.upc || ''), String(b.upc || ''));
+  });
+
   // ✅ طباعة المخزون العام
   const printInventory = () => {
-    const rows = filtered.map(p => {
+    const reportProducts = getInventoryReportProducts();
+    const rows = reportProducts.map(p => {
       const avail = getRealStock(p);
       return `<tr>
         <td>${p.name}</td><td>${p.sku}</td><td>${p.brand}</td>
@@ -274,7 +288,8 @@ export default function Inventory({
   // ✅ طباعة الجرد - الحل الصحيح بدل window.print()
   const printJrard = () => {
     const today = getTodayStr();
-    const rows = filtered.map(p => {
+    const reportProducts = getInventoryReportProducts();
+    const rows = reportProducts.map(p => {
       const inSystem = getRealStock(p);
       const actualVal = jrardData[p.id] !== undefined ? parseInt(jrardData[p.id]) : NaN;
       const diffVal = !isNaN(actualVal) ? actualVal - inSystem : NaN;
@@ -299,16 +314,16 @@ export default function Inventory({
     }).join('');
 
     // حساب ملخص الجرد
-    const filledCount = filtered.filter(p => jrardData[p.id] !== undefined && jrardData[p.id] !== '').length;
-    const matchCount  = filtered.filter(p => {
+    const filledCount = reportProducts.filter(p => jrardData[p.id] !== undefined && jrardData[p.id] !== '').length;
+    const matchCount  = reportProducts.filter(p => {
       const actual = parseInt(jrardData[p.id]);
       return !isNaN(actual) && actual === getRealStock(p);
     }).length;
-    const deficitCount = filtered.filter(p => {
+    const deficitCount = reportProducts.filter(p => {
       const actual = parseInt(jrardData[p.id]);
       return !isNaN(actual) && actual < getRealStock(p);
     }).length;
-    const surplusCount = filtered.filter(p => {
+    const surplusCount = reportProducts.filter(p => {
       const actual = parseInt(jrardData[p.id]);
       return !isNaN(actual) && actual > getRealStock(p);
     }).length;
@@ -361,7 +376,7 @@ export default function Inventory({
 
         <div class="summary">
           <div class="sum-card blue">
-            <div class="num">${filtered.length}</div>
+            <div class="num">${reportProducts.length}</div>
             <div class="lbl">��جمالي المنتجات</div>
           </div>
           <div class="sum-card green">
@@ -391,7 +406,7 @@ export default function Inventory({
         </table>
 
         <div class="footer">
-          ONE ERP • جرد المخزون بتاريخ ${today} • تم الجرد لـ ${filledCount} من ${filtered.length} منتج
+          ONE ERP • جرد المخزون بتاريخ ${today} • تم الجرد لـ ${filledCount} من ${reportProducts.length} منتج
         </div>
         <script>window.onload = () => window.print();<\/script>
       </body>

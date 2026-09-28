@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-D5l8yjel.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-CtfkuZZ8.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -483,7 +483,7 @@ function GlobalSearch({ state, onNavigate, onClose }) {
 			}
 		});
 		state.saleInvoices.forEach((inv) => {
-			if (inv.invoiceNumber.toLowerCase().includes(q) || inv.customerName.toLowerCase().includes(q)) out.push({
+			if (inv.invoiceNumber.toLowerCase().includes(q) || inv.customerName.toLowerCase().includes(q) || inv.items.some((item) => item.productName.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q) || (item.serials || []).some((s) => s.serial.toLowerCase().includes(q) || (s.imei1 || "").toLowerCase().includes(q) || (s.imei2 || "").toLowerCase().includes(q)))) out.push({
 				type: "saleInvoice",
 				id: inv.id,
 				title: `فاتورة بيع ${inv.invoiceNumber}`,
@@ -492,7 +492,7 @@ function GlobalSearch({ state, onNavigate, onClose }) {
 			});
 		});
 		state.purchaseInvoices.forEach((inv) => {
-			if (inv.invoiceNumber.toLowerCase().includes(q) || inv.supplierName.toLowerCase().includes(q)) out.push({
+			if (inv.invoiceNumber.toLowerCase().includes(q) || inv.supplierName.toLowerCase().includes(q) || inv.items.some((item) => item.productName.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q) || (item.serials || []).some((s) => s.serial.toLowerCase().includes(q) || (s.imei1 || "").toLowerCase().includes(q) || (s.imei2 || "").toLowerCase().includes(q)))) out.push({
 				type: "purchaseInvoice",
 				id: inv.id,
 				title: `فاتورة شراء ${inv.invoiceNumber}`,
@@ -1291,6 +1291,12 @@ var calculateSupplierBalance = (purchaseInvoices, supplier) => {
 	return sum(invoices.map((invoice) => invoice.total)) + (supplier.openingBalance || 0) - sum(invoices.map((invoice) => invoice.paid));
 };
 var getSupplierBalance = (state, supplier) => calculateSupplierBalance(state.purchaseInvoices, supplier);
+var calculatePartyBalance = (state, party) => {
+	const sales = state.saleInvoices.filter((i) => i.customerId === party.id);
+	const purchases = state.purchaseInvoices.filter((i) => i.supplierId === party.id);
+	const payments = state.payments.filter((p) => p.referenceId === party.id);
+	return (party.openingBalance || 0) + sum(sales.map((i) => i.total)) - sum(purchases.map((i) => i.total)) - sum(payments.filter((p) => p.direction === "in").map((p) => p.amount)) + sum(payments.filter((p) => p.direction === "out").map((p) => p.amount));
+};
 var getPartyBalances = (state) => {
 	const customersOwing = state.customers.map((customer) => ({
 		id: customer.id,
@@ -6801,7 +6807,7 @@ function Sales({ saleInvoices, customers, products, serials, settings, suppliers
 		]
 	});
 }
-function Purchases({ purchaseInvoices, suppliers, products, serials, brands, settings, onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials, onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onCompletePendingPurchase, preselectedSupplierId, onPreselectedHandled, preselectedPendingSerialId, onPreselectedPendingSerialHandled, preselectedDateFilter, onPreselectedDateFilterHandled }) {
+function Purchases({ purchaseInvoices, suppliers, customers = [], products, serials, brands, settings, onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials, onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onCompletePendingPurchase, preselectedSupplierId, onPreselectedHandled, preselectedPendingSerialId, onPreselectedPendingSerialHandled, preselectedDateFilter, onPreselectedDateFilterHandled }) {
 	const [showForm, setShowForm] = (0, import_react.useState)(false);
 	const [search, setSearch] = (0, import_react.useState)("");
 	const [dateFilter, setDateFilter] = (0, import_react.useState)(null);
@@ -7283,7 +7289,7 @@ function Purchases({ purchaseInvoices, suppliers, products, serials, brands, set
 	}, [preselectedPendingSerialId]);
 	(0, import_react.useEffect)(() => {
 		if (preselectedSupplierId) {
-			const supplier = suppliers.find((s) => s.id === preselectedSupplierId);
+			const supplier = suppliers.find((s) => s.id === preselectedSupplierId) || customers.find((c) => c.id === preselectedSupplierId);
 			if (supplier) {
 				setSupplierId(supplier.id);
 				setSupplierSearch(supplier.name);
@@ -7339,8 +7345,26 @@ function Purchases({ purchaseInvoices, suppliers, products, serials, brands, set
 		const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || "";
 		return inv.invoiceNumber.toLowerCase().includes(q) || inv.supplierName.toLowerCase().includes(q) || supplierName.toLowerCase().includes(q);
 	}).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-	const filteredSuppliers = suppliers.filter((s) => s.name.toLowerCase().includes(supplierSearch.toLowerCase()) || (s.phone || "").includes(supplierSearch));
-	const filteredSuppliersForComplete = suppliers.filter((s) => s.name.toLowerCase().includes(completePendingForm.supplierSearch.toLowerCase()) || (s.phone || "").includes(completePendingForm.supplierSearch));
+	const allParties = [...suppliers.map((s) => ({
+		...s,
+		partyType: "supplier"
+	})), ...customers.map((c) => ({
+		id: c.id,
+		name: c.name,
+		phone: c.phone,
+		email: c.email,
+		address: c.address,
+		type: "both",
+		openingBalance: c.openingBalance,
+		totalInvoices: c.totalInvoices,
+		totalPaid: c.totalPaid,
+		notes: c.notes,
+		createdAt: c.createdAt,
+		partyType: "customer"
+	}))];
+	const selectedSupplier = allParties.find((s) => s.id === supplierId);
+	const filteredSuppliers = allParties.filter((s) => s.name.toLowerCase().includes(supplierSearch.toLowerCase()) || (s.phone || "").includes(supplierSearch));
+	const filteredSuppliersForComplete = allParties.filter((s) => s.name.toLowerCase().includes(completePendingForm.supplierSearch.toLowerCase()) || (s.phone || "").includes(completePendingForm.supplierSearch));
 	const subtotal = purchItems.reduce((s, item) => s + item.total, 0);
 	const paidAmount = parseFloat(paid) || 0;
 	const remaining = subtotal - paidAmount;
@@ -7361,7 +7385,7 @@ function Purchases({ purchaseInvoices, suppliers, products, serials, brands, set
 			if (item.serials[i].serial.trim().toLowerCase() === normalized) return true;
 		}
 		if (existingSerialsSet.has(normalized)) {
-			const existingSerial = serials.find((s) => s.serial.trim().toLowerCase() === normalized);
+			const existingSerial = [...serials].reverse().find((s) => s.serial.trim().toLowerCase() === normalized);
 			if (editingInvoice?.items.some((it) => it.serials?.some((s) => s.serial.trim().toLowerCase() === normalized)) && existingSerial?.purchaseInvoiceId === editingInvoice?.id) return false;
 			return Boolean(existingSerial && (existingSerial.status === "available" || existingSerial.status === "transferred" || existingSerial.purchasePricePending));
 		}
@@ -7530,7 +7554,6 @@ function Purchases({ purchaseInvoices, suppliers, products, serials, brands, set
 		const q = searchStr.toLowerCase();
 		return products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.upc || "").includes(q)).slice(0, 10);
 	};
-	const selectedSupplier = suppliers.find((s) => s.id === supplierId);
 	const validatePurchaseItems = () => {
 		for (const item of purchItems) {
 			if (!item.productId) return "يوجد بند بدون اختيار منتج";
@@ -9261,7 +9284,7 @@ function ViewToggle({ value, onChange, options = [
 		}, v))
 	});
 }
-function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales, preselectedStatementCustomerId, onPreselectedStatementHandled }) {
+function Customers({ customers, saleInvoices, purchaseInvoices, payments, onAddCustomer, onUpdateCustomer, onDeleteCustomer, onAddPayment, onUpdateSaleInvoice, onNavigateToSales, preselectedStatementCustomerId, onPreselectedStatementHandled }) {
 	const [viewMode, setViewMode] = useViewMode("customers");
 	const [search, setSearch] = (0, import_react.useState)("");
 	const [showForm, setShowForm] = (0, import_react.useState)(false);
@@ -9271,6 +9294,7 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 	const [confirmDelete, setConfirmDelete] = (0, import_react.useState)(null);
 	const [paymentAmount, setPaymentAmount] = (0, import_react.useState)("");
 	const [paymentMethod, setPaymentMethod] = (0, import_react.useState)("cash");
+	const [paymentDirection, setPaymentDirection] = (0, import_react.useState)("in");
 	const [paymentNotes, setPaymentNotes] = (0, import_react.useState)("");
 	const [paymentDate, setPaymentDate] = (0, import_react.useState)(getTodayStr());
 	const [form, setForm] = (0, import_react.useState)({
@@ -9503,7 +9527,7 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 			referenceName: showPayment.name,
 			amount: parseFloat(paymentAmount),
 			paymentMethod,
-			direction: "in",
+			direction: paymentDirection,
 			date: paymentDate || getTodayStr(),
 			notes: paymentNotes,
 			createdAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -9534,17 +9558,22 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 		setEditingInvoiceDate(null);
 	};
 	const getCustomerInvoices = (customerId) => saleInvoices.filter((inv) => inv.customerId === customerId);
-	const getCustomerPayments = (customerId) => payments.filter((p) => p.type === "sale" && p.referenceId === customerId);
-	const getBalance = (c) => calculateCustomerBalance(saleInvoices, c);
+	const getCustomerPayments = (customerId) => payments.filter((p) => p.referenceId === customerId);
+	const getCustomerPurchases = (customerId) => purchaseInvoices.filter((inv) => inv.supplierId === customerId);
+	const getBalance = (c) => calculatePartyBalance({
+		saleInvoices,
+		purchaseInvoices,
+		payments
+	}, c);
 	const balanceLabel = (balance) => {
 		if (balance > 0) return {
-			text: "مستحق منه",
+			text: "مستحق لنا",
 			amount: balance,
 			colorClass: "text-red-400",
 			bgClass: "bg-red-900/20"
 		};
 		if (balance < 0) return {
-			text: "متبقي له (فرق حساب)",
+			text: "مستحق له",
 			amount: Math.abs(balance),
 			colorClass: "text-green-400",
 			bgClass: "bg-green-900/20"
@@ -9558,22 +9587,34 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 	};
 	const getFullStatementRows = (c, filterDates = true) => {
 		const invs = getCustomerInvoices(c.id);
+		const purchases = getCustomerPurchases(c.id);
 		const pmts = getCustomerPayments(c.id);
-		const rows = [...invs.map((inv) => ({
-			date: inv.date,
-			desc: `فاتورة ${inv.invoiceNumber}`,
-			debit: inv.total,
-			credit: 0,
-			type: "invoice",
-			ref: inv
-		})), ...pmts.map((p) => ({
-			date: p.date,
-			desc: `دفعة (تحصيل) - ${p.paymentMethod === "cash" ? "كاش" : "بنك"}${p.notes ? " - " + p.notes : ""}`,
-			debit: 0,
-			credit: p.amount,
-			type: "payment",
-			ref: p
-		}))].sort((a, b) => a.date.localeCompare(b.date));
+		const rows = [
+			...invs.map((inv) => ({
+				date: inv.date,
+				desc: `فاتورة بيع ${inv.invoiceNumber}`,
+				debit: inv.total,
+				credit: 0,
+				type: "invoice",
+				ref: inv
+			})),
+			...purchases.map((inv) => ({
+				date: inv.date,
+				desc: `فاتورة شراء ${inv.invoiceNumber}`,
+				debit: 0,
+				credit: inv.total,
+				type: "invoice",
+				ref: inv
+			})),
+			...pmts.map((p) => ({
+				date: p.date,
+				desc: `${p.direction === "in" ? "دفعة واردة" : "دفعة خارجة"} - ${p.paymentMethod === "cash" ? "كاش" : "بنك"}${p.notes ? " - " + p.notes : ""}`,
+				debit: p.direction === "out" ? p.amount : 0,
+				credit: p.direction === "in" ? p.amount : 0,
+				type: "payment",
+				ref: p
+			}))
+		].sort((a, b) => a.date.localeCompare(b.date));
 		let running = c.openingBalance;
 		const withRunning = rows.map((r) => {
 			running += r.debit - r.credit;
@@ -10433,7 +10474,19 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
 							className: "font-bold text-white mb-1",
-							children: "💰 تحصيل دفعة"
+							children: "💰 حركة مالية"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-2 gap-2 mb-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setPaymentDirection("in"),
+								className: `py-2 rounded-xl border text-sm ${paymentDirection === "in" ? "bg-green-700/30 border-green-500/50 text-green-300" : "border-white/10 text-gray-400"}`,
+								children: "⬅️ استلام منه"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setPaymentDirection("out"),
+								className: `py-2 rounded-xl border text-sm ${paymentDirection === "out" ? "bg-red-700/30 border-red-500/50 text-red-300" : "border-white/10 text-gray-400"}`,
+								children: "➡️ دفع له"
+							})]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 							className: "text-gray-400 text-sm mb-4",
@@ -10453,7 +10506,7 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 									value: paymentAmount,
 									onChange: (e) => setPaymentAmount(e.target.value),
 									className: "input-dark w-full",
-									placeholder: "المبلغ المحصل"
+									placeholder: "المبلغ"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
@@ -10497,7 +10550,7 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								onClick: handlePayment,
 								className: "btn-primary flex-1",
-								children: "✅ تأكيد التحصيل"
+								children: "✅ تأكيد الحركة"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								onClick: () => setShowPayment(null),
 								className: "btn-secondary flex-1",
@@ -10666,7 +10719,7 @@ function Customers({ customers, saleInvoices, payments, onAddCustomer, onUpdateC
 		]
 	});
 }
-function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }) {
+function Suppliers({ suppliers, purchaseInvoices, saleInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }) {
 	const [viewMode, setViewMode] = useViewMode("suppliers");
 	const [search, setSearch] = (0, import_react.useState)("");
 	const [showForm, setShowForm] = (0, import_react.useState)(false);
@@ -10676,6 +10729,7 @@ function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpd
 	const [confirmDelete, setConfirmDelete] = (0, import_react.useState)(null);
 	const [paymentAmount, setPaymentAmount] = (0, import_react.useState)("");
 	const [paymentMethod, setPaymentMethod] = (0, import_react.useState)("cash");
+	const [paymentDirection, setPaymentDirection] = (0, import_react.useState)("out");
 	const [paymentNotes, setPaymentNotes] = (0, import_react.useState)("");
 	const [paymentDate, setPaymentDate] = (0, import_react.useState)(getTodayStr());
 	const [form, setForm] = (0, import_react.useState)({
@@ -10708,17 +10762,22 @@ function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpd
 	}, [preselectedStatementSupplierId]);
 	const filtered = suppliers.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) || (s.phone || "").includes(search));
 	const getSupplierInvoices = (id) => purchaseInvoices.filter((i) => i.supplierId === id);
-	const getSupplierPayments = (id) => payments.filter((p) => p.type === "purchase" && p.referenceId === id);
-	const getBalance = (s) => calculateSupplierBalance(purchaseInvoices, s);
+	const getSupplierPayments = (id) => payments.filter((p) => p.referenceId === id);
+	const getSupplierSales = (id) => saleInvoices.filter((i) => i.customerId === id);
+	const getBalance = (s) => calculatePartyBalance({
+		saleInvoices,
+		purchaseInvoices,
+		payments
+	}, s);
 	const balanceLabel = (balance) => {
 		if (balance > 0) return {
-			text: "متبقي له",
+			text: "مستحق لنا",
 			amount: balance,
 			colorClass: "text-red-400",
 			bgClass: "bg-red-900/20"
 		};
 		if (balance < 0) return {
-			text: "متبقي عليه (فرق حساب)",
+			text: "مستحق له",
 			amount: Math.abs(balance),
 			colorClass: "text-green-400",
 			bgClass: "bg-green-900/20"
@@ -10732,22 +10791,34 @@ function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpd
 	};
 	const getFullStatementRows = (s) => {
 		const invs = getSupplierInvoices(s.id);
+		const sales = getSupplierSales(s.id);
 		const pmts = getSupplierPayments(s.id);
-		const rows = [...invs.map((inv) => ({
-			date: inv.date,
-			desc: `فاتورة ${inv.invoiceNumber}`,
-			debit: inv.total,
-			credit: 0,
-			type: "invoice",
-			ref: inv
-		})), ...pmts.map((p) => ({
-			date: p.date,
-			desc: `دفعة - ${p.paymentMethod === "cash" ? "كاش" : "بنك"}${p.notes ? " - " + p.notes : ""}`,
-			debit: 0,
-			credit: p.amount,
-			type: "payment",
-			ref: p
-		}))].sort((a, b) => a.date.localeCompare(b.date));
+		const rows = [
+			...sales.map((inv) => ({
+				date: inv.date,
+				desc: `فاتورة بيع ${inv.invoiceNumber}`,
+				debit: inv.total,
+				credit: 0,
+				type: "invoice",
+				ref: inv
+			})),
+			...invs.map((inv) => ({
+				date: inv.date,
+				desc: `فاتورة شراء ${inv.invoiceNumber}`,
+				debit: 0,
+				credit: inv.total,
+				type: "invoice",
+				ref: inv
+			})),
+			...pmts.map((p) => ({
+				date: p.date,
+				desc: `${p.direction === "in" ? "دفعة واردة" : "دفعة خارجة"} - ${p.paymentMethod === "cash" ? "كاش" : "بنك"}${p.notes ? " - " + p.notes : ""}`,
+				debit: p.direction === "out" ? p.amount : 0,
+				credit: p.direction === "in" ? p.amount : 0,
+				type: "payment",
+				ref: p
+			}))
+		].sort((a, b) => a.date.localeCompare(b.date));
 		let running = s.openingBalance;
 		const withRunning = rows.map((r) => {
 			running += r.debit - r.credit;
@@ -10948,7 +11019,7 @@ function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpd
 			referenceName: showPayment.name,
 			amount: parseFloat(paymentAmount),
 			paymentMethod,
-			direction: "out",
+			direction: paymentDirection,
 			date: paymentDate || getTodayStr(),
 			notes: paymentNotes,
 			createdAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -11855,7 +11926,19 @@ function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpd
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
 							className: "font-bold text-white mb-1",
-							children: "💰 دفع للمورد"
+							children: "💰 حركة مالية"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-2 gap-2 mb-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setPaymentDirection("out"),
+								className: `py-2 rounded-xl border text-sm ${paymentDirection === "out" ? "bg-red-700/30 border-red-500/50 text-red-300" : "border-white/10 text-gray-400"}`,
+								children: "➡️ دفع له"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setPaymentDirection("in"),
+								className: `py-2 rounded-xl border text-sm ${paymentDirection === "in" ? "bg-green-700/30 border-green-500/50 text-green-300" : "border-white/10 text-gray-400"}`,
+								children: "⬅️ استلام منه"
+							})]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 							className: "text-gray-400 text-sm mb-4",
@@ -11919,7 +12002,7 @@ function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpd
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								onClick: handlePayment,
 								className: "btn-primary flex-1",
-								children: "✅ تأكيد الدفع"
+								children: "✅ تأكيد الحركة"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								onClick: () => setShowPayment(null),
 								className: "btn-secondary flex-1",
@@ -14415,8 +14498,21 @@ function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = []
 	const totalValue = products.reduce((s, p) => s + p.costPrice * getRealStock(p), 0);
 	const totalSaleValue = products.reduce((s, p) => s + p.salePrice * getRealStock(p), 0);
 	const totalStock = products.reduce((s, p) => s + getRealStock(p), 0);
+	const getInventoryReportProducts = () => [...filtered].sort((a, b) => {
+		const collator = new Intl.Collator(void 0, {
+			numeric: true,
+			sensitivity: "base"
+		});
+		const brandCompare = collator.compare(String(a.brand || ""), String(b.brand || ""));
+		if (brandCompare !== 0) return brandCompare;
+		const nameCompare = collator.compare(String(a.name || ""), String(b.name || ""));
+		if (nameCompare !== 0) return nameCompare;
+		const skuCompare = collator.compare(String(a.sku || ""), String(b.sku || ""));
+		if (skuCompare !== 0) return skuCompare;
+		return collator.compare(String(a.upc || ""), String(b.upc || ""));
+	});
 	const printInventory = () => {
-		const rows = filtered.map((p) => {
+		const rows = getInventoryReportProducts().map((p) => {
 			const avail = getRealStock(p);
 			return `<tr>
         <td>${p.name}</td><td>${p.sku}</td><td>${p.brand}</td>
@@ -14482,7 +14578,8 @@ function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = []
 	};
 	const printJrard = () => {
 		const today = getTodayStr();
-		const rows = filtered.map((p) => {
+		const reportProducts = getInventoryReportProducts();
+		const rows = reportProducts.map((p) => {
 			const inSystem = getRealStock(p);
 			const actualVal = jrardData[p.id] !== void 0 ? parseInt(jrardData[p.id]) : NaN;
 			const diffVal = !isNaN(actualVal) ? actualVal - inSystem : NaN;
@@ -14497,16 +14594,16 @@ function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = []
         <td style="text-align:center">${diffCell}</td>
       </tr>`;
 		}).join("");
-		const filledCount = filtered.filter((p) => jrardData[p.id] !== void 0 && jrardData[p.id] !== "").length;
-		const matchCount = filtered.filter((p) => {
+		const filledCount = reportProducts.filter((p) => jrardData[p.id] !== void 0 && jrardData[p.id] !== "").length;
+		const matchCount = reportProducts.filter((p) => {
 			const actual = parseInt(jrardData[p.id]);
 			return !isNaN(actual) && actual === getRealStock(p);
 		}).length;
-		const deficitCount = filtered.filter((p) => {
+		const deficitCount = reportProducts.filter((p) => {
 			const actual = parseInt(jrardData[p.id]);
 			return !isNaN(actual) && actual < getRealStock(p);
 		}).length;
-		const surplusCount = filtered.filter((p) => {
+		const surplusCount = reportProducts.filter((p) => {
 			const actual = parseInt(jrardData[p.id]);
 			return !isNaN(actual) && actual > getRealStock(p);
 		}).length;
@@ -14558,7 +14655,7 @@ function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = []
 
         <div class="summary">
           <div class="sum-card blue">
-            <div class="num">${filtered.length}</div>
+            <div class="num">${reportProducts.length}</div>
             <div class="lbl">��جمالي المنتجات</div>
           </div>
           <div class="sum-card green">
@@ -14588,7 +14685,7 @@ function Inventory({ products, serials, saleInvoices = [], purchaseInvoices = []
         </table>
 
         <div class="footer">
-          ONE ERP • جرد المخزون بتاريخ ${today} • تم الجرد لـ ${filledCount} من ${filtered.length} منتج
+          ONE ERP • جرد المخزون بتاريخ ${today} • تم الجرد لـ ${filledCount} من ${reportProducts.length} منتج
         </div>
         <script>window.onload = () => window.print();<\/script>
       </body>
@@ -24082,11 +24179,73 @@ function useStore() {
 		return { success: true };
 	}, []);
 	const updateProduct = (0, import_react.useCallback)((product) => {
-		setState((prev) => ({
-			...prev,
-			products: prev.products.map((p) => p.id === product.id ? product : p)
-		}));
-		saveToFirebase("products", product.id, product);
+		setState((prev) => {
+			const oldProduct = prev.products.find((p) => p.id === product.id);
+			const newState = {
+				...prev,
+				products: prev.products.map((p) => p.id === product.id ? product : p),
+				serials: prev.serials.map((s) => s.productId === product.id ? {
+					...s,
+					productName: product.name
+				} : s),
+				saleInvoices: prev.saleInvoices.map((inv) => ({
+					...inv,
+					items: inv.items.map((item) => item.productId === product.id ? {
+						...item,
+						productName: product.name,
+						sku: product.sku
+					} : item)
+				})),
+				purchaseInvoices: prev.purchaseInvoices.map((inv) => ({
+					...inv,
+					items: inv.items.map((item) => item.productId === product.id ? {
+						...item,
+						productName: product.name,
+						sku: product.sku
+					} : item)
+				})),
+				noonOrders: prev.noonOrders.map((order) => ({
+					...order,
+					items: order.items.map((item) => item.productId === product.id ? {
+						...item,
+						productName: product.name,
+						upc: product.upc
+					} : item)
+				})),
+				stockTransfers: (prev.stockTransfers || []).map((t) => ({
+					...t,
+					items: t.items.map((item) => item.productId === product.id ? {
+						...item,
+						productName: product.name
+					} : item)
+				})),
+				weeklyInventoryCounts: (prev.weeklyInventoryCounts || []).map((c) => ({
+					...c,
+					lines: c.lines.map((line) => line.productId === product.id ? {
+						...line,
+						productName: product.name,
+						sku: product.sku
+					} : line)
+				})),
+				dailyInventoryScans: (prev.dailyInventoryScans || []).map((scan) => ({
+					...scan,
+					lines: scan.lines.map((line) => line.productId === product.id ? {
+						...line,
+						productName: product.name
+					} : line)
+				}))
+			};
+			if (oldProduct && oldProduct.name !== product.name) console.info(`[Product] propagated rename: ${oldProduct.name} -> ${product.name}`);
+			saveToFirebase("products", product.id, product);
+			newState.serials.filter((s) => s.productId === product.id).forEach((s) => saveToFirebase("serials", s.id, s));
+			newState.saleInvoices.forEach((inv) => saveToFirebase("saleInvoices", inv.id, inv));
+			newState.purchaseInvoices.forEach((inv) => saveToFirebase("purchaseInvoices", inv.id, inv));
+			newState.noonOrders.forEach((order) => saveToFirebase("noonOrders", order.id, order));
+			(newState.stockTransfers || []).forEach((t) => saveToFirebase("stockTransfers", t.id, t));
+			(newState.weeklyInventoryCounts || []).forEach((c) => saveToFirebase("weeklyInventoryCounts", c.id, c));
+			(newState.dailyInventoryScans || []).forEach((scan) => saveToFirebase("dailyInventoryScans", scan.id, scan));
+			return newState;
+		});
 	}, []);
 	const deleteProduct = (0, import_react.useCallback)((id) => {
 		setState((prev) => {
@@ -24115,15 +24274,25 @@ function useStore() {
 	}, []);
 	const addSerials = (0, import_react.useCallback)((newSerials) => {
 		setState((prev) => {
-			const incomingKeys = new Set(newSerials.map((s) => normalizeForCompare(s.serial)).filter(Boolean));
-			const staleSerialIds = prev.serials.filter((s) => incomingKeys.has(normalizeForCompare(s.serial)) && !s.purchaseInvoiceId).map((s) => s.id);
-			staleSerialIds.forEach((id) => deleteFromFirebase("serials", id));
+			new Set(newSerials.map((s) => normalizeForCompare(s.serial)).filter(Boolean));
+			const activeKeys = new Set(prev.serials.filter((s) => s.status === "available" || s.status === "transferred" || s.purchasePricePending).map((s) => normalizeForCompare(s.serial)).filter(Boolean));
+			const batchKeys = /* @__PURE__ */ new Set();
+			const accepted = newSerials.filter((s) => {
+				const key = normalizeForCompare(s.serial);
+				if (!key || activeKeys.has(key) || batchKeys.has(key)) return false;
+				batchKeys.add(key);
+				return true;
+			});
+			newSerials.filter((s) => {
+				const key = normalizeForCompare(s.serial);
+				return !key || activeKeys.has(key);
+			}).forEach((s) => console.warn(`[Serial] skipped active duplicate: ${s.serial}`));
+			accepted.forEach((s) => saveToFirebase("serials", s.id, s));
 			return {
 				...prev,
-				serials: [...prev.serials.filter((s) => !staleSerialIds.includes(s.id)), ...newSerials]
+				serials: [...prev.serials, ...accepted]
 			};
 		});
-		newSerials.forEach((s) => saveToFirebase("serials", s.id, s));
 	}, []);
 	const completePendingPurchase = (0, import_react.useCallback)((serialId, newCostPrice, supplierId, supplierName, paymentMethod, paidAmount, invoiceNumber) => {
 		let result = { success: true };
@@ -24164,11 +24333,35 @@ function useStore() {
 		return { success: true };
 	}, []);
 	const updateCustomer = (0, import_react.useCallback)((customer) => {
-		setState((prev) => ({
-			...prev,
-			customers: prev.customers.map((c) => c.id === customer.id ? customer : c)
-		}));
-		saveToFirebase("customers", customer.id, customer);
+		setState((prev) => {
+			const newState = {
+				...prev,
+				customers: prev.customers.map((c) => c.id === customer.id ? customer : c),
+				saleInvoices: prev.saleInvoices.map((inv) => inv.customerId === customer.id ? {
+					...inv,
+					customerName: customer.name
+				} : inv),
+				purchaseInvoices: prev.purchaseInvoices.map((inv) => inv.supplierId === customer.id ? {
+					...inv,
+					supplierName: customer.name
+				} : inv),
+				payments: prev.payments.map((p) => p.referenceId === customer.id ? {
+					...p,
+					referenceName: customer.name
+				} : p),
+				treasuryTransactions: prev.treasuryTransactions.map((t) => t.referenceId === customer.id ? {
+					...t,
+					description: t.description.replace(/- .*$/, `- ${customer.name}`),
+					partyName: customer.name
+				} : t)
+			};
+			saveToFirebase("customers", customer.id, customer);
+			newState.saleInvoices.filter((inv) => inv.customerId === customer.id).forEach((inv) => saveToFirebase("saleInvoices", inv.id, inv));
+			newState.purchaseInvoices.filter((inv) => inv.supplierId === customer.id).forEach((inv) => saveToFirebase("purchaseInvoices", inv.id, inv));
+			newState.payments.filter((p) => p.referenceId === customer.id).forEach((p) => saveToFirebase("payments", p.id, p));
+			newState.treasuryTransactions.filter((t) => t.referenceId === customer.id).forEach((t) => saveToFirebase("treasuryTransactions", t.id, t));
+			return newState;
+		});
 	}, []);
 	const deleteCustomer = (0, import_react.useCallback)((id) => {
 		setState((prev) => ({
@@ -24198,11 +24391,35 @@ function useStore() {
 		return { success: true };
 	}, []);
 	const updateSupplier = (0, import_react.useCallback)((supplier) => {
-		setState((prev) => ({
-			...prev,
-			suppliers: prev.suppliers.map((s) => s.id === supplier.id ? supplier : s)
-		}));
-		saveToFirebase("suppliers", supplier.id, supplier);
+		setState((prev) => {
+			const newState = {
+				...prev,
+				suppliers: prev.suppliers.map((s) => s.id === supplier.id ? supplier : s),
+				purchaseInvoices: prev.purchaseInvoices.map((inv) => inv.supplierId === supplier.id ? {
+					...inv,
+					supplierName: supplier.name
+				} : inv),
+				saleInvoices: prev.saleInvoices.map((inv) => inv.customerId === supplier.id ? {
+					...inv,
+					customerName: supplier.name
+				} : inv),
+				payments: prev.payments.map((p) => p.referenceId === supplier.id ? {
+					...p,
+					referenceName: supplier.name
+				} : p),
+				treasuryTransactions: prev.treasuryTransactions.map((t) => t.referenceId === supplier.id ? {
+					...t,
+					description: t.description.replace(/- .*$/, `- ${supplier.name}`),
+					partyName: supplier.name
+				} : t)
+			};
+			saveToFirebase("suppliers", supplier.id, supplier);
+			newState.purchaseInvoices.filter((inv) => inv.supplierId === supplier.id).forEach((inv) => saveToFirebase("purchaseInvoices", inv.id, inv));
+			newState.saleInvoices.filter((inv) => inv.customerId === supplier.id).forEach((inv) => saveToFirebase("saleInvoices", inv.id, inv));
+			newState.payments.filter((p) => p.referenceId === supplier.id).forEach((p) => saveToFirebase("payments", p.id, p));
+			newState.treasuryTransactions.filter((t) => t.referenceId === supplier.id).forEach((t) => saveToFirebase("treasuryTransactions", t.id, t));
+			return newState;
+		});
 	}, []);
 	const deleteSupplier = (0, import_react.useCallback)((id) => {
 		setState((prev) => ({
@@ -24232,8 +24449,8 @@ function useStore() {
 				const supIdx = newState.suppliers.findIndex((s) => s.id === invoice.customerId);
 				if (supIdx >= 0) {
 					const supplier = { ...newState.suppliers[supIdx] };
-					supplier.totalInvoices = (supplier.totalInvoices || 0) - invoice.total;
-					supplier.totalPaid = (supplier.totalPaid || 0) - invoice.paid;
+					supplier.totalInvoices = (supplier.totalInvoices || 0) + invoice.total;
+					supplier.totalPaid = (supplier.totalPaid || 0) + invoice.paid;
 					newState.suppliers = newState.suppliers.map((s) => s.id === invoice.customerId ? supplier : s);
 					updatedSupplier = supplier;
 				}
@@ -24360,13 +24577,12 @@ function useStore() {
 					return updated;
 				});
 			};
-			const touchSerialByValue = (serialValue, updater) => {
-				newState.serials = newState.serials.map((s) => {
-					if (s.serial !== serialValue) return s;
-					const updated = updater(s);
-					changedSerials.set(updated.id, updated);
-					return updated;
-				});
+			const touchSerialByValue = (serialValue, predicate, updater) => {
+				const target = [...newState.serials].reverse().find((s) => normalizeForCompare(s.serial) === normalizeForCompare(serialValue) && predicate(s));
+				if (!target) return;
+				const updated = updater(target);
+				newState.serials = newState.serials.map((s) => s.id === target.id ? updated : s);
+				changedSerials.set(updated.id, updated);
 			};
 			touchParty(oldInvoice.customerId, {
 				invoices: -oldInvoice.total,
@@ -24381,7 +24597,7 @@ function useStore() {
 			newState.payments = newState.payments.filter((p) => p.id !== `paid_${invoice.id}`);
 			oldInvoice.items.forEach((item) => {
 				if (newState.products.find((p) => p.id === item.productId)?.productType === "serial") (item.serials || []).forEach((sl) => {
-					touchSerialByValue(sl.serial, (s) => ({
+					touchSerialByValue(sl.serial, (s) => s.saleInvoiceId === oldInvoice.id, (s) => ({
 						...s,
 						status: "available",
 						saleInvoiceId: void 0,
@@ -24429,7 +24645,7 @@ function useStore() {
 			} else deleteFromFirebase("payments", `paid_${invoice.id}`);
 			invoice.items.forEach((item) => {
 				if (newState.products.find((p) => p.id === item.productId)?.productType === "serial") (item.serials || []).forEach((sl) => {
-					touchSerialByValue(sl.serial, (s) => ({
+					touchSerialByValue(sl.serial, (s) => s.status === "available", (s) => ({
 						...s,
 						status: "sold",
 						saleInvoiceId: invoice.id,
@@ -24459,25 +24675,27 @@ function useStore() {
 				saleInvoices: prev.saleInvoices.filter((i) => i.id !== invoiceId)
 			};
 			const restoredSerials = [];
+			const removedSerialIds = [];
 			const restoredProducts = [];
 			invoice.items.forEach((item) => {
-				if (newState.products.find((p) => p.id === item.productId)?.productType === "serial") {
-					if (item.serials && item.serials.length > 0) item.serials.forEach((sl) => {
-						newState.serials = newState.serials.map((s) => {
-							if (s.serial === sl.serial && s.saleInvoiceId === invoiceId) {
-								const updated = {
-									...s,
-									status: "available",
-									saleInvoiceId: void 0,
-									salePrice: void 0
-								};
-								restoredSerials.push(updated);
-								return updated;
-							}
-							return s;
-						});
-					});
-				} else newState.products = newState.products.map((p) => {
+				if (newState.products.find((p) => p.id === item.productId)?.productType === "serial") (item.serials || []).forEach((sl) => {
+					const serialRecord = newState.serials.find((s) => normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) && s.saleInvoiceId === invoiceId);
+					if (!serialRecord) return;
+					if (!serialRecord.purchaseInvoiceId || newState.purchaseInvoices.some((p) => p.id === serialRecord.purchaseInvoiceId)) {
+						const updated = {
+							...serialRecord,
+							status: "available",
+							saleInvoiceId: void 0,
+							salePrice: void 0
+						};
+						newState.serials = newState.serials.map((s) => s.id === serialRecord.id ? updated : s);
+						restoredSerials.push(updated);
+					} else {
+						newState.serials = newState.serials.filter((s) => s.id !== serialRecord.id);
+						removedSerialIds.push(serialRecord.id);
+					}
+				});
+				else newState.products = newState.products.map((p) => {
 					if (p.id === item.productId) {
 						const updated = {
 							...p,
@@ -24489,53 +24707,34 @@ function useStore() {
 					return p;
 				});
 			});
-			if (newState.customers.some((c) => c.id === invoice.customerId)) {
-				let updatedCustomer = null;
-				newState.customers = newState.customers.map((c) => {
-					if (c.id === invoice.customerId) {
-						const updated = {
-							...c,
-							totalInvoices: Math.max(0, (c.totalInvoices || 0) - invoice.total),
-							totalPaid: Math.max(0, (c.totalPaid || 0) - invoice.paid)
-						};
-						updatedCustomer = updated;
-						return updated;
-					}
-					return c;
-				});
-				if (updatedCustomer !== null) {
-					const cs = updatedCustomer;
-					saveToFirebase("customers", cs.id, cs);
-				}
-			} else {
-				let updatedSupplier = null;
-				newState.suppliers = newState.suppliers.map((s) => {
-					if (s.id === invoice.customerId) {
-						const updated = {
-							...s,
-							totalInvoices: (s.totalInvoices || 0) + invoice.total,
-							totalPaid: (s.totalPaid || 0) + invoice.paid
-						};
-						updatedSupplier = updated;
-						return updated;
-					}
-					return s;
-				});
-				if (updatedSupplier !== null) {
-					const ss = updatedSupplier;
-					saveToFirebase("suppliers", ss.id, ss);
-				}
-			}
+			const salePartyId = invoice.customerId;
+			const salePartyInvoiceTotal = newState.saleInvoices.filter((i) => i.customerId === salePartyId).reduce((sum, i) => sum + i.total, 0);
+			const salePartyPaidTotal = newState.payments.filter((p) => p.referenceId === salePartyId).reduce((sum, p) => sum + p.amount, 0);
+			newState.customers = newState.customers.map((c) => c.id === salePartyId ? {
+				...c,
+				totalInvoices: salePartyInvoiceTotal + newState.purchaseInvoices.filter((i) => i.supplierId === salePartyId).reduce((sum, i) => sum + i.total, 0),
+				totalPaid: salePartyPaidTotal
+			} : c);
+			newState.suppliers = newState.suppliers.map((s) => s.id === salePartyId ? {
+				...s,
+				totalInvoices: salePartyInvoiceTotal + newState.purchaseInvoices.filter((i) => i.supplierId === salePartyId).reduce((sum, i) => sum + i.total, 0),
+				totalPaid: salePartyPaidTotal
+			} : s);
 			if (invoice.paid > 0) {
 				const treasury = invoice.paymentMethod === "cash" ? "cash" : "bank";
 				newState.cashBalance = treasury === "cash" ? newState.cashBalance - invoice.paid : newState.cashBalance;
 				newState.bankBalance = treasury === "bank" ? newState.bankBalance - invoice.paid : newState.bankBalance;
 			}
+			const removedTreasuryIds = newState.treasuryTransactions.filter((t) => t.referenceId === invoiceId).map((t) => t.id);
 			newState.treasuryTransactions = newState.treasuryTransactions.filter((t) => t.referenceId !== invoiceId);
+			removedTreasuryIds.forEach((id) => deleteFromFirebase("treasuryTransactions", id));
 			newState.payments = newState.payments.filter((p) => p.id !== `paid_${invoiceId}`);
-			deleteFromFirebase("payments", `paid_${invoiceId}`);
 			deleteFromFirebase("saleInvoices", invoiceId);
+			deleteFromFirebase("payments", `paid_${invoiceId}`);
+			newState.customers.filter((c) => c.id === invoice.customerId).forEach((c) => saveToFirebase("customers", c.id, c));
+			newState.suppliers.filter((s) => s.id === invoice.customerId).forEach((s) => saveToFirebase("suppliers", s.id, s));
 			restoredSerials.forEach((s) => saveToFirebase("serials", s.id, s));
+			removedSerialIds.forEach((id) => deleteFromFirebase("serials", id));
 			restoredProducts.forEach((p) => saveToFirebase("products", p.id, p));
 			return newState;
 		});
@@ -24555,6 +24754,14 @@ function useStore() {
 				supplier.totalPaid = (supplier.totalPaid || 0) + invoice.paid;
 				newState.suppliers = newState.suppliers.map((s) => s.id === invoice.supplierId ? supplier : s);
 				updatedSupplier = supplier;
+			} else {
+				const customerIdx = newState.customers.findIndex((c) => c.id === invoice.supplierId);
+				if (customerIdx >= 0) {
+					const customer = { ...newState.customers[customerIdx] };
+					customer.totalInvoices = (customer.totalInvoices || 0) + invoice.total;
+					customer.totalPaid = (customer.totalPaid || 0) + invoice.paid;
+					newState.customers = newState.customers.map((c) => c.id === invoice.supplierId ? customer : c);
+				}
 			}
 			if (invoice.paid > 0) {
 				const treasury = invoice.paymentMethod === "cash" ? "cash" : "bank";
@@ -24607,6 +24814,8 @@ function useStore() {
 			saveToFirebase("purchaseInvoices", invoice.id, invoice);
 			saveToFirebase("settings", "main", newState.settings);
 			if (updatedSupplier) saveToFirebase("suppliers", updatedSupplier.id, updatedSupplier);
+			const updatedCustomerParty = newState.customers.find((c) => c.id === invoice.supplierId);
+			if (updatedCustomerParty) saveToFirebase("customers", updatedCustomerParty.id, updatedCustomerParty);
 			updatedProducts.forEach((p) => saveToFirebase("products", p.id, p));
 			return newState;
 		});
@@ -24626,20 +24835,77 @@ function useStore() {
 				...prev,
 				purchaseInvoices: prev.purchaseInvoices.map((i) => i.id === invoice.id ? invoice : i)
 			};
-			let updatedSupplier = null;
-			newState.suppliers = newState.suppliers.map((s) => {
-				if (s.id !== oldInvoice.supplierId && s.id !== invoice.supplierId) return s;
-				let updated = { ...s };
-				if (s.id === oldInvoice.supplierId) {
-					updated.totalInvoices = Math.max(0, (updated.totalInvoices || 0) - oldInvoice.total);
-					updated.totalPaid = Math.max(0, (updated.totalPaid || 0) - oldInvoice.paid);
+			const changedProducts = [];
+			const changedSerials = [];
+			const removedSerialIds = [];
+			oldInvoice.items.forEach((item) => {
+				if (newState.products.find((p) => p.id === item.productId)?.productType === "normal") newState.products = newState.products.map((p) => p.id === item.productId ? {
+					...p,
+					stock: Math.max(0, p.stock - item.quantity)
+				} : p);
+			});
+			invoice.items.forEach((item) => {
+				if (newState.products.find((p) => p.id === item.productId)?.productType === "normal") newState.products = newState.products.map((p) => {
+					if (p.id !== item.productId) return p;
+					const updated = {
+						...p,
+						stock: p.stock + item.quantity
+					};
+					changedProducts.push(updated);
+					return updated;
+				});
+			});
+			const requestedSerials = /* @__PURE__ */ new Map();
+			invoice.items.forEach((item) => (item.serials || []).forEach((line) => {
+				requestedSerials.set(normalizeForCompare(line.serial), {
+					item,
+					line
+				});
+			}));
+			newState.serials.filter((s) => s.purchaseInvoiceId === invoice.id);
+			newState.serials = newState.serials.filter((s) => {
+				if (s.purchaseInvoiceId !== invoice.id) return true;
+				const key = normalizeForCompare(s.serial);
+				if (requestedSerials.has(key)) return true;
+				if (s.status === "available" || s.status === "returned") {
+					removedSerialIds.push(s.id);
+					return false;
 				}
-				if (s.id === invoice.supplierId) {
-					updated.totalInvoices = (updated.totalInvoices || 0) + invoice.total;
-					updated.totalPaid = (updated.totalPaid || 0) + invoice.paid;
+				return true;
+			});
+			requestedSerials.forEach(({ item, line }) => {
+				const existing = newState.serials.find((s) => s.purchaseInvoiceId === invoice.id && normalizeForCompare(s.serial) === normalizeForCompare(line.serial));
+				const product = newState.products.find((p) => p.id === item.productId);
+				if (existing) {
+					const updated = {
+						...existing,
+						productId: item.productId,
+						productName: product?.name || item.productName,
+						serial: line.serial,
+						imei1: line.imei1 || void 0,
+						imei2: line.imei2 || void 0,
+						costPrice: item.unitPrice,
+						purchasePricePending: item.unitPrice === 0
+					};
+					newState.serials = newState.serials.map((s) => s.id === existing.id ? updated : s);
+					changedSerials.push(updated);
+				} else {
+					const created = {
+						id: generateId(),
+						productId: item.productId,
+						productName: product?.name || item.productName,
+						serial: line.serial,
+						imei1: line.imei1 || void 0,
+						imei2: line.imei2 || void 0,
+						status: "available",
+						purchaseInvoiceId: invoice.id,
+						costPrice: item.unitPrice,
+						purchasePricePending: item.unitPrice === 0,
+						createdAt: (/* @__PURE__ */ new Date()).toISOString()
+					};
+					newState.serials.push(created);
+					changedSerials.push(created);
 				}
-				updatedSupplier = updated;
-				return updated;
 			});
 			if (oldInvoice.paid > 0) {
 				const oldTreasury = oldInvoice.paymentMethod === "cash" ? "cash" : "bank";
@@ -24648,6 +24914,7 @@ function useStore() {
 			}
 			newState.treasuryTransactions = newState.treasuryTransactions.filter((t) => t.referenceId !== oldInvoice.id);
 			newState.payments = newState.payments.filter((p) => p.id !== `paid_${invoice.id}`);
+			deleteFromFirebase("payments", `paid_${invoice.id}`);
 			if (invoice.paid > 0) {
 				const newTreasury = invoice.paymentMethod === "cash" ? "cash" : "bank";
 				newState.cashBalance = newTreasury === "cash" ? newState.cashBalance - invoice.paid : newState.cashBalance;
@@ -24675,11 +24942,35 @@ function useStore() {
 					notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
 					createdAt: (/* @__PURE__ */ new Date()).toISOString()
 				};
-				newState.payments = [...newState.payments, autoPayment];
+				newState.payments.push(autoPayment);
 				saveToFirebase("payments", autoPayment.id, autoPayment);
-			} else deleteFromFirebase("payments", `paid_${invoice.id}`);
+			}
+			const partyIds = /* @__PURE__ */ new Set([oldInvoice.supplierId, invoice.supplierId]);
+			partyIds.forEach((id) => {
+				const salesTotal = newState.saleInvoices.filter((i) => i.customerId === id).reduce((sum, i) => sum + i.total, 0);
+				const purchasesTotal = newState.purchaseInvoices.filter((i) => i.supplierId === id).reduce((sum, i) => sum + i.total, 0);
+				const paidTotal = newState.payments.filter((p) => p.referenceId === id).reduce((sum, p) => sum + p.amount, 0);
+				newState.customers = newState.customers.map((c) => c.id === id ? {
+					...c,
+					totalInvoices: salesTotal + purchasesTotal,
+					totalPaid: paidTotal
+				} : c);
+				newState.suppliers = newState.suppliers.map((s) => s.id === id ? {
+					...s,
+					totalInvoices: salesTotal + purchasesTotal,
+					totalPaid: paidTotal
+				} : s);
+			});
 			saveToFirebase("purchaseInvoices", invoice.id, invoice);
-			if (updatedSupplier !== null) saveToFirebase("suppliers", updatedSupplier.id, updatedSupplier);
+			changedProducts.forEach((p) => saveToFirebase("products", p.id, p));
+			changedSerials.forEach((s) => saveToFirebase("serials", s.id, s));
+			removedSerialIds.forEach((id) => deleteFromFirebase("serials", id));
+			partyIds.forEach((id) => {
+				const c = newState.customers.find((x) => x.id === id);
+				const s = newState.suppliers.find((x) => x.id === id);
+				if (c) saveToFirebase("customers", c.id, c);
+				if (s) saveToFirebase("suppliers", s.id, s);
+			});
 			return newState;
 		});
 	}, []);
@@ -24707,32 +24998,50 @@ function useStore() {
 				});
 			});
 			const removedSerialIds = [];
+			const changedSerialsAfterPurchaseDelete = [];
 			newState.serials = newState.serials.filter((s) => {
-				if (s.purchaseInvoiceId === invoiceId) {
-					removedSerialIds.push(s.id);
-					return false;
+				if (s.purchaseInvoiceId !== invoiceId) return true;
+				if (s.status === "sold" || s.status === "transferred") {
+					const historical = {
+						...s,
+						purchaseInvoiceId: void 0
+					};
+					changedSerialsAfterPurchaseDelete.push(historical);
+					return true;
 				}
-				return true;
+				removedSerialIds.push(s.id);
+				return false;
 			});
 			let updatedSupplier = null;
+			const purchasePartyId = invoice.supplierId;
+			const purchasePartyInvoiceTotal = newState.purchaseInvoices.filter((i) => i.supplierId === purchasePartyId).reduce((sum, i) => sum + i.total, 0);
+			const purchasePartySalesTotal = newState.saleInvoices.filter((i) => i.customerId === purchasePartyId).reduce((sum, i) => sum + i.total, 0);
+			const purchasePartyPaidTotal = newState.payments.filter((p) => p.referenceId === purchasePartyId).reduce((sum, p) => sum + p.amount, 0);
 			newState.suppliers = newState.suppliers.map((s) => {
-				if (s.id === invoice.supplierId) {
+				if (s.id === purchasePartyId) {
 					const updated = {
 						...s,
-						totalInvoices: Math.max(0, (s.totalInvoices || 0) - invoice.total),
-						totalPaid: Math.max(0, (s.totalPaid || 0) - invoice.paid)
+						totalInvoices: purchasePartyInvoiceTotal + purchasePartySalesTotal,
+						totalPaid: purchasePartyPaidTotal
 					};
 					updatedSupplier = updated;
 					return updated;
 				}
 				return s;
 			});
+			newState.customers = newState.customers.map((c) => c.id === purchasePartyId ? {
+				...c,
+				totalInvoices: purchasePartyInvoiceTotal + purchasePartySalesTotal,
+				totalPaid: purchasePartyPaidTotal
+			} : c);
 			if (invoice.paid > 0) {
 				const treasury = invoice.paymentMethod === "cash" ? "cash" : "bank";
 				newState.cashBalance = treasury === "cash" ? newState.cashBalance + invoice.paid : newState.cashBalance;
 				newState.bankBalance = treasury === "bank" ? newState.bankBalance + invoice.paid : newState.bankBalance;
 			}
+			const removedTreasuryIds = newState.treasuryTransactions.filter((t) => t.referenceId === invoiceId).map((t) => t.id);
 			newState.treasuryTransactions = newState.treasuryTransactions.filter((t) => t.referenceId !== invoiceId);
+			removedTreasuryIds.forEach((id) => deleteFromFirebase("treasuryTransactions", id));
 			newState.payments = newState.payments.filter((p) => p.id !== `paid_${invoiceId}`);
 			deleteFromFirebase("payments", `paid_${invoiceId}`);
 			deleteFromFirebase("purchaseInvoices", invoiceId);
@@ -24740,7 +25049,10 @@ function useStore() {
 				const ss = updatedSupplier;
 				saveToFirebase("suppliers", ss.id, ss);
 			}
+			const updatedCustomerParty = newState.customers.find((c) => c.id === invoice.supplierId);
+			if (updatedCustomerParty) saveToFirebase("customers", updatedCustomerParty.id, updatedCustomerParty);
 			updatedProducts.forEach((p) => saveToFirebase("products", p.id, p));
+			changedSerialsAfterPurchaseDelete.forEach((s) => saveToFirebase("serials", s.id, s));
 			removedSerialIds.forEach((id) => deleteFromFirebase("serials", id));
 			return newState;
 		});
@@ -24752,24 +25064,21 @@ function useStore() {
 				payments: [...prev.payments, payment]
 			};
 			const treasury = payment.paymentMethod === "cash" ? "cash" : "bank";
-			let changedCustomer = null;
-			let changedSupplier = null;
 			const changedSaleInvoices = [];
 			const changedPurchaseInvoices = [];
+			newState.customers = newState.customers.map((c) => c.id === payment.referenceId ? {
+				...c,
+				totalPaid: (c.totalPaid || 0) + payment.amount
+			} : c);
+			newState.suppliers = newState.suppliers.map((s) => s.id === payment.referenceId ? {
+				...s,
+				totalPaid: (s.totalPaid || 0) + payment.amount
+			} : s);
 			if (payment.direction === "in") {
 				newState.cashBalance = treasury === "cash" ? newState.cashBalance + payment.amount : newState.cashBalance;
 				newState.bankBalance = treasury === "bank" ? newState.bankBalance + payment.amount : newState.bankBalance;
 				if (payment.type === "sale") {
-					newState.customers = newState.customers.map((c) => {
-						if (c.id === payment.referenceId) {
-							changedCustomer = {
-								...c,
-								totalPaid: (c.totalPaid || 0) + payment.amount
-							};
-							return changedCustomer;
-						}
-						return c;
-					});
+					newState.customers.find((c) => c.id === payment.referenceId);
 					let remaining = payment.amount;
 					const sortedInvoices = [...newState.saleInvoices].filter((inv) => inv.customerId === payment.referenceId && inv.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
 					const updates = /* @__PURE__ */ new Map();
@@ -24801,16 +25110,7 @@ function useStore() {
 				newState.cashBalance = treasury === "cash" ? newState.cashBalance - payment.amount : newState.cashBalance;
 				newState.bankBalance = treasury === "bank" ? newState.bankBalance - payment.amount : newState.bankBalance;
 				if (payment.type === "purchase") {
-					newState.suppliers = newState.suppliers.map((s) => {
-						if (s.id === payment.referenceId) {
-							changedSupplier = {
-								...s,
-								totalPaid: (s.totalPaid || 0) + payment.amount
-							};
-							return changedSupplier;
-						}
-						return s;
-					});
+					newState.suppliers.find((s) => s.id === payment.referenceId);
 					let remaining = payment.amount;
 					const sortedInvoices = [...newState.purchaseInvoices].filter((inv) => inv.supplierId === payment.referenceId && inv.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
 					const updates = /* @__PURE__ */ new Map();
@@ -24851,14 +25151,10 @@ function useStore() {
 				createdAt: (/* @__PURE__ */ new Date()).toISOString()
 			}];
 			saveToFirebase("payments", payment.id, payment);
-			if (changedCustomer !== null) {
-				const c = changedCustomer;
-				saveToFirebase("customers", c.id, c);
-			}
-			if (changedSupplier !== null) {
-				const s = changedSupplier;
-				saveToFirebase("suppliers", s.id, s);
-			}
+			const partyCustomer = newState.customers.find((c) => c.id === payment.referenceId);
+			const partySupplier = newState.suppliers.find((s) => s.id === payment.referenceId);
+			if (partyCustomer) saveToFirebase("customers", partyCustomer.id, partyCustomer);
+			if (partySupplier) saveToFirebase("suppliers", partySupplier.id, partySupplier);
 			changedSaleInvoices.forEach((inv) => saveToFirebase("saleInvoices", inv.id, inv));
 			changedPurchaseInvoices.forEach((inv) => saveToFirebase("purchaseInvoices", inv.id, inv));
 			return newState;
@@ -25501,16 +25797,22 @@ function useStore() {
 		let fixedSuppliers = 0;
 		setState((prev) => {
 			const newState = { ...prev };
+			const calc = (id) => {
+				const sales = prev.saleInvoices.filter((i) => i.customerId === id);
+				const purchases = prev.purchaseInvoices.filter((i) => i.supplierId === id);
+				const partyPayments = prev.payments.filter((p) => p.referenceId === id);
+				return {
+					totalInvoices: sales.reduce((s, i) => s + i.total, 0) + purchases.reduce((s, i) => s + i.total, 0),
+					totalPaid: partyPayments.reduce((s, p) => s + p.amount, 0)
+				};
+			};
 			newState.customers = prev.customers.map((c) => {
-				const invs = prev.saleInvoices.filter((i) => i.customerId === c.id);
-				const correctTotalInvoices = invs.reduce((s, i) => s + i.total, 0);
-				const correctTotalPaid = invs.reduce((s, i) => s + i.paid, 0);
-				if (correctTotalInvoices !== (c.totalInvoices || 0) || correctTotalPaid !== (c.totalPaid || 0)) {
+				const totals = calc(c.id);
+				if (totals.totalInvoices !== (c.totalInvoices || 0) || totals.totalPaid !== (c.totalPaid || 0)) {
 					fixedCustomers++;
 					const updated = {
 						...c,
-						totalInvoices: correctTotalInvoices,
-						totalPaid: correctTotalPaid
+						...totals
 					};
 					saveToFirebase("customers", updated.id, updated);
 					return updated;
@@ -25518,15 +25820,12 @@ function useStore() {
 				return c;
 			});
 			newState.suppliers = prev.suppliers.map((s) => {
-				const invs = prev.purchaseInvoices.filter((i) => i.supplierId === s.id);
-				const correctTotalInvoices = invs.reduce((sum, i) => sum + i.total, 0);
-				const correctTotalPaid = invs.reduce((sum, i) => sum + i.paid, 0);
-				if (correctTotalInvoices !== (s.totalInvoices || 0) || correctTotalPaid !== (s.totalPaid || 0)) {
+				const totals = calc(s.id);
+				if (totals.totalInvoices !== (s.totalInvoices || 0) || totals.totalPaid !== (s.totalPaid || 0)) {
 					fixedSuppliers++;
 					const updated = {
 						...s,
-						totalInvoices: correctTotalInvoices,
-						totalPaid: correctTotalPaid
+						...totals
 					};
 					saveToFirebase("suppliers", updated.id, updated);
 					return updated;
@@ -25855,6 +26154,7 @@ function ErpApp() {
 			case "customers": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Customers, {
 				customers: state.customers,
 				saleInvoices: state.saleInvoices,
+				purchaseInvoices: state.purchaseInvoices,
 				payments: state.payments,
 				cashBalance: state.cashBalance,
 				bankBalance: state.bankBalance,
@@ -25894,6 +26194,7 @@ function ErpApp() {
 			case "purchases": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Purchases, {
 				purchaseInvoices: state.purchaseInvoices,
 				suppliers: state.suppliers,
+				customers: state.customers,
 				products: state.products,
 				serials: state.serials,
 				brands: state.brands,
@@ -25942,6 +26243,7 @@ function ErpApp() {
 			case "suppliers": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Suppliers, {
 				suppliers: state.suppliers,
 				purchaseInvoices: state.purchaseInvoices,
+				saleInvoices: state.saleInvoices,
 				payments: state.payments,
 				onAddSupplier: store.addSupplier,
 				onUpdateSupplier: store.updateSupplier,

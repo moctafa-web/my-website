@@ -86,7 +86,15 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
 
     // فواتير بيع
     state.saleInvoices.forEach(inv => {
-      if (inv.invoiceNumber.toLowerCase().includes(q) || inv.customerName.toLowerCase().includes(q)) {
+      if (
+        inv.invoiceNumber.toLowerCase().includes(q) ||
+        inv.customerName.toLowerCase().includes(q) ||
+        inv.items.some(item =>
+          item.productName.toLowerCase().includes(q) ||
+          item.sku.toLowerCase().includes(q) ||
+          (item.serials || []).some(s => s.serial.toLowerCase().includes(q) || (s.imei1 || '').toLowerCase().includes(q) || (s.imei2 || '').toLowerCase().includes(q))
+        )
+      ) {
         out.push({
           type: 'saleInvoice', id: inv.id, title: `فاتورة بيع ${inv.invoiceNumber}`,
           subtitle: `${inv.customerName} • ${formatCurrency(inv.total)} • ${inv.date}`,
@@ -97,7 +105,15 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
 
     // فواتير شراء
     state.purchaseInvoices.forEach(inv => {
-      if (inv.invoiceNumber.toLowerCase().includes(q) || inv.supplierName.toLowerCase().includes(q)) {
+      if (
+        inv.invoiceNumber.toLowerCase().includes(q) ||
+        inv.supplierName.toLowerCase().includes(q) ||
+        inv.items.some(item =>
+          item.productName.toLowerCase().includes(q) ||
+          item.sku.toLowerCase().includes(q) ||
+          (item.serials || []).some(s => s.serial.toLowerCase().includes(q) || (s.imei1 || '').toLowerCase().includes(q) || (s.imei2 || '').toLowerCase().includes(q))
+        )
+      ) {
         out.push({
           type: 'purchaseInvoice', id: inv.id, title: `فاتورة شراء ${inv.invoiceNumber}`,
           subtitle: `${inv.supplierName} • ${formatCurrency(inv.total)} • ${inv.date}`,

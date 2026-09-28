@@ -101,6 +101,7 @@ export default function ErpApp() {
           <Customers
             customers={state.customers}
             saleInvoices={state.saleInvoices}
+            purchaseInvoices={state.purchaseInvoices}
             payments={state.payments}
             cashBalance={state.cashBalance}
             bankBalance={state.bankBalance}
@@ -146,6 +147,7 @@ export default function ErpApp() {
           <Purchases
             purchaseInvoices={state.purchaseInvoices}
             suppliers={state.suppliers}
+            customers={state.customers}
             products={state.products}
             serials={state.serials}
             brands={state.brands}
@@ -203,6 +205,7 @@ export default function ErpApp() {
           <Suppliers
             suppliers={state.suppliers}
             purchaseInvoices={state.purchaseInvoices}
+            saleInvoices={state.saleInvoices}
             payments={state.payments}
             onAddSupplier={store.addSupplier}
             onUpdateSupplier={store.updateSupplier}

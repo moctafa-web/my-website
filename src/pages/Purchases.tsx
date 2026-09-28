@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { PurchaseInvoice, Supplier, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
+import { PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 interface Props {
   purchaseInvoices: PurchaseInvoice[];
   suppliers: Supplier[];
+  customers?: Customer[];
   products: Product[];
   serials: SerialItem[];
   brands: Brand[];
@@ -49,7 +50,7 @@ interface PurchItem {
 }
 
 export default function Purchases({
-  purchaseInvoices, suppliers, products, serials, brands, settings,
+  purchaseInvoices, suppliers, customers = [], products, serials, brands, settings,
   onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials,
   onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onCompletePendingPurchase,
   preselectedSupplierId, onPreselectedHandled,
@@ -313,7 +314,7 @@ export default function Purchases({
 
   useEffect(() => {
     if (preselectedSupplierId) {
-      const supplier = suppliers.find(s => s.id === preselectedSupplierId);
+      const supplier = suppliers.find(s => s.id === preselectedSupplierId) || customers.find(c => c.id === preselectedSupplierId);
       if (supplier) {
         setSupplierId(supplier.id);
         setSupplierSearch(supplier.name);
@@ -392,12 +393,24 @@ export default function Purchases({
     );
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const filteredSuppliers = suppliers.filter(s =>
+  // أي شخص يمكن أن نشتري منه، سواء كان مسجلاً كعميل أو كمورد/تاجر.
+  // نستخدم نفس الـ id حتى تظل كل الحركات على كشف حساب واحد.
+  const allParties = [
+    ...suppliers.map(s => ({ ...s, partyType: 'supplier' as const })),
+    ...customers.map(c => ({
+      id: c.id, name: c.name, phone: c.phone, email: c.email, address: c.address,
+      type: 'both' as const, openingBalance: c.openingBalance, totalInvoices: c.totalInvoices,
+      totalPaid: c.totalPaid, notes: c.notes, createdAt: c.createdAt, partyType: 'customer' as const,
+    })),
+  ];
+
+  const selectedSupplier = allParties.find(s => s.id === supplierId);
+  const filteredSuppliers = allParties.filter(s =>
     s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
     (s.phone || '').includes(supplierSearch)
   );
 
-  const filteredSuppliersForComplete = suppliers.filter(s =>
+  const filteredSuppliersForComplete = allParties.filter(s =>
     s.name.toLowerCase().includes(completePendingForm.supplierSearch.toLowerCase()) ||
     (s.phone || '').includes(completePendingForm.supplierSearch)
   );
@@ -429,7 +442,7 @@ export default function Purchases({
       }
     }
     if (existingSerialsSet.has(normalized)) {
-      const existingSerial = serials.find(s => s.serial.trim().toLowerCase() === normalized);
+      const existingSerial = [...serials].reverse().find(s => s.serial.trim().toLowerCase() === normalized);
       const wasInThisInvoice = editingInvoice?.items.some(it =>
         it.serials?.some(s => s.serial.trim().toLowerCase() === normalized)
       );
@@ -604,8 +617,6 @@ export default function Purchases({
       (p.upc || '').includes(q)
     ).slice(0, 10);
   };
-
-  const selectedSupplier = suppliers.find(s => s.id === supplierId);
 
   const validatePurchaseItems = (): string | null => {
     for (const item of purchItems) {

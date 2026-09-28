@@ -61,6 +61,24 @@ export const calculateSupplierBalance = (purchaseInvoices: AppState['purchaseInv
 
 export const getSupplierBalance = (state: AppState, supplier: Pick<Supplier, 'id' | 'openingBalance'>): number => calculateSupplierBalance(state.purchaseInvoices, supplier);
 
+
+export const calculatePartyBalance = (
+  state: Pick<AppState, 'saleInvoices' | 'purchaseInvoices' | 'payments'>,
+  party: Pick<Customer | Supplier, 'id' | 'openingBalance'>
+): number => {
+  const sales = state.saleInvoices.filter(i => i.customerId === party.id);
+  const purchases = state.purchaseInvoices.filter(i => i.supplierId === party.id);
+  const payments = state.payments.filter(p => p.referenceId === party.id);
+  return (party.openingBalance || 0)
+    + sum(sales.map(i => i.total))
+    - sum(purchases.map(i => i.total))
+    - sum(payments.filter(p => p.direction === 'in').map(p => p.amount))
+    + sum(payments.filter(p => p.direction === 'out').map(p => p.amount));
+};
+
+export const getPartyBalance = (state: AppState, party: Pick<Customer | Supplier, 'id' | 'openingBalance'>): number =>
+  calculatePartyBalance(state, party);
+
 export const getPartyBalances = (state: AppState): BalanceSnapshot => {
   const customersOwing = state.customers
     .map(customer => ({

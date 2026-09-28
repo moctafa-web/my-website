@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Supplier, PurchaseInvoice, Payment } from '../types';
+import { Supplier, PurchaseInvoice, SaleInvoice, Payment } from '../types';
 import { formatCurrency, generateId, getTodayStr, printElement } from '../utils/helpers';
-import { calculateSupplierBalance } from '../store/domains/accounting.store';
+import { calculatePartyBalance } from '../store/domains/accounting.store';
 import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar, Upload, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
@@ -9,6 +9,7 @@ import ViewToggle, { useViewMode } from '../components/ViewToggle';
 interface Props {
   suppliers: Supplier[];
   purchaseInvoices: PurchaseInvoice[];
+  saleInvoices: SaleInvoice[];
   payments: Payment[];
   onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onUpdateSupplier: (s: Supplier) => void;
@@ -21,7 +22,7 @@ interface Props {
   onPreselectedStatementHandled?: () => void;
 }
 
-export default function Suppliers({ suppliers, purchaseInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }: Props) {
+export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }: Props) {
   const [viewMode, setViewMode] = useViewMode('suppliers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -31,6 +32,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
   const [confirmDelete, setConfirmDelete] = useState<Supplier | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank'>('cash');
+  const [paymentDirection, setPaymentDirection] = useState<'out' | 'in'>('out');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', type: 'supplier' as Supplier['type'], notes: '', openingBalance: 0 });
@@ -64,15 +66,16 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
   );
 
   const getSupplierInvoices = (id: string) => purchaseInvoices.filter(i => i.supplierId === id);
-  const getSupplierPayments = (id: string) => payments.filter(p => p.type === 'purchase' && p.referenceId === id);
+  const getSupplierPayments = (id: string) => payments.filter(p => p.referenceId === id);
+  const getSupplierSales = (id: string) => saleInvoices.filter(i => i.customerId === id);
 
-  const getBalance = (s: Supplier) => calculateSupplierBalance(purchaseInvoices, s);
+  const getBalance = (s: Supplier) => calculatePartyBalance({ saleInvoices, purchaseInvoices, payments }, s);
 
   // ✅ لو الرصيد موجب: لسه إحنا مديونين للمورد (متبقي له عندنا)
   // ✅ لو الرصيد سالب: يبقى دفعنا له أكتر من المستحق (متبقي عليه هو - فرق حساب لصالحنا)
   const balanceLabel = (balance: number): { text: string; amount: number; colorClass: string; bgClass: string } => {
-    if (balance > 0) return { text: 'متبقي له', amount: balance, colorClass: 'text-red-400', bgClass: 'bg-red-900/20' };
-    if (balance < 0) return { text: 'متبقي عليه (فرق حساب)', amount: Math.abs(balance), colorClass: 'text-green-400', bgClass: 'bg-green-900/20' };
+    if (balance > 0) return { text: 'مستحق لنا', amount: balance, colorClass: 'text-red-400', bgClass: 'bg-red-900/20' };
+    if (balance < 0) return { text: 'مستحق له', amount: Math.abs(balance), colorClass: 'text-green-400', bgClass: 'bg-green-900/20' };
     return { text: 'متطابق', amount: 0, colorClass: 'text-gray-400', bgClass: 'bg-white/5' };
   };
 
@@ -80,10 +83,19 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
   // مع إمكانية فلترة فترة زمنية محددة (من-إلى) لعرض/طباعة جزء من الحساب فقط
   const getFullStatementRows = (s: Supplier) => {
     const invs = getSupplierInvoices(s.id);
+    const sales = getSupplierSales(s.id);
     const pmts = getSupplierPayments(s.id);
     const rows = [
-      ...invs.map(inv => ({ date: inv.date, desc: `فاتورة ${inv.invoiceNumber}`, debit: inv.total, credit: 0, type: 'invoice' as const, ref: inv })),
-      ...pmts.map(p => ({ date: p.date, desc: `دفعة - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}${p.notes ? ' - ' + p.notes : ''}`, debit: 0, credit: p.amount, type: 'payment' as const, ref: p })),
+      ...sales.map(inv => ({ date: inv.date, desc: `فاتورة بيع ${inv.invoiceNumber}`, debit: inv.total, credit: 0, type: 'invoice' as const, ref: inv })),
+      ...invs.map(inv => ({ date: inv.date, desc: `فاتورة شراء ${inv.invoiceNumber}`, debit: 0, credit: inv.total, type: 'invoice' as const, ref: inv as any })),
+      ...pmts.map(p => ({
+        date: p.date,
+        desc: `${p.direction === 'in' ? 'دفعة واردة' : 'دفعة خارجة'} - ${p.paymentMethod === 'cash' ? 'كاش' : 'بنك'}${p.notes ? ' - ' + p.notes : ''}`,
+        debit: p.direction === 'out' ? p.amount : 0,
+        credit: p.direction === 'in' ? p.amount : 0,
+        type: 'payment' as const,
+        ref: p
+      })),
     ].sort((a, b) => a.date.localeCompare(b.date));
     let running = s.openingBalance;
     const withRunning = rows.map(r => {
@@ -201,7 +213,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       referenceName: showPayment.name,
       amount: parseFloat(paymentAmount),
       paymentMethod,
-      direction: 'out',
+      direction: paymentDirection,
       date: paymentDate || getTodayStr(),
       notes: paymentNotes,
       createdAt: new Date().toISOString(),
@@ -608,7 +620,11 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
       {showPayment && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm">
-            <h3 className="font-bold text-white mb-1">💰 دفع للمورد</h3>
+            <h3 className="font-bold text-white mb-1">💰 حركة مالية</h3>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button onClick={() => setPaymentDirection('out')} className={`py-2 rounded-xl border text-sm ${paymentDirection === 'out' ? 'bg-red-700/30 border-red-500/50 text-red-300' : 'border-white/10 text-gray-400'}`}>➡️ دفع له</button>
+              <button onClick={() => setPaymentDirection('in')} className={`py-2 rounded-xl border text-sm ${paymentDirection === 'in' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>⬅️ استلام منه</button>
+            </div>
             <p className="text-gray-400 text-sm mb-4">{showPayment.name} • {balanceLabel(getBalance(showPayment)).text}: {formatCurrency(balanceLabel(getBalance(showPayment)).amount)}</p>
             <div className="space-y-3">
               <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="input-dark w-full" placeholder="المبلغ" />
@@ -624,7 +640,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, payments, onAdd
               <input type="text" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} className="input-dark w-full" placeholder="ملاحظات" />
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={handlePayment} className="btn-primary flex-1">✅ تأكيد الدفع</button>
+              <button onClick={handlePayment} className="btn-primary flex-1">✅ تأكيد الحركة</button>
               <button onClick={() => setShowPayment(null)} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>

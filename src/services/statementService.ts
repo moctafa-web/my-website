@@ -1,4 +1,4 @@
-import { Customer, SaleInvoice, Payment, AccountStatement, StatementRow } from '../types';
+import { Customer, Supplier, SaleInvoice, PurchaseInvoice, Payment, AccountStatement, StatementRow } from '../types';
 
 export const StatementService = {
   /**
@@ -190,4 +190,107 @@ export const StatementService = {
 متوسط فترة الدفع: ${statement.summary.averagePaymentDays} أيام
     `;
   },
+
+  /**
+   * كشف حساب موحّد لأي طرف: بيع + شراء + قبض + دفع.
+   * موجب = مستحق لنا، سالب = مستحق للطرف.
+   */
+  calculatePartyStatement(
+    party: Customer | Supplier,
+    saleInvoices: SaleInvoice[],
+    purchaseInvoices: PurchaseInvoice[],
+    payments: Payment[],
+    startDate: string = '',
+    endDate: string = ''
+  ): AccountStatement {
+    const sales = saleInvoices.filter(inv => inv.customerId === party.id);
+    const purchases = purchaseInvoices.filter(inv => inv.supplierId === party.id);
+    const partyPayments = payments.filter(p => p.referenceId === party.id);
+
+    const rows: StatementRow[] = [
+      ...sales.map(inv => ({
+        date: inv.date,
+        desc: `فاتورة بيع ${inv.invoiceNumber}`,
+        debit: inv.total,
+        credit: 0,
+        type: 'invoice' as const,
+        ref: inv,
+        runningBalance: 0,
+      })),
+      ...purchases.map(inv => ({
+        date: inv.date,
+        desc: `فاتورة شراء ${inv.invoiceNumber}`,
+        debit: 0,
+        credit: inv.total,
+        type: 'invoice' as const,
+        ref: inv as any,
+        runningBalance: 0,
+      })),
+      ...partyPayments.map(p => ({
+        date: p.date,
+        desc: `${p.direction === 'in' ? 'دفعة واردة' : 'دفعة خارجة'} (${this.getPaymentMethodLabel(p.paymentMethod)})${p.notes ? ' - ' + p.notes : ''}`,
+        debit: p.direction === 'out' ? p.amount : 0,
+        credit: p.direction === 'in' ? p.amount : 0,
+        type: 'payment' as const,
+        ref: p,
+        runningBalance: 0,
+      })),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
+    // نحسب الرصيد الكامل أولًا، ثم نحدد رصيد ما قبل بداية الفترة.
+    // بذلك لا يبدأ كشف الفترة من الرصيد الافتتاحي الأصلي إذا كانت هناك
+    // حركات أقدم من تاريخ البداية.
+    let runningBalance = party.openingBalance || 0;
+    rows.forEach(row => {
+      runningBalance += row.debit - row.credit;
+      row.runningBalance = runningBalance;
+    });
+
+    const filteredRows = (startDate || endDate)
+      ? rows.filter(r => (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate))
+      : rows;
+
+    const openingForPeriod = startDate
+      ? rows.filter(r => r.date < startDate).reduce(
+          (balance, r) => balance + r.debit - r.credit,
+          party.openingBalance || 0
+        )
+      : (party.openingBalance || 0);
+
+    // إعادة حساب الرصيد الجاري داخل الفترة من رصيد ما قبل الفترة.
+    let periodRunning = openingForPeriod;
+    filteredRows.forEach(row => {
+      periodRunning += row.debit - row.credit;
+      row.runningBalance = periodRunning;
+    });
+
+    const totalDebit = filteredRows.reduce((s, r) => s + r.debit, 0);
+    const totalCredit = filteredRows.reduce((s, r) => s + r.credit, 0);
+    const closingBalance = filteredRows.length
+      ? filteredRows[filteredRows.length - 1].runningBalance
+      : openingForPeriod;
+
+    return {
+      customerId: party.id,
+      customerName: party.name,
+      customerType: 'individual',
+      startDate: startDate || '2020-01-01',
+      endDate: endDate || new Date().toISOString().split('T')[0],
+      openingBalance: openingForPeriod,
+      closingBalance,
+      rows: filteredRows,
+      summary: {
+        totalInvoices: sales.length + purchases.length,
+        totalPaid: partyPayments.reduce((s, p) => s + (p.direction === 'in' ? p.amount : 0), 0),
+        totalPending: sales.reduce((s, i) => s + i.remaining, 0) + purchases.reduce((s, i) => s + i.remaining, 0),
+        totalDebit,
+        totalCredit,
+        averagePaymentDays: 0,
+        paymentPercentage: 0,
+        pendingInvoicesCount: [...sales, ...purchases].filter(i => i.status !== 'paid').length,
+        largestInvoice: Math.max(0, ...[...sales, ...purchases].map(i => i.total)),
+      },
+    };
+  },
+
 };
