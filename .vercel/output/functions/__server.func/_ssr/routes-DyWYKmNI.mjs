@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-DPxM_oPL.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-DyWYKmNI.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -12910,7 +12910,7 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 	const [countedSerials, setCountedSerials] = (0, import_react.useState)(/* @__PURE__ */ new Set());
 	const currentWeek = getWeekNumber();
 	const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
-	useEffect(() => setVisibleCounts(weeklyInventoryCounts || []), [weeklyInventoryCounts]);
+	(0, import_react.useEffect)(() => setVisibleCounts(weeklyInventoryCounts || []), [weeklyInventoryCounts]);
 	const refreshCounts = async () => {
 		setRefreshing(true);
 		try {
@@ -12923,7 +12923,7 @@ function PhysicalInventoryCount({ products, serials, weeklyInventoryCounts, onAd
 			setRefreshing(false);
 		}
 	};
-	useEffect(() => {
+	(0, import_react.useEffect)(() => {
 		if (viewMode !== "list") return;
 		refreshCounts();
 		const timer = window.setInterval(() => {

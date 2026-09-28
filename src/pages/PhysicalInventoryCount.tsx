@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Product, SerialItem, WeeklyInventoryCount, InventoryCountLine } from '../types';
 import { getTodayStr } from '../utils/helpers';
 import { makeInventoryCountId } from '../store/domains/id.store';
