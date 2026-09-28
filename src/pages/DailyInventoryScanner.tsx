@@ -1,32 +1,185 @@
-import React, { useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardCheck, FileSpreadsheet, Printer, Save, ScanLine, Trash2, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, ClipboardCheck, FileSpreadsheet, Printer, RefreshCw, Save, ScanLine, Trash2, XCircle } from 'lucide-react';
 import { Product, SerialItem, DailyInventoryScan, DailyInventoryScanLine } from '../types';
-type ScanFeedback = { id: number; type: 'success' | 'error'; message: string };
 import { generateId, getTodayStr } from '../utils/helpers';
 import * as XLSX from 'xlsx';
+import { loadCollection } from '../services/firebasePersistence';
 
-interface Props { products: Product[]; serials: SerialItem[]; sessions: DailyInventoryScan[]; onAddSession:(s:DailyInventoryScan)=>void; onUpdateSession:(s:DailyInventoryScan)=>void; }
-export default function DailyInventoryScanner({products,serials,sessions,onAddSession,onUpdateSession}:Props){
- const [session,setSession]=useState<DailyInventoryScan|null>(null); const [showReport,setShowReport]=useState(false); const [feedback,setFeedback]=useState<ScanFeedback|null>(null); const [manual,setManual]=useState('');
- const [date,setDate]=useState(getTodayStr()); const [scannerInput,setScannerInput]=useState('');
- const start=()=>{setSession({id:`daily-count-${generateId()}`,date,status:'draft',lines:[],startedAt:new Date().toISOString()});setDate(getTodayStr())};
- const processCode=(raw:string)=>{const code=raw.trim(); if(!code)return; const norm=code.toLowerCase(); const hit=serials.find(s=>[s.serial,s.imei1,s.imei2].filter(Boolean).some(v=>String(v).toLowerCase()===norm)); const duplicate=session?.lines.some(l=>l.code.toLowerCase()===norm || (!!hit?.id && l.serialId===hit.id)); let line:DailyInventoryScanLine;
-   if(duplicate) line={id:generateId(),code,productName:hit?.productName||'غير معروف',serialId:hit?.id,productId:hit?.productId,result:'duplicate',countedAt:new Date().toISOString(),note:'تم تسجيل نفس الجهاز/القراءة من قبل'};
-   else if(hit && hit.status==='available') line={id:generateId(),code,productName:hit.productName,serialId:hit.id,productId:hit.productId,result:'matched',countedAt:new Date().toISOString(),serial:hit.serial};
-   else if(hit) line={id:generateId(),code,productName:hit.productName,serialId:hit.id,productId:hit.productId,result:'not-available',countedAt:new Date().toISOString(),serial:hit.serial,note:`الحالة الحالية: ${hit.status}`};
-   else line={id:generateId(),code,productName:'غير معروف',result:'unknown',countedAt:new Date().toISOString(),note:'لا يوجد سيريال/IMEI مطابق في النظام'};
-   if(session){setSession({...session,lines:[...session.lines,line]});setFeedback({id:Date.now(),type:line.result==='matched'?'success':'error',message:line.result==='matched'?`✓ ${line.productName} تم تسجيله`:line.result==='duplicate'?'⚠️ الجهاز اتجرد قبل كده':'⚠️ '+(line.note||'السيريال غير موجود')});}
- };
- const importExcel=async(file:File)=>{try{if(!session)return; const data=await file.arrayBuffer(); const wb=XLSX.read(data,{type:'array',raw:false}); const ws=wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json<Record<string,unknown>>(ws,{defval:''}); if(!rows.length)return; const headers=Object.keys(rows[0]); const key=headers.find(h=>/^(serial|serial number|s.?n|imei|imei number|code|barcode|سيريال|السيريال|imei|باركود)$/i.test(h.trim()))||headers.find(h=>/(serial|imei|barcode|سيريال|باركود)/i.test(h)); const values:string[]=[]; for(const row of rows){const raw=key?row[key]:Object.values(row).find(v=>String(v??'').trim()); const parts=String(raw??'').split(/[\n,;\t]+/).map(v=>v.trim()).filter(Boolean); values.push(...parts);} if(!values.length)return; let nextLines=[...session.lines]; let lastFeedback:ScanFeedback|null=null; for(const value of values){const code=value.trim(); if(!code)continue; const norm=code.toLowerCase(); const hit=serials.find(x=>[x.serial,x.imei1,x.imei2].filter(Boolean).some(v=>String(v).toLowerCase()===norm)); const duplicate=nextLines.some(l=>l.code.toLowerCase()===norm || (!!hit?.id && l.serialId===hit.id)); let line:DailyInventoryScanLine; if(duplicate)line={id:generateId(),code,productName:hit?.productName||'غير معروف',serialId:hit?.id,productId:hit?.productId,result:'duplicate',countedAt:new Date().toISOString(),note:'تم تسجيل نفس الجهاز/القراءة من قبل'}; else if(hit&&hit.status==='available')line={id:generateId(),code,productName:hit.productName,serialId:hit.id,productId:hit.productId,result:'matched',countedAt:new Date().toISOString(),serial:hit.serial}; else if(hit)line={id:generateId(),code,productName:hit.productName,serialId:hit.id,productId:hit.productId,result:'not-available',countedAt:new Date().toISOString(),serial:hit.serial,note:`الحالة الحالية: ${hit.status}`}; else line={id:generateId(),code,productName:'غير معروف',result:'unknown',countedAt:new Date().toISOString(),note:'لا يوجد سيريال/IMEI مطابق في النظام'}; nextLines.push(line); lastFeedback={id:Date.now(),type:line.result==='matched'?'success':'error',message:line.result==='matched'?`✓ ${line.productName} تم تسجيله`:line.result==='duplicate'?'⚠️ الجهاز اتجرد قبل كده':'⚠️ '+(line.note||'السيريال غير موجود')}; } setSession({...session,lines:nextLines}); if(lastFeedback)setFeedback(lastFeedback); }catch(e){console.error('Excel import failed',e); setFeedback({id:Date.now(),type:'error',message:'⚠️ تعذر قراءة ملف Excel'});} };
- const deleteLine=(id:string)=>{if(!session)return; setSession({...session,lines:session.lines.filter(l=>l.id!==id)});};
- const save=()=>{if(!session)return; const completed={...session,date,status:'completed' as const,completedAt:new Date().toISOString()}; onAddSession(completed); setSession(completed); setShowReport(true);};
- const printReport=()=>window.print();
- const scannedIds=new Set(session?.lines.map(l=>l.serialId).filter(Boolean) as string[]);
- const expectedSerials=serials.filter(s=>s.status==='available');
- const missingSerials=expectedSerials.filter(s=>!scannedIds.has(s.id));
- const extraLines=session?.lines.filter(l=>l.result==='unknown'||l.result==='not-available')||[];
- const summary=useMemo(()=>({matched:session?.lines.filter(x=>x.result==='matched').length||0,issues:session?.lines.filter(x=>x.result!=='matched').length||0,total:session?.lines.length||0}),[session]);
- return <div className="space-y-4"><div><h2 className="text-lg font-bold text-white">جرد يومي بالسكانر</h2><p className="text-xs text-muted mt-1">امسح كل Serial/IMEI، والنظام يسجل المطابق والمكرر والمفقود فورًا.</p></div>
- {!session ? <><div className="card p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"><div><div className="font-bold">ابدأ جلسة جرد اليوم</div><div className="text-xs text-muted mt-1">الجلسة تحفظ في Firebase ويمكن الرجوع لها لاحقًا.</div></div><button onClick={start} className="btn-primary flex items-center gap-2"><ScanLine size={16}/> بدء الجرد</button></div><div className="card overflow-hidden"><div className="p-3 border-b border-border font-bold">آخر جلسات الجرد</div>{sessions.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10).map(s=><div key={s.id} className="p-3 border-b border-border/60 flex items-center justify-between"><div><div className="font-medium">{s.date}</div><div className="text-xs text-muted">{s.lines.filter(l=>l.result==='matched').length} مطابق • {s.lines.filter(l=>l.result!=='matched').length} مشكلة</div></div><span className="text-xs text-muted">{s.status==='completed'?'مكتمل':'مسودة'}</span></div>)}{!sessions.length&&<div className="p-8 text-center text-muted">لا يوجد جرد يومي سابق.</div>}</div></> : <div className="space-y-4"><div className="grid grid-cols-3 gap-2"><div className="card p-3"><div className="text-xs text-muted">تم جرده</div><div className="text-xl font-bold text-emerald-300">{summary.matched}</div></div><div className="card p-3"><div className="text-xs text-muted">مشاكل</div><div className="text-xl font-bold text-red-300">{summary.issues}</div></div><div className="card p-3"><div className="text-xs text-muted">الإجمالي</div><div className="text-xl font-bold">{summary.total}</div></div></div><div className="card p-4 flex flex-col md:flex-row gap-2"><div className="card p-3 flex-1 border border-emerald-700/30"><div className="text-sm font-bold">🔗 السكانر اللاسلكي</div><div className="text-xs text-muted mt-1">وصل Deli S228W بالموبايل أو اللابتوب، واضغط داخل الخانة مرة واحدة. السكانر سيكتب الكود ويضغط Enter تلقائيًا.</div><input autoFocus value={scannerInput} onChange={e=>setScannerInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();processCode(scannerInput);setScannerInput('')}}} placeholder="جاهز لاستقبال Serial / IMEI من السكانر..." className="input-dark mt-2 w-full"/></div><label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer"><FileSpreadsheet size={18}/> استيراد Excel<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importExcel(f);e.currentTarget.value=""}}/></label><input value={manual} onChange={e=>setManual(e.target.value)} placeholder="إدخال يدوي اختياري Serial / IMEI" className="input-dark flex-1" onKeyDown={e=>{if(e.key==='Enter'){processCode(manual);setManual('')}}}/><button onClick={save} className="btn-secondary flex items-center gap-2"><Save size={16}/> حفظ الجرد</button></div>{showReport && <div className="print-area card p-4 border border-violet-700/40"><div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-lg">تقرير نتيجة الجرد اليومي</h3><div className="text-xs text-muted mt-1">{date} • إجمالي السيريالات المتاحة بالنظام: {expectedSerials.length}</div></div><button onClick={printReport} className="btn-primary flex items-center gap-2 print:hidden"><Printer size={16}/> طباعة التقرير</button></div><div className="grid grid-cols-3 gap-2 mt-4"><div className="p-3 rounded-lg bg-emerald-900/20"><div className="text-emerald-300 font-bold">{expectedSerials.length-missingSerials.length}</div><div className="text-xs text-muted">مطابق</div></div><div className="p-3 rounded-lg bg-red-900/20"><div className="text-red-300 font-bold">{missingSerials.length}</div><div className="text-xs text-muted">ناقص / لم يتم جرده</div></div><div className="p-3 rounded-lg bg-orange-900/20"><div className="text-orange-300 font-bold">{extraLines.length}</div><div className="text-xs text-muted">زيادة / غير موجود بالنظام</div></div></div><div className="mt-4"><h4 className="font-bold mb-2">المطابق</h4>{session.lines.filter(l=>l.result==='matched').length?<div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border"><th className="p-2 text-right">المنتج</th><th className="p-2 text-right">Serial</th><th className="p-2 text-right">الكود الممسوح</th><th className="p-2 text-right">الحالة</th></tr></thead><tbody>{session.lines.filter(l=>l.result==='matched').map(l=><tr key={l.id} className="border-b border-border/50"><td className="p-2">{l.productName}</td><td className="p-2 font-mono">{l.serial||'-'}</td><td className="p-2 font-mono">{l.code}</td><td className="p-2 text-emerald-300">مطابق</td></tr>)}</tbody></table></div>:<div className="text-sm">لا توجد قراءات مطابقة.</div>}</div><div className="mt-4"><h4 className="font-bold mb-2">المفقود من الجرد</h4>{missingSerials.length?<div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border"><th className="p-2 text-right">المنتج</th><th className="p-2 text-right">Serial</th><th className="p-2 text-right">IMEI1</th><th className="p-2 text-right">IMEI2</th></tr></thead><tbody>{missingSerials.map(s=><tr key={s.id} className="border-b border-border/50"><td className="p-2">{s.productName}</td><td className="p-2 font-mono">{s.serial||'-'}</td><td className="p-2 font-mono">{s.imei1||'-'}</td><td className="p-2 font-mono">{s.imei2||'-'}</td></tr>)}</tbody></table></div>:<div className="text-emerald-300 text-sm">لا يوجد سيريال ناقص — كل السيريالات المتاحة تم جردها.</div>}</div><div className="mt-4"><h4 className="font-bold mb-2">الزيادة / الأكواد غير الموجودة في النظام</h4>{extraLines.length?<div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border"><th className="p-2 text-right">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2 text-right">البيان</th></tr></thead><tbody>{extraLines.map(l=><tr key={l.id} className="border-b border-border/50"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2 text-orange-300">{l.note||'غير موجود بالنظام'}</td></tr>)}</tbody></table></div>:<div className="text-emerald-300 text-sm">لا توجد زيادة أو أكواد غير معروفة.</div>}</div></div>}<div className="card overflow-hidden"><div className="p-3 border-b border-border font-bold flex items-center gap-2"><ClipboardCheck size={16}/> قراءات الجلسة</div><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-muted"><th className="p-3 text-right">الكود</th><th className="p-3 text-right">المنتج</th><th className="p-3 text-center">النتيجة</th><th className="p-3 text-right">الوقت</th><th className="p-3 text-center">حذف</th></tr></thead><tbody>{session.lines.slice().reverse().map(l=><tr key={l.id} className="border-b border-border/60"><td className="p-3 font-mono">{l.code}</td><td className="p-3">{l.productName}</td><td className="p-3 text-center">{l.result==='matched'?<span className="text-emerald-300 flex items-center justify-center gap-1"><CheckCircle2 size={15}/> مطابق</span>:l.result==='duplicate'?<span className="text-orange-300 flex items-center justify-center gap-1"><Trash2 size={15}/> مكرر</span>:<span className="text-red-300 flex items-center justify-center gap-1"><XCircle size={15}/> {l.result==='unknown'?'غير معروف':'غير متاح'}</span>}</td><td className="p-3 text-xs text-muted">{new Date(l.countedAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})}</td><td className="p-3 text-center"><button title="حذف قراءة الجرد فقط" onClick={()=>deleteLine(l.id)} className="text-red-300 hover:text-red-200 p-1"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div></div></div>}
- </div>
+type ScanFeedback = { id: number; type: 'success' | 'error'; message: string };
+
+interface Props {
+  products: Product[];
+  serials: SerialItem[];
+  sessions: DailyInventoryScan[];
+  onAddSession: (s: DailyInventoryScan) => void;
+  onUpdateSession: (s: DailyInventoryScan) => void;
+}
+
+const classifyLine = (code: string, serials: SerialItem[], existingLines: DailyInventoryScanLine[]): DailyInventoryScanLine => {
+  const norm = code.trim().toLowerCase();
+  const hit = serials.find(s => [s.serial, s.imei1, s.imei2].filter(Boolean).some(v => String(v).toLowerCase() === norm));
+  const duplicate = existingLines.some(l => l.code.toLowerCase() === norm || (!!hit?.id && l.serialId === hit.id));
+
+  if (duplicate) return { id: generateId(), code, productName: hit?.productName || 'غير معروف', serialId: hit?.id, productId: hit?.productId, result: 'duplicate', countedAt: new Date().toISOString(), serial: hit?.serial, note: 'تم تسجيل نفس الجهاز/القراءة من قبل' };
+  if (hit && hit.status === 'available') return { id: generateId(), code, productName: hit.productName, serialId: hit.id, productId: hit.productId, result: 'matched', countedAt: new Date().toISOString(), serial: hit.serial };
+  if (hit) return { id: generateId(), code, productName: hit.productName, serialId: hit.id, productId: hit.productId, result: 'not-available', countedAt: new Date().toISOString(), serial: hit.serial, note: `الحالة الحالية: ${hit.status}` };
+  return { id: generateId(), code, productName: 'غير معروف', result: 'unknown', countedAt: new Date().toISOString(), note: 'لا يوجد سيريال/IMEI مطابق في النظام' };
+};
+
+export default function DailyInventoryScanner({ products: _products, serials, sessions, onAddSession, onUpdateSession }: Props) {
+  const [session, setSession] = useState<DailyInventoryScan | null>(null);
+  const [visibleSessions, setVisibleSessions] = useState<DailyInventoryScan[]>(sessions || []);
+  const [showReport, setShowReport] = useState(false);
+  const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
+  const [manual, setManual] = useState('');
+  const [scannerInput, setScannerInput] = useState('');
+  const [date, setDate] = useState(getTodayStr());
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => setVisibleSessions(sessions || []), [sessions]);
+
+  const refreshSessions = async () => {
+    setRefreshing(true);
+    try {
+      const fresh = await loadCollection<DailyInventoryScan>('dailyInventoryScans');
+      fresh.sort((a, b) => `${b.date}-${b.completedAt || b.startedAt || ''}`.localeCompare(`${a.date}-${a.completedAt || a.startedAt || ''}`));
+      setVisibleSessions(fresh);
+    } catch (error) {
+      console.error('[Firebase] refresh daily inventory scans failed:', error);
+      setFeedback({ id: Date.now(), type: 'error', message: '⚠️ تعذر تحديث جلسات الجرد من Firebase' });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (session) return;
+    void refreshSessions();
+    const timer = window.setInterval(() => { void refreshSessions(); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [session]);
+
+  const start = () => {
+    const freshDate = getTodayStr();
+    setSession({ id: `daily-count-${generateId()}`, date: freshDate, status: 'draft', lines: [], startedAt: new Date().toISOString() });
+    setDate(freshDate);
+    setShowReport(false);
+    setFeedback(null);
+    setScannerInput('');
+  };
+
+  const openSession = (saved: DailyInventoryScan) => {
+    setSession({ ...saved, lines: [...(saved.lines || [])] });
+    setDate(saved.date);
+    setShowReport(true);
+    setFeedback(null);
+    setScannerInput('');
+  };
+
+  const processCode = (raw: string) => {
+    const code = raw.trim();
+    if (!code || !session) return;
+    const line = classifyLine(code, serials, session.lines);
+    const next = { ...session, lines: [...session.lines, line], status: session.status === 'completed' ? 'draft' as const : session.status };
+    setSession(next);
+    setShowReport(false);
+    setFeedback({
+      id: Date.now(),
+      type: line.result === 'matched' ? 'success' : 'error',
+      message: line.result === 'matched' ? `✓ ${line.productName} تم تسجيله` : line.result === 'duplicate' ? '⚠️ الجهاز اتجرد قبل كده' : `⚠️ ${line.note || 'السيريال غير موجود'}`,
+    });
+  };
+
+  const importExcel = async (file: File) => {
+    try {
+      if (!session) return;
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array', raw: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+      if (!rows.length) return;
+      const headers = Object.keys(rows[0]);
+      const key = headers.find(h => /^(serial|serial number|s.?n|imei|imei number|code|barcode|سيريال|السيريال|باركود)$/i.test(h.trim()))
+        || headers.find(h => /(serial|imei|barcode|سيريال|باركود)/i.test(h));
+      const values: string[] = [];
+      for (const row of rows) {
+        const raw = key ? row[key] : Object.values(row).find(v => String(v ?? '').trim());
+        values.push(...String(raw ?? '').split(/[\n,;\t]+/).map(v => v.trim()).filter(Boolean));
+      }
+      let nextLines = [...session.lines];
+      for (const value of values) nextLines.push(classifyLine(value, serials, nextLines));
+      const next = { ...session, lines: nextLines, status: session.status === 'completed' ? 'draft' as const : session.status };
+      setSession(next);
+      setShowReport(false);
+      if (values.length) setFeedback({ id: Date.now(), type: 'success', message: `✓ تم استيراد ${values.length} قراءة من Excel` });
+    } catch (error) {
+      console.error('Excel import failed', error);
+      setFeedback({ id: Date.now(), type: 'error', message: '⚠️ تعذر قراءة ملف Excel' });
+    }
+  };
+
+  const deleteLine = (id: string) => {
+    if (!session) return;
+    setSession({ ...session, lines: session.lines.filter(l => l.id !== id), status: 'draft' });
+    setShowReport(false);
+  };
+
+  const save = async () => {
+    if (!session) return;
+    const completed: DailyInventoryScan = { ...session, date, status: 'completed', completedAt: new Date().toISOString() };
+    if ((visibleSessions || []).some(s => s.id === completed.id)) onUpdateSession(completed);
+    else onAddSession(completed);
+    setSession(completed);
+    setVisibleSessions(prev => [completed, ...prev.filter(s => s.id !== completed.id)]);
+    setShowReport(true);
+    setFeedback({ id: Date.now(), type: 'success', message: '✓ تم حفظ الجرد في Firebase ويمكن فتحه من أي جهاز' });
+  };
+
+  const closeSession = () => {
+    setSession(null);
+    setShowReport(false);
+    setFeedback(null);
+    setScannerInput('');
+    void refreshSessions();
+  };
+
+  const scannedIds = new Set((session?.lines || []).map(l => l.serialId).filter(Boolean) as string[]);
+  const expectedSerials = serials.filter(s => s.status === 'available');
+  const missingSerials = expectedSerials.filter(s => !scannedIds.has(s.id));
+  const matchedLines = (session?.lines || []).filter(l => l.result === 'matched');
+  const extraLines = (session?.lines || []).filter(l => l.result === 'unknown' || l.result === 'not-available');
+  const duplicateLines = (session?.lines || []).filter(l => l.result === 'duplicate');
+  const uniqueMatchedIds = new Set(matchedLines.map(l => l.serialId).filter(Boolean));
+  const summary = useMemo(() => ({ matched: uniqueMatchedIds.size, missing: missingSerials.length, extra: extraLines.length, scanned: session?.lines.length || 0 }), [session, missingSerials.length, extraLines.length, uniqueMatchedIds.size]);
+
+  return <div className="space-y-4">
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div><h2 className="text-lg font-bold text-white">جرد يومي بالسكانر</h2><p className="text-xs text-muted mt-1">الجرد بالسكانر اللاسلكي فقط. الجلسة محفوظة في Firebase ويمكن فتحها وتعديلها من أي جهاز.</p></div>
+      {!session && <button onClick={refreshSessions} disabled={refreshing} className="btn-secondary flex items-center gap-2"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''}/> تحديث الجلسات</button>}
+    </div>
+
+    {!session ? <>
+      <div className="card p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"><div><div className="font-bold">ابدأ جلسة جرد اليوم</div><div className="text-xs text-muted mt-1">يمكنك فتح أي جلسة محفوظة وتعديلها ثم إعادة حفظها.</div></div><button onClick={start} className="btn-primary flex items-center gap-2"><ScanLine size={16}/> بدء الجرد</button></div>
+      <div className="card overflow-hidden"><div className="p-3 border-b border-border font-bold">آخر جلسات الجرد</div>
+        {visibleSessions.slice().sort((a,b)=>`${b.date}-${b.completedAt||b.startedAt||''}`.localeCompare(`${a.date}-${a.completedAt||a.startedAt||''}`)).slice(0,20).map(s=><div key={s.id} className="p-3 border-b border-border/60 flex items-center justify-between gap-3"><div><div className="font-medium">{s.date}</div><div className="text-xs text-muted">{s.lines.filter(l=>l.result==='matched').length} مطابق • {s.lines.filter(l=>l.result!=='matched').length} مشكلة</div></div><div className="flex items-center gap-2"><span className="text-xs text-muted">{s.status==='completed'?'مكتمل':'مسودة'}</span><button onClick={()=>openSession(s)} className="btn-secondary text-xs">فتح / تعديل</button></div></div>)}
+        {!visibleSessions.length&&<div className="p-8 text-center text-muted">لا يوجد جرد يومي سابق.</div>}
+      </div>
+    </> : <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2"><button onClick={closeSession} className="btn-secondary">← رجوع للجلسات</button><div className="text-sm text-muted">جلسة {date} {session.status==='completed' ? '• محفوظة' : '• قيد التعديل'}</div></div>
+      <div className="grid grid-cols-4 gap-2"><div className="card p-3"><div className="text-xs text-muted">مطابق</div><div className="text-xl font-bold text-emerald-300">{summary.matched}</div></div><div className="card p-3"><div className="text-xs text-muted">ناقص</div><div className="text-xl font-bold text-red-300">{summary.missing}</div></div><div className="card p-3"><div className="text-xs text-muted">زيادة / غير موجود</div><div className="text-xl font-bold text-orange-300">{summary.extra}</div></div><div className="card p-3"><div className="text-xs text-muted">إجمالي القراءات</div><div className="text-xl font-bold">{summary.scanned}</div></div></div>
+      <div className="card p-4 flex flex-col md:flex-row gap-2"><div className="card p-3 flex-1 border border-emerald-700/30"><div className="text-sm font-bold">🔗 السكانر اللاسلكي</div><div className="text-xs text-muted mt-1">وصل Deli S228W بالموبايل أو اللابتوب بوضع Keyboard/HID، ثم اضغط داخل الخانة مرة واحدة.</div><input autoFocus value={scannerInput} onChange={e=>setScannerInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();processCode(scannerInput);setScannerInput('')}}} placeholder="جاهز لاستقبال Serial / IMEI من السكانر..." className="input-dark mt-2 w-full"/></div><label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer"><FileSpreadsheet size={18}/> استيراد Excel<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importExcel(f);e.currentTarget.value=''}}/></label><input value={manual} onChange={e=>setManual(e.target.value)} placeholder="إدخال يدوي اختياري Serial / IMEI" className="input-dark flex-1" onKeyDown={e=>{if(e.key==='Enter'){processCode(manual);setManual('')}}}/><button onClick={save} className="btn-secondary flex items-center gap-2"><Save size={16}/> حفظ الجرد</button></div>
+      {feedback && <div className={`text-xs ${feedback.type==='success'?'text-emerald-300':'text-red-300'}`}>{feedback.message}</div>}
+
+      {showReport && <div className="print-area card p-5 bg-white text-black"><div className="flex items-center justify-between gap-2 border-b pb-4"><div><h3 className="font-bold text-2xl">ONE — تقرير نتيجة الجرد اليومي</h3><div className="text-sm mt-1">التاريخ: {date} • إجمالي السيريالات المتاحة بالنظام: {expectedSerials.length}</div></div><button onClick={()=>window.print()} className="btn-primary flex items-center gap-2 print:hidden"><Printer size={16}/> طباعة التقرير</button></div>
+        <div className="grid grid-cols-4 gap-3 mt-5"><div className="p-3 rounded-lg bg-emerald-50 text-center"><div className="font-bold text-lg">{summary.matched}</div><div className="text-sm">مطابق</div></div><div className="p-3 rounded-lg bg-red-50 text-center"><div className="font-bold text-lg">{summary.missing}</div><div className="text-sm">ناقص / مفقود</div></div><div className="p-3 rounded-lg bg-orange-50 text-center"><div className="font-bold text-lg">{summary.extra}</div><div className="text-sm">زيادة / غير موجود</div></div><div className="p-3 rounded-lg bg-gray-100 text-center"><div className="font-bold text-lg">{summary.scanned}</div><div className="text-sm">إجمالي القراءات</div></div></div>
+        <section className="mt-6"><h4 className="font-bold text-lg mb-2">✅ المطابق</h4>{matchedLines.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">Serial</th><th className="p-2">الكود الممسوح</th><th className="p-2">الحالة</th></tr></thead><tbody>{matchedLines.map(l=><tr key={l.id} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 font-mono">{l.serial||'-'}</td><td className="p-2 font-mono">{l.code}</td><td className="p-2 text-center">مطابق</td></tr>)}</tbody></table>:<div className="text-sm">لا توجد قراءات مطابقة.</div>}</section>
+        <section className="mt-6"><h4 className="font-bold text-lg mb-2">🔴 الناقص / المفقود</h4>{missingSerials.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">Serial</th><th className="p-2">IMEI1</th><th className="p-2">IMEI2</th><th className="p-2">الحالة</th></tr></thead><tbody>{missingSerials.map(s=><tr key={s.id} className="border-b"><td className="p-2">{s.productName}</td><td className="p-2 font-mono">{s.serial||'-'}</td><td className="p-2 font-mono">{s.imei1||'-'}</td><td className="p-2 font-mono">{s.imei2||'-'}</td><td className="p-2 text-center">مفقود / لم يتم جرده</td></tr>)}</tbody></table>:<div className="text-sm">لا يوجد سيريال ناقص — كل السيريالات المتاحة تم جردها.</div>}</section>
+        <section className="mt-6"><h4 className="font-bold text-lg mb-2">🟠 الزيادة / غير موجود في النظام</h4>{extraLines.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2 text-right">البيان</th></tr></thead><tbody>{extraLines.map(l=><tr key={l.id} className="border-b"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2">{l.note||'غير موجود بالنظام'}</td></tr>)}</tbody></table>:<div className="text-sm">لا توجد زيادة أو أكواد غير معروفة.</div>}</section>
+        {duplicateLines.length>0 && <section className="mt-6"><h4 className="font-bold text-lg mb-2">⚠️ قراءات مكررة</h4><table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2">البيان</th></tr></thead><tbody>{duplicateLines.map(l=><tr key={l.id} className="border-b"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2">{l.note}</td></tr>)}</tbody></table></section>}
+        <div className="mt-8 pt-4 border-t text-sm grid grid-cols-3 gap-4"><div><strong>المتوقع:</strong> {expectedSerials.length}</div><div><strong>تم العثور عليه:</strong> {summary.matched}</div><div><strong>لم يتم العثور عليه:</strong> {summary.missing}</div></div>
+      </div>}
+
+      <div className="card overflow-hidden"><div className="p-3 border-b border-border font-bold flex items-center gap-2"><ClipboardCheck size={16}/> قراءات الجلسة <span className="text-xs text-muted">({session.lines.length})</span></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-muted"><th className="p-3 text-right">الكود</th><th className="p-3 text-right">المنتج</th><th className="p-3 text-center">النتيجة</th><th className="p-3 text-right">الوقت</th><th className="p-3 text-center">حذف</th></tr></thead><tbody>{session.lines.slice().reverse().map(l=><tr key={l.id} className="border-b border-border/60"><td className="p-3 font-mono">{l.code}</td><td className="p-3">{l.productName}</td><td className="p-3 text-center">{l.result==='matched'?<span className="text-emerald-300 flex items-center justify-center gap-1"><CheckCircle2 size={15}/> مطابق</span>:l.result==='duplicate'?<span className="text-orange-300 flex items-center justify-center gap-1"><Trash2 size={15}/> مكرر</span>:<span className="text-red-300 flex items-center justify-center gap-1"><XCircle size={15}/> {l.result==='unknown'?'غير معروف':'غير متاح'}</span>}</td><td className="p-3 text-xs text-muted">{new Date(l.countedAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})}</td><td className="p-3 text-center"><button title="حذف قراءة الجرد فقط" onClick={()=>deleteLine(l.id)} className="text-red-300 hover:text-red-200 p-1"><Trash2 size={16}/></button></td></tr>)}</tbody></table></div></div>
+    </div>}
+  </div>;
 }

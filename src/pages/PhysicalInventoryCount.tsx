@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { Product, SerialItem, WeeklyInventoryCount, InventoryCountLine } from '../types';
 import { getTodayStr } from '../utils/helpers';
 import { makeInventoryCountId } from '../store/domains/id.store';
+import { loadCollection } from '../services/firebasePersistence';
 type ScanFeedback = { id: number; type: 'success' | 'error'; message: string };
-import { Plus, AlertCircle, Save, X, Printer } from 'lucide-react';
+import { Plus, AlertCircle, Save, X, Printer, RefreshCw } from 'lucide-react';
 
 interface PhysicalInventoryCountProps {
   products: Product[];
@@ -39,6 +40,8 @@ export default function PhysicalInventoryCount({
   onUpdateCount,
 }: PhysicalInventoryCountProps) {
   const [viewMode, setViewMode] = useState<'list' | 'count'>('list');
+  const [visibleCounts, setVisibleCounts] = useState<WeeklyInventoryCount[]>(weeklyInventoryCounts || []);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedCount, setSelectedCount] = useState<WeeklyInventoryCount | null>(null);
   const [countLines, setCountLines] = useState<WorkingLine[]>([]);
   const [scannerInput, setScannerInput] = useState('');
@@ -49,6 +52,28 @@ export default function PhysicalInventoryCount({
 
   const currentWeek = getWeekNumber();
   const currentYear = new Date().getFullYear();
+
+  useEffect(() => setVisibleCounts(weeklyInventoryCounts || []), [weeklyInventoryCounts]);
+
+  const refreshCounts = async () => {
+    setRefreshing(true);
+    try {
+      const fresh = await loadCollection<WeeklyInventoryCount>('weeklyInventoryCounts');
+      fresh.sort((a, b) => `${b.year}-${String(b.weekNumber).padStart(2, '0')}-${b.endDate || b.startDate}`.localeCompare(`${a.year}-${String(a.weekNumber).padStart(2, '0')}-${a.endDate || a.startDate}`));
+      setVisibleCounts(fresh);
+    } catch (error) {
+      console.error('[Firebase] refresh weekly inventory counts failed:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode !== 'list') return;
+    void refreshCounts();
+    const timer = window.setInterval(() => { void refreshCounts(); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [viewMode]);
   const isEditingSavedCount = !!selectedCount;
 
   const buildNewLines = (): WorkingLine[] => products
@@ -194,6 +219,7 @@ export default function PhysicalInventoryCount({
 
     if (selectedCount) onUpdateCount(saved);
     else onAddCount(saved);
+    setVisibleCounts(prev => [saved, ...prev.filter(c => c.id !== saved.id)]);
     setSelectedCount(saved);
     setCountLines(finalizedLines.map(line => ({ ...line })));
     setShowReport(true);
@@ -223,15 +249,18 @@ export default function PhysicalInventoryCount({
           <p className="text-gray-500 text-sm">أسبوع {currentWeek} - {currentYear}</p>
         </div>
         {viewMode === 'list' && (
+          <div className="flex items-center gap-2">
+          <button onClick={refreshCounts} disabled={refreshing} className="btn-secondary flex items-center gap-2"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''}/> تحديث الجردات</button>
           <button onClick={startNewCount} className="btn-primary flex items-center gap-2">
             <Plus size={16} /> جرد جديد
           </button>
+          </div>
         )}
       </div>
 
       {viewMode === 'list' ? (
         <div className="space-y-3">
-          {(weeklyInventoryCounts || []).length > 0 ? weeklyInventoryCounts.map(count => (
+          {(visibleCounts || []).length > 0 ? visibleCounts.map(count => (
             <div key={count.id} className="bg-elevated border border-violet-900/30 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
