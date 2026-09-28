@@ -66,13 +66,28 @@ export function useStore() {
         // Keep the loaded products unchanged; import logic determines product type explicitly.
         const normalizedProducts = products;
 
+        // تنظيف السيريالات اليتيمة: السيريال المتاح لا يُعتبر مخزوناً إلا إذا كانت
+        // فاتورة الشراء الأصلية ما زالت موجودة. هذا يعالج السيريالات القديمة التي
+        // بقيت في Firebase بعد حذف فاتورة شراء في نسخة سابقة من النظام.
+        // السيريالات المباعة/المحوّلة بدون فاتورة شراء لا نحذفها لأنها قد تكون
+        // سجلات تاريخية لازمة لتتبع الجهاز.
+        const purchaseInvoiceIds = new Set(purchaseInvoices.map(invoice => invoice.id));
+        const orphanAvailableSerials = serials.filter(serial =>
+          (serial.status === 'available' || serial.purchasePricePending) &&
+          (!serial.purchaseInvoiceId || !purchaseInvoiceIds.has(serial.purchaseInvoiceId))
+        );
+        const cleanedSerials = serials.filter(serial => !orphanAvailableSerials.some(orphan => orphan.id === serial.id));
+        orphanAvailableSerials.forEach(serial => {
+          void deleteFromFirebase('serials', serial.id);
+        });
+
         const savedSettings = settingsRows.find(item => (item as AppSettings & { id?: string }).id === 'main');
         const savedTreasury = treasuryRows.find(item => (item as { id?: string }).id === 'main');
 
         setState(prev => ({
           ...prev,
           products: normalizedProducts,
-          serials,
+          serials: cleanedSerials,
           customers,
           suppliers,
           saleInvoices,

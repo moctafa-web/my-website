@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-DyWYKmNI.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-D3L0GlKb.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -25022,12 +25022,18 @@ function useStore() {
 				]);
 				if (cancelled) return;
 				const normalizedProducts = products;
+				const purchaseInvoiceIds = new Set(purchaseInvoices.map((invoice) => invoice.id));
+				const orphanAvailableSerials = serials.filter((serial) => (serial.status === "available" || serial.purchasePricePending) && (!serial.purchaseInvoiceId || !purchaseInvoiceIds.has(serial.purchaseInvoiceId)));
+				const cleanedSerials = serials.filter((serial) => !orphanAvailableSerials.some((orphan) => orphan.id === serial.id));
+				orphanAvailableSerials.forEach((serial) => {
+					deleteFromFirebase("serials", serial.id);
+				});
 				const savedSettings = settingsRows.find((item) => item.id === "main");
 				const savedTreasury = treasuryRows.find((item) => item.id === "main");
 				setState((prev) => ({
 					...prev,
 					products: normalizedProducts,
-					serials,
+					serials: cleanedSerials,
 					customers,
 					suppliers,
 					saleInvoices,
