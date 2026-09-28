@@ -17,6 +17,8 @@ export interface Product {
   description?: string;
   sku: string;
   upc?: string;
+  /** All UPCs that identify this same product; upc remains the primary/backward-compatible UPC. */
+  upcs?: string[];
   barcode?: string;
   category: ProductCategory;
   brand: string;

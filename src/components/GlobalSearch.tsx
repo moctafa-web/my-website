@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AppState } from '../types';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, getProductUPCs } from '../utils/helpers';
 import { Search, X, Package, Users, Truck, FileText, Hash, ArrowLeft } from 'lucide-react';
 
 interface Props {
@@ -37,7 +37,7 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
 
     // منتجات
     state.products.forEach(p => {
-      if (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.upc || '').includes(q)) {
+      if (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || getProductUPCs(p).some(u => u.includes(q))) {
         out.push({
           type: 'product', id: p.id, title: p.name,
           subtitle: `${p.sku} • ${formatCurrency(p.salePrice)} • مخزون: ${p.stock}`,

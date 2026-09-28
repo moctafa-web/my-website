@@ -1,7 +1,7 @@
 // src/pages/Sales.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
-import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
 import BarcodeScanner, { DetectedScan } from '../components/BarcodeScanner';
@@ -387,7 +387,7 @@ export default function Sales({
     return products.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
-      (p.upc || '').includes(q)
+      getProductUPCs(p).some(u => u.includes(q))
     ).slice(0, 10);
   };
 
@@ -710,7 +710,7 @@ const validateStock = (): string | null => {
 
     // 2) مش سيريال؟ يبقى نبحث هل الكود ده UPC أو SKU لمنتج موجود في قائمة الأصناف
     const matchedProduct = products.find(p =>
-      ((p.upc || '').trim() !== '' && (p.upc || '').trim() === code) ||
+      productHasUPC(p, code) ||
       p.sku.trim().toLowerCase() === code.toLowerCase()
     );
     if (matchedProduct) {
@@ -739,7 +739,7 @@ const validateStock = (): string | null => {
     }
 
     // 2) هل الكود ده UPC لمنتج موجود أصلاً في قائمة الأصناف؟
-    const matchedProduct = products.find(p => (p.upc || '').trim() !== '' && (p.upc || '').trim() === code);
+    const matchedProduct = products.find(p => productHasUPC(p, code));
     if (matchedProduct) {
       selectQpProduct(itemId, matchedProduct);
       setScanMessage({ type: 'success', text: `✅ تم اختيار المنتج: ${matchedProduct.name} - امسح السيريال الآن` });

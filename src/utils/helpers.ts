@@ -26,6 +26,19 @@ export const normalizeForCompare = (text: string): string => {
   return (text || '').trim().replace(/\s+/g, ' ').toLowerCase();
 };
 
+
+export const getProductUPCs = (product: { upc?: string; upcs?: string[] }): string[] => {
+  const values = [product.upc || '', ...(product.upcs || [])]
+    .map(v => String(v).trim())
+    .filter(Boolean);
+  return Array.from(new Set(values));
+};
+
+export const productHasUPC = (product: { upc?: string; upcs?: string[] }, code: string): boolean => {
+  const normalized = String(code || '').trim().toLowerCase();
+  return !!normalized && getProductUPCs(product).some(u => u.toLowerCase() === normalized);
+};
+
 export const generateId = (): string => {
   return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
-import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import * as XLSX from 'xlsx';
@@ -146,7 +146,7 @@ export default function Purchases({
     const nSku = String(sku || '').trim().toLowerCase();
     const nName = normalize(name);
     return products.find(p =>
-      (nUpc && String(p.upc || '').trim().toLowerCase() === nUpc) ||
+      (nUpc && productHasUPC(p, nUpc)) ||
       (nSku && String(p.sku || '').trim().toLowerCase() === nSku) ||
       (nName && normalize(p.name) === nName)
     );
@@ -561,7 +561,7 @@ export default function Purchases({
   const findProductByCode = (code: string): Product | undefined => {
     const normalized = code.trim().toLowerCase();
     return products.find(p =>
-      (p.upc && p.upc.trim().toLowerCase() === normalized) ||
+      productHasUPC(p, normalized) ||
       p.sku.trim().toLowerCase() === normalized
     );
   };
@@ -614,7 +614,7 @@ export default function Purchases({
     return products.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
-      (p.upc || '').includes(q)
+      getProductUPCs(p).some(u => u.includes(q))
     ).slice(0, 10);
   };
 

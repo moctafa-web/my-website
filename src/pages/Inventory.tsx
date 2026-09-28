@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Product, SerialItem, SaleInvoice, PurchaseInvoice, NoonOrder, Customer, AppSettings, WeeklyInventoryCount, StockTransfer as StockTransferType } from '../types';
-import { formatCurrency, categoryLabel, printElement, getTodayStr } from '../utils/helpers';
+import { formatCurrency, categoryLabel, printElement, getTodayStr, getProductUPCs } from '../utils/helpers';
 import { Search, Printer, Package, Hash, Eye, CheckCircle2, X, Trash2 } from 'lucide-react';
 import PasswordConfirmModal from '../components/PasswordConfirmModal';
 import InventoryReports from './InventoryReports';
@@ -220,7 +220,7 @@ export default function Inventory({
     if (nameCompare !== 0) return nameCompare;
     const skuCompare = collator.compare(String(a.sku || ''), String(b.sku || ''));
     if (skuCompare !== 0) return skuCompare;
-    return collator.compare(String(a.upc || ''), String(b.upc || ''));
+    return collator.compare(getProductUPCs(a).join(' '), getProductUPCs(b).join(' '));
   });
 
   // ✅ طباعة المخزون العام

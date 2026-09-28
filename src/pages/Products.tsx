@@ -1,7 +1,7 @@
 // src/pages/Products.tsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Brand, SerialItem, ViewMode, ProductCategory } from '../types';
-import { formatCurrency, generateId, categoryLabel, getTodayStr, generateSKU, generateUPC } from '../utils/helpers';
+import { formatCurrency, generateId, categoryLabel, getTodayStr, generateSKU, generateUPC, getProductUPCs } from '../utils/helpers';
 import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, QrCode, RefreshCw, Upload, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ProductQRModal from '../components/ProductQRModal';
@@ -48,6 +48,7 @@ export default function Products({
   const [showForm, setShowForm]   = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [form, setForm]           = useState({ ...BLANK_PRODUCT });
+  const [upcsText, setUpcsText] = useState('');
   const [newBrand, setNewBrand]   = useState('');
   const [showJrard, setShowJrard] = useState(false);
   const [jrardData, setJrardData] = useState<Record<string, string>>({});
@@ -86,7 +87,7 @@ export default function Products({
     if (search) list = list.filter(p =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.sku.toLowerCase().includes(search.toLowerCase()) ||
-      (p.upc || '').includes(search) ||
+      getProductUPCs(p).some(u => u.includes(search)) ||
       (p.barcode || '').includes(search) ||
       p.brand.toLowerCase().includes(search.toLowerCase())
     );
@@ -96,6 +97,7 @@ export default function Products({
   const openAdd = () => {
     setEditProduct(null);
     setForm({ ...BLANK_PRODUCT });
+    setUpcsText('');
     setDuplicateError(null);
     setShowForm(true);
   };
@@ -116,6 +118,7 @@ export default function Products({
       stock: p.stock,
       minStock: p.minStock || 2,
     });
+    setUpcsText(getProductUPCs(p).join('\n'));
     setDuplicateError(null);
     setShowForm(true);
   };
@@ -123,53 +126,47 @@ export default function Products({
   const handleSave = () => {
     if (!form.name) return;
 
-    // UPC إلزامي - لو فاضي يتولد تلقائي
-    const finalUPC = form.upc?.trim() || generateUPC();
-    // SKU إلزامي - لو فاضي يتولد تلقائي
+    const parsedUPCs = Array.from(new Set(
+      [form.upc, ...upcsText.split(/[\n,;]+/)]
+        .map(v => String(v || '').trim())
+        .filter(Boolean)
+    ));
+    if (!parsedUPCs.length) parsedUPCs.push(generateUPC());
+    const finalUPC = parsedUPCs[0];
     const finalSKU = form.sku?.trim() || generateSKU(form.name);
-
     const now = new Date().toISOString();
 
+    const duplicate = products.find(p => {
+      if (editProduct && p.id === editProduct.id) return false;
+      const existing = new Set(getProductUPCs(p).map(u => u.toLowerCase()));
+      return parsedUPCs.some(u => existing.has(u.toLowerCase()));
+    });
+    if (duplicate) {
+      const clash = parsedUPCs.find(u => getProductUPCs(duplicate).some(x => x.toLowerCase() === u.toLowerCase()));
+      setDuplicateError(`UPC مكرر مع منتج: ${duplicate.name}${clash ? ` (${clash})` : ''}`);
+      return;
+    }
+
+    const productData = {
+      ...form,
+      sku: finalSKU,
+      upc: finalUPC,
+      upcs: parsedUPCs,
+      stock: Number(form.stock),
+      costPrice: Number(form.costPrice),
+      salePrice: Number(form.salePrice),
+      minStock: Number(form.minStock),
+      updatedAt: now,
+    };
+
     if (editProduct) {
-      // تحقق من تكرار UPC مع منتجات تانية (مش نفسه)
-      const upcDup = products.find(p =>
-        p.id !== editProduct.id &&
-        p.upc && p.upc.trim() &&
-        p.upc.trim() === finalUPC.trim()
-      );
-      if (upcDup) {
-        setDuplicateError(`UPC مكرر مع منتج: ${upcDup.name}`);
-        return;
-      }
-      onUpdateProduct({
-        ...editProduct,
-        ...form,
-        sku: finalSKU,
-        upc: finalUPC,
-        updatedAt: now,
-      });
+      onUpdateProduct({ ...editProduct, ...productData, updatedAt: now });
       setShowForm(false);
     } else {
-      // تحقق من تكرار UPC في الإضافة
-      const upcDup = products.find(p =>
-        p.upc && p.upc.trim() && p.upc.trim() === finalUPC.trim()
-      );
-      if (upcDup) {
-        setDuplicateError(`UPC مكرر مع منتج: ${upcDup.name}`);
-        return;
-      }
-
       const result = onAddProduct({
         id: generateId(),
-        ...form,
-        sku: finalSKU,
-        upc: finalUPC,
-        stock: Number(form.stock),
-        costPrice: Number(form.costPrice),
-        salePrice: Number(form.salePrice),
-        minStock: Number(form.minStock),
+        ...productData,
         createdAt: now,
-        updatedAt: now,
       });
       if (result && result.success === false) {
         setDuplicateError(result.message || 'هذا المنتج موجود بالفعل');
@@ -183,7 +180,7 @@ export default function Products({
     const rows = [
       {
         'اسم المنتج *': 'iPad Pro M5 256GB WiFi',
-        'UPC *': '0195949823456',
+        'UPC *': '0195949823456, 194250000000',
         'SKU': 'IPAD-PRO-M5-256-WIFI',
         'البراند': 'Apple',
         'التصنيف': 'tablets',
@@ -197,7 +194,7 @@ export default function Products({
       },
     ];
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [28, 18, 24, 16, 16, 14, 28, 14, 14, 10, 12, 18].map(w => ({ width: w }));
+    ws['!cols'] = [28, 30, 24, 16, 16, 14, 28, 14, 14, 10, 12, 18].map(w => ({ width: w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Products');
     XLSX.writeFile(wb, 'products_import_template.xlsx');
@@ -216,7 +213,7 @@ export default function Products({
       const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
       let added = 0, skipped = 0;
       const errors: string[] = [];
-      const existingUpcs = new Set(products.map(p => String(p.upc || '').trim()).filter(Boolean));
+      const existingUpcs = new Set(products.flatMap(p => getProductUPCs(p)).map(u => u.trim()).filter(Boolean));
       const existingSkus = new Set(products.map(p => String(p.sku || '').trim().toLowerCase()).filter(Boolean));
       const get = (row: Record<string, any>, keys: string[]) => {
         const key = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
@@ -236,10 +233,13 @@ export default function Products({
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const name = String(get(row, ['اسم المنتج *','اسم المنتج','product name','name']) || '').trim();
-        const upc = String(get(row, ['upc *','upc']) || '').trim();
+        const upcValues = Array.from(new Set(String(get(row, ['upc *','upc','upcs','upc codes','أكواد UPC']) || '').split(/[\n,;]+/).map(v => v.trim()).filter(Boolean)));
+        const upc = upcValues[0] || '';
+        const upcs = upcValues.length ? upcValues : [generateUPC()];
         if (!name) { errors.push(`السطر ${i + 2}: اسم المنتج فارغ`); skipped++; continue; }
         if (!upc) { errors.push(`السطر ${i + 2}: UPC فارغ`); skipped++; continue; }
-        if (existingUpcs.has(upc)) { errors.push(`السطر ${i + 2}: UPC مكرر أو موجود بالفعل (${upc})`); skipped++; continue; }
+        const duplicateUPC = upcs.find(u => existingUpcs.has(u));
+        if (duplicateUPC) { errors.push(`السطر ${i + 2}: UPC مكرر أو موجود بالفعل (${duplicateUPC})`); skipped++; continue; }
         const skuRaw = String(get(row, ['sku','SKU']) || '').trim();
         const sku = skuRaw || generateSKU(name);
         if (existingSkus.has(sku.toLowerCase())) { errors.push(`السطر ${i + 2}: SKU مكرر (${sku})`); skipped++; continue; }
@@ -251,7 +251,7 @@ export default function Products({
         const now = new Date().toISOString();
         const result = onAddProduct({
           id: generateId(), name, description: String(get(row, ['الوصف','description']) || ''), sku,
-          upc, barcode: String(get(row, ['barcode','باركود']) || ''), category, brand, productType,
+          upc, upcs, barcode: String(get(row, ['barcode','باركود']) || ''), category, brand, productType,
           costPrice: Number(get(row, ['سعر التكلفة','cost price','costprice']) || 0) || 0,
           salePrice: Number(get(row, ['سعر البيع','sale price','saleprice']) || 0) || 0,
           stock: Number(get(row, ['الكمية','stock','quantity']) || 0) || 0,
@@ -259,7 +259,7 @@ export default function Products({
           createdAt: now, updatedAt: now,
         });
         if (result && result.success === false) { errors.push(`السطر ${i + 2}: ${result.message || 'تعذر إضافة المنتج'}`); skipped++; continue; }
-        existingUpcs.add(upc); existingSkus.add(sku.toLowerCase()); added++;
+        upcs.forEach(u => existingUpcs.add(u)); existingSkus.add(sku.toLowerCase()); added++;
       }
       setImportSummary({ added, skipped, errors: errors.slice(0, 100) });
     } catch (err) {
@@ -660,25 +660,26 @@ export default function Products({
                 </p>
               </div>
 
-              {/* UPC */}
-              <div>
+              {/* UPCs */}
+              <div className="md:col-span-2">
                 <label className="form-label">
-                  UPC / Barcode *
-                  <span className="text-red-400 mr-1">•</span>
-                  <span className="text-xs text-gray-500 font-normal">(إلزامي - يتولد تلقائياً لو فاضي)</span>
+                  UPCs / أكواد UPC
+                  <span className="text-xs text-gray-500 font-normal mr-2">(كل كود في سطر، أو افصل بينهم بفاصلة)</span>
                 </label>
-                <div className="flex gap-2">
-                  <input type="text" value={form.upc}
-                    onChange={e => setForm(p => ({ ...p, upc: e.target.value }))}
-                    className="input-dark flex-1"
-                    placeholder="195949035951 أو اتركه للتوليد"
-                  />
+                <textarea
+                  value={upcsText}
+                  onChange={e => setUpcsText(e.target.value)}
+                  className="input-dark w-full min-h-[90px] font-mono"
+                  placeholder={'195949035951\n194250000000\n8806095194585'}
+                />
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs text-gray-500">كل الـUPCات دي تخص نفس المنتج والبحث والسكانر هيقبل أي واحد منها.</p>
                   <button
-                    onClick={() => setForm(p => ({ ...p, upc: generateUPC() }))}
-                    className="px-3 py-2 rounded-xl bg-green-700/20 border border-green-600/30 text-green-400 hover:bg-green-700/40 transition-colors text-xs flex items-center gap-1"
-                    title="توليد UPC تلقائي"
+                    onClick={() => setUpcsText(v => v ? `${v}\n${generateUPC()}` : generateUPC())}
+                    className="px-3 py-1.5 rounded-lg bg-green-700/20 border border-green-600/30 text-green-400 hover:bg-green-700/40 transition-colors text-xs"
+                    type="button"
                   >
-                    <RefreshCw size={13} /> توليد
+                    + إضافة UPC تلقائي
                   </button>
                 </div>
               </div>
@@ -853,8 +854,8 @@ function ProductCard({
       </div>
       <h3 className="font-semibold text-white text-sm mb-1 line-clamp-2">{product.name}</h3>
       <div className="text-xs text-gray-500 mb-1">{product.sku} • {product.brand}</div>
-      {product.upc && (
-        <div className="text-xs text-gray-600 mb-2 font-mono">{product.upc}</div>
+      {getProductUPCs(product).length > 0 && (
+        <div className="text-xs text-gray-600 mb-2 font-mono">UPC: {getProductUPCs(product).join(' • ')}</div>
       )}
       <div className="flex items-center justify-between">
         <div>
@@ -902,7 +903,7 @@ function ProductListRow({
           <div className="font-medium text-white text-sm">{product.name}</div>
           <div className="text-xs text-gray-500">
             {product.sku}
-            {product.upc && <span className="mr-2 font-mono">{product.upc}</span>}
+            {getProductUPCs(product).length > 0 && <span className="mr-2 font-mono">UPC: {getProductUPCs(product).join(' • ')}</span>}
             • {product.brand} • {categoryLabel(product.category)}
           </div>
         </div>

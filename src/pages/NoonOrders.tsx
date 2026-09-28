@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NoonOrder, NoonOrderItem, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
-import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote, Edit } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -109,7 +109,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     return stock > 0 && (
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
-      (p.upc || '').includes(q)
+      getProductUPCs(p).some(u => u.includes(q))
     );
   }).slice(0, 10);
 
@@ -267,7 +267,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       const orders: NoonOrder[] = Object.entries(grouped).map(([orderNum, orderRows]) => {
         const first = orderRows[0];
         const items: NoonOrderItem[] = orderRows.map(row => {
-          const product = products.find(p => p.upc === String(row.upc) || p.name === row.productName);
+          const product = products.find(p => productHasUPC(p, String(row.upc || '')) || p.name === row.productName);
           return {
             productId: product?.id || '',
             productName: String(row.productName || ''),
