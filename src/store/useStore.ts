@@ -1214,8 +1214,22 @@ export function useStore() {
       const normalizedOrderNum = normalizeForCompare(order.orderNumber);
       const existingOrder = prev.noonOrders.find(o => normalizeForCompare(o.orderNumber) === normalizedOrderNum);
       const itemsWithCost: NoonOrder['items'] = order.items.map(item => {
-        const product = prev.products.find(p => p.id === item.productId);
-        return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+        const matchedSerial = item.serial
+          ? prev.serials.find(s => s.serial.trim().toLowerCase() === item.serial!.trim().toLowerCase() && s.status === 'available')
+          : undefined;
+        const product = matchedSerial
+          ? prev.products.find(p => p.id === matchedSerial.productId)
+          : prev.products.find(p => p.id === item.productId);
+        return {
+          ...item,
+          productId: product?.id || item.productId,
+          productName: product?.name || item.productName,
+          upc: item.upc || product?.upc || '',
+          serial: matchedSerial?.serial || item.serial,
+          imei1: matchedSerial?.imei1 || item.imei1,
+          imei2: matchedSerial?.imei2 || item.imei2,
+          costPrice: product?.costPrice ?? item.costPrice ?? 0,
+        };
       });
       const finalOrder: NoonOrder = existingOrder
         ? { ...existingOrder, items: [...existingOrder.items, ...itemsWithCost] }
@@ -1348,8 +1362,22 @@ export function useStore() {
       let workingOrders = [...prev.noonOrders];
       orders.forEach(order => {
         const itemsWithCost = order.items.map(item => {
-          const product = prev.products.find(p => p.id === item.productId);
-          return { ...item, costPrice: product?.costPrice ?? item.costPrice ?? 0 };
+          const matchedSerial = item.serial
+            ? newState.serials.find(s => s.serial.trim().toLowerCase() === item.serial!.trim().toLowerCase() && s.status === 'available')
+            : undefined;
+          const product = matchedSerial
+            ? newState.products.find(p => p.id === matchedSerial.productId)
+            : newState.products.find(p => p.id === item.productId);
+          return {
+            ...item,
+            productId: product?.id || item.productId,
+            productName: product?.name || item.productName,
+            upc: item.upc || product?.upc || '',
+            serial: matchedSerial?.serial || item.serial,
+            imei1: matchedSerial?.imei1 || item.imei1,
+            imei2: matchedSerial?.imei2 || item.imei2,
+            costPrice: product?.costPrice ?? item.costPrice ?? 0,
+          };
         });
         const normalizedOrderNum = normalizeForCompare(order.orderNumber);
         const existingIdx = workingOrders.findIndex(o => normalizeForCompare(o.orderNumber) === normalizedOrderNum);

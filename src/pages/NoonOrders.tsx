@@ -102,6 +102,13 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     return product.stock || 0;
   };
 
+  // نفس طريقة فواتير البيع: السيريال وحده يحدد الجهاز من المخزون.
+  const findAvailableSerial = (value: string): SerialItem | undefined => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return undefined;
+    return serials.find(s => s.serial.trim().toLowerCase() === normalized && s.status === 'available');
+  };
+
   const availableProducts = products.filter(p => {
     const stock = getAvailableStock(p);
     if (!productSearch) return stock > 0;
@@ -114,10 +121,10 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   }).slice(0, 10);
 
   // ✅ لما نضيف منتج، لو بسيريالات نختار أول سيريال متاح تلقائيًا (يقدر المستخدم يغيّره من dropdown بعدين)
-  const addItemFromProduct = (product: Product) => {
+  const addItemFromProduct = (product: Product, selectedSerial?: SerialItem) => {
     let autoSerial = '', autoImei1 = '', autoImei2 = '';
     if (product.productType === 'serial') {
-      const availSerial = serials.find(s => s.productId === product.id && s.status === 'available');
+      const availSerial = selectedSerial || serials.find(s => s.productId === product.id && s.status === 'available');
       autoSerial = availSerial?.serial || '';
       autoImei1 = availSerial?.imei1 || '';
       autoImei2 = availSerial?.imei2 || '';
@@ -240,11 +247,21 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
   const downloadTemplate = () => {
     const data = [
-      { orderNumber: 'NNN-001', shipmentNumber: 'SHP-001', platform: 'noon', customerName: 'أحمد محمد', date: getTodayStr(), productName: 'iPhone 15 Pro', upc: '195949035951', serial: 'F2LXQ7H2QP', imei1: '352938113456789', imei2: '', price: 52000 },
+      { orderNumber: 'NNN-001', shipmentNumber: 'SHP-001', platform: 'noon', customerName: 'أحمد محمد', date: getTodayStr(), productName: '', upc: '195949035951', serial: '', imei1: '', imei2: '', price: 52000 },
+      { orderNumber: 'NNN-002', shipmentNumber: 'SHP-002', platform: 'noon', customerName: 'محمد علي', date: getTodayStr(), productName: '', upc: '', serial: 'F2LXQ7H2QP', imei1: '', imei2: '', price: 52000 },
     ];
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    const instructions = [
+      ['طريقة الاستخدام'],
+      ['منتج بسيريال', 'اكتب serial فقط. النظام سيعرف المنتج واسم المنتج وIMEI وUPC من المخزون تلقائيًا.'],
+      ['منتج بدون سيريال', 'اكتب UPC فقط + السعر. اترك serial فارغًا. اسم المنتج في الملف غير مطلوب للمطابقة.'],
+      ['UPC', 'يجب أن يكون UPC موجودًا في النظام، ويمكن استخدام أي UPC من الـ UPCs المتعددة للمنتج.'],
+      ['الكمية', 'كل صف يمثل قطعة واحدة. لإضافة 3 قطع من منتج بدون سيريال، كرر الصف 3 مرات.'],
+    ];
+    const wsInfo = XLSX.utils.aoa_to_sheet(instructions);
+    XLSX.utils.book_append_sheet(wb, wsInfo, 'Instructions');
     XLSX.writeFile(wb, 'noon_orders_template.xlsx');
   };
 
@@ -258,23 +275,43 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
       const grouped: Record<string, typeof rows> = {};
-      rows.forEach(row => {
-        const key = String(row.orderNumber || '');
+      const importErrors: string[] = [];
+      rows.forEach((row, rowIndex) => {
+        const key = String(row.orderNumber || '').trim();
         if (!key) return;
+        const serialValue = String(row.serial || '').trim();
+        const upcValue = String(row.upc || '').trim();
+        const matchedSerial = serialValue
+          ? serials.find(s => s.serial.trim().toLowerCase() === serialValue.toLowerCase() && s.status === 'available')
+          : undefined;
+        const product = matchedSerial
+          ? products.find(p => p.id === matchedSerial.productId)
+          : products.find(p => productHasUPC(p, upcValue));
+        if (!product) {
+          importErrors.push(`الصف ${rowIndex + 2}: ${serialValue ? `السيريال ${serialValue} غير موجود/غير متاح` : `الـ UPC ${upcValue || '(فارغ)'} غير موجود في النظام`}`);
+          return;
+        }
         if (!grouped[key]) grouped[key] = [];
         grouped[key].push(row);
       });
       const orders: NoonOrder[] = Object.entries(grouped).map(([orderNum, orderRows]) => {
         const first = orderRows[0];
         const items: NoonOrderItem[] = orderRows.map(row => {
-          const product = products.find(p => productHasUPC(p, String(row.upc || '')) || p.name === row.productName);
+          const serialValue = String(row.serial || '').trim();
+          const upcValue = String(row.upc || '').trim();
+          const matchedSerial = serialValue
+            ? serials.find(s => s.serial.trim().toLowerCase() === serialValue.toLowerCase() && s.status === 'available')
+            : undefined;
+          const product = matchedSerial
+            ? products.find(p => p.id === matchedSerial.productId)
+            : products.find(p => productHasUPC(p, upcValue));
           return {
             productId: product?.id || '',
-            productName: String(row.productName || ''),
-            upc: String(row.upc || ''),
-            serial: String(row.serial || ''),
-            imei1: String(row.imei1 || ''),
-            imei2: String(row.imei2 || ''),
+            productName: product?.name || '',
+            upc: product ? (upcValue && productHasUPC(product, upcValue) ? upcValue : (product.upc || '')) : upcValue,
+            serial: matchedSerial?.serial || serialValue,
+            imei1: matchedSerial?.imei1 || String(row.imei1 || ''),
+            imei2: matchedSerial?.imei2 || String(row.imei2 || ''),
             price: parseFloat(row.price) || 0,
             costPrice: product?.costPrice ?? 0,
           };
@@ -292,15 +329,14 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           createdAt: new Date().toISOString(),
         };
       });
-      const result = onAddNoonOrders(orders);
-      if (result) {
-        const parts = [];
-        if (result.addedCount > 0) parts.push(`${result.addedCount} أوردر جديد`);
-        if (result.mergedCount > 0) parts.push(`${result.mergedCount} منتج تم دمجه في أوردرات موجودة بالفعل`);
-        if (parts.length > 0) {
-          setInfoToast(`✅ تم الاستيراد: ${parts.join(' + ')}`);
-          setTimeout(() => setInfoToast(null), 5000);
-        }
+      const result = orders.length > 0 ? onAddNoonOrders(orders) : undefined;
+      const parts: string[] = [];
+      if (result?.addedCount) parts.push(`${result.addedCount} أوردر جديد`);
+      if (result?.mergedCount) parts.push(`${result.mergedCount} منتج تم دمجه في أوردرات موجودة بالفعل`);
+      if (importErrors.length > 0) parts.push(`⚠️ تم تجاهل ${importErrors.length} صف غير صالح`);
+      if (parts.length > 0) {
+        setInfoToast(`✅ ${parts.join(' + ')}`);
+        setTimeout(() => setInfoToast(null), 7000);
       }
       if (fileRef.current) fileRef.current.value = '';
     };
@@ -794,9 +830,33 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
               <div className="relative">
                 <input
                   type="text" value={productSearch}
-                  onChange={e => { setProductSearch(e.target.value); setShowProductDrop(true); }}
+                  onChange={e => {
+                    const value = e.target.value;
+                    const matchedSerial = findAvailableSerial(value);
+                    if (matchedSerial) {
+                      const matchedProduct = products.find(p => p.id === matchedSerial.productId);
+                      if (matchedProduct) {
+                        addItemFromProduct(matchedProduct, matchedSerial);
+                        return;
+                      }
+                    }
+                    setProductSearch(value);
+                    setShowProductDrop(true);
+                  }}
                   onFocus={() => setShowProductDrop(true)}
-                  placeholder="بحث بالمنتج أو UPC..."
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const matchedSerial = findAvailableSerial(productSearch);
+                      if (matchedSerial) {
+                        const matchedProduct = products.find(p => p.id === matchedSerial.productId);
+                        if (matchedProduct) {
+                          e.preventDefault();
+                          addItemFromProduct(matchedProduct, matchedSerial);
+                        }
+                      }
+                    }
+                  }}
+                  placeholder="بحث بالمنتج أو UPC أو أدخل السيريال مباشرة..."
                   className="input-dark w-full"
                 />
                 {showProductDrop && (

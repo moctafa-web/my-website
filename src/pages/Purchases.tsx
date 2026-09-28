@@ -1362,8 +1362,8 @@ export default function Purchases({
 
       {/* مودال إضافة منتج جديد */}
       {showNewProductModal && (
-        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-md my-2 max-h-[calc(100vh-1rem)] overflow-y-auto">
             <h3 className="font-bold text-white mb-4">➕ إضافة منتج جديد</h3>
             <div className="space-y-3">
               <input type="text" value={newProductForm.name}

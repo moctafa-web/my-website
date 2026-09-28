@@ -618,9 +618,9 @@ export default function Products({
 
       {/* ==================== Add/Edit Modal ==================== */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto"
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center p-4 overflow-y-auto"
           onClick={() => setShowForm(false)}>
-          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4"
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-2 max-h-[calc(100vh-1rem)] overflow-y-auto"
             onClick={e => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-white mb-5">
               {editProduct ? '✏️ تعديل منتج' : '➕ إضافة منتج جديد'}
