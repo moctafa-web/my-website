@@ -75,6 +75,7 @@ export default function ErpApp() {
             onNewSale={() => setCurrentPage("sales")}
             onNewPurchase={() => setCurrentPage("purchases")}
             adjustTreasury={store.adjustTreasury}
+            onAddPayment={store.addPayment}
             onCompletePendingSerial={() => setCurrentPage("pending-prices")}
             onOpenStatement={(type, id) => {
               if (type === "customer") {

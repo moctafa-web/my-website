@@ -21,6 +21,7 @@ interface Props {
 
 export default function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onNavigateToSales, onNavigateToPurchases, preselectedStatementId, onPreselectedStatementHandled }: Props) {
   const [search, setSearch] = useState('');
+  const [balanceFilter, setBalanceFilter] = useState<'all'|'owe_us'|'we_owe'>('all');
   const [showForm, setShowForm] = useState(false);
   const [edit, setEdit] = useState<Party | null>(null);
   const [view, setView] = useState<Party | null>(null);
@@ -38,8 +39,22 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
     onPreselectedStatementHandled?.();
   }, [preselectedStatementId, parties, onPreselectedStatementHandled]);
 
-  const filtered = useMemo(() => parties.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.phone || '').includes(search)), [parties, search]);
   const balance = (p: Party) => calculatePartyBalance({ saleInvoices, purchaseInvoices, payments }, p);
+  const filtered = useMemo(() => parties.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || (p.phone || '').includes(search);
+    if (!matchesSearch) return false;
+    if (balanceFilter === 'all') return true;
+    const b = calculatePartyBalance({ saleInvoices, purchaseInvoices, payments }, p);
+    return balanceFilter === 'owe_us' ? b > 0.01 : b < -0.01;
+  }), [parties, search, balanceFilter, saleInvoices, purchaseInvoices, payments]);
+  const filterCounts = useMemo(() => {
+    let oweUs = 0, weOwe = 0;
+    for (const p of parties) {
+      const b = calculatePartyBalance({ saleInvoices, purchaseInvoices, payments }, p);
+      if (b > 0.01) oweUs++; else if (b < -0.01) weOwe++;
+    }
+    return { all: parties.length, oweUs, weOwe };
+  }, [parties, saleInvoices, purchaseInvoices, payments]);
   const openAdd = () => { setEdit(null); setError(''); setForm({name:'',phone:'',email:'',address:'',customer:true,supplier:true,openingBalance:'',notes:''}); setShowForm(true); };
   const openEdit = (p: Party) => { setEdit(p); setError(''); setForm({name:p.name,phone:p.phone||'',email:p.email||'',address:p.address||'',customer:p.roles.customer,supplier:p.roles.supplier,openingBalance:String(p.openingBalance || 0),notes:p.notes||''}); setShowForm(true); };
   const save = () => {
@@ -71,6 +86,17 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
       <div className="bg-surface border border-border rounded-xl p-4"><div className="text-xs text-muted">إجمالي الأرصدة الصافية</div><div className="text-2xl font-black text-white mt-1">{formatCurrency(parties.reduce((a,p)=>a+Math.abs(balance(p)),0))}</div></div>
     </div>
     <div className="relative"><Search className="absolute right-3 top-3 text-gray-500" size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث بالاسم أو الهاتف..." className="input-dark w-full pr-10"/></div>
+    <div className="flex flex-wrap gap-2">
+      {([
+        ['all', 'الكل', filterCounts.all, 'border-violet-500/50 bg-violet-700/30 text-violet-200'],
+        ['owe_us', 'عليهم فلوس (مستحق لنا)', filterCounts.oweUs, 'border-red-500/50 bg-red-700/30 text-red-300'],
+        ['we_owe', 'ليهم فلوس (مستحق لهم)', filterCounts.weOwe, 'border-green-500/50 bg-green-700/30 text-green-300'],
+      ] as const).map(([key, label, count, activeCls]) => (
+        <button key={key} onClick={() => setBalanceFilter(key)} className={`px-4 py-2 rounded-xl border text-sm transition ${balanceFilter === key ? activeCls : 'border-white/10 text-gray-400 hover:bg-white/5'}`}>
+          {label} <span className="text-xs opacity-80">({count})</span>
+        </button>
+      ))}
+    </div>
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-muted"><th className="p-3 text-right">الحساب</th><th className="p-3">الدور</th><th className="p-3">الرصيد</th><th className="p-3">الحركات</th><th className="p-3">إجراءات</th></tr></thead>
       <tbody>{filtered.map(p=>{const b=balance(p); const count=saleInvoices.filter(i=>i.customerId===p.id).length+purchaseInvoices.filter(i=>i.supplierId===p.id).length+payments.filter(x=>x.referenceId===p.id).length; return <tr key={p.id} className="border-b border-border/60 hover:bg-white/[.02]"><td className="p-3"><div className="font-bold text-white">{p.name}</div><div className="text-xs text-muted">{p.phone||''}</div></td><td className="p-3 text-center"><span className="text-xs">{p.roles.customer?'عميل':''}{p.roles.customer&&p.roles.supplier?' + ':''}{p.roles.supplier?'مورد':''}</span></td><td className={`p-3 text-center font-bold ${b>0?'text-red-400':b<0?'text-green-400':'text-gray-400'}`}>{formatCurrency(Math.abs(b))} <span className="text-[10px] font-normal">{b>0?'مستحق لنا':b<0?'مستحق له':'متطابق'}</span></td><td className="p-3 text-center">{count}</td><td className="p-3"><div className="flex justify-center gap-1"><button onClick={()=>setView(p)} className="p-2 rounded-lg text-violet-300 hover:bg-violet-900/20" title="كشف الحساب"><Eye size={15}/></button><button onClick={()=>setPaymentParty(p)} className="p-2 rounded-lg text-green-300 hover:bg-green-900/20" title="دفعة"><DollarSign size={15}/></button><button onClick={()=>openEdit(p)} className="p-2 rounded-lg text-blue-300 hover:bg-blue-900/20"><Edit size={15}/></button><button onClick={()=>{const r=onDeleteParty(p.id); if(r?.success===false) setError(r.message||'لا يمكن حذف الحساب');}} className="p-2 rounded-lg text-red-300 hover:bg-red-900/20"><Trash2 size={15}/></button></div></td></tr>})}</tbody></table></div>

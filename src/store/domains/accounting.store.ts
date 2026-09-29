@@ -1,4 +1,5 @@
 import { AppState, Customer, Supplier, Party, TreasuryTransaction } from '../../types';
+import { normalizeForCompare } from '../../utils/helpers';
 
 export interface PartyBalance {
   id: string;
@@ -80,15 +81,57 @@ export const getPartyBalance = (state: AppState, party: Pick<Customer | Supplier
   calculatePartyBalance(state, party);
 
 export const getPartyBalances = (state: AppState): BalanceSnapshot => {
-  // الحساب الموحد هو المصدر الوحيد للرصيد حتى لا يظهر نفس الشخص مرتين
-  // مرة كعميل ومرة كمورد بعد توحيد قاعدة الأطراف.
+  // دفتر الديون يجب أن يعرض الطرف مرة واحدة فقط، حتى لو بقيت له سجلات
+  // قديمة متعددة (عميل/مورد) في البيانات. نجمع كل السجلات المتشابهة بالاسم
+  // أولًا ثم نعرض صافي الحركة في اتجاه واحد فقط.
   const parties: Party[] = state.parties || [];
-  const positive = parties
-    .map(party => ({ id: party.id, name: party.name, phone: party.phone, balance: getPartyBalance(state, party), type: 'customer' as const }))
-    .filter(item => item.balance > EPSILON);
-  const negative = parties
-    .map(party => ({ id: party.id, name: party.name, phone: party.phone, balance: Math.abs(getPartyBalance(state, party)), type: 'supplier' as const }))
-    .filter(item => item.balance > EPSILON);
+  const grouped = new Map<string, {
+    id: string;
+    name: string;
+    phone?: string;
+    balance: number;
+    ids: Set<string>;
+  }>();
+
+  parties.forEach(party => {
+    const key = normalizeForCompare(party.name || '');
+    const current = grouped.get(key);
+    const balance = getPartyBalance(state, party);
+    if (current) {
+      current.balance += balance;
+      current.phone ||= party.phone;
+      current.ids.add(party.id);
+    } else {
+      grouped.set(key, {
+        id: party.id,
+        name: party.name,
+        phone: party.phone,
+        balance,
+        ids: new Set([party.id]),
+      });
+    }
+  });
+
+  const positive = [...grouped.values()]
+    .filter(item => item.balance > EPSILON)
+    .map(item => ({
+      id: item.id,
+      name: item.name,
+      phone: item.phone,
+      balance: item.balance,
+      type: 'customer' as const,
+    }));
+
+  const negative = [...grouped.values()]
+    .filter(item => item.balance < -EPSILON)
+    .map(item => ({
+      id: item.id,
+      name: item.name,
+      phone: item.phone,
+      balance: Math.abs(item.balance),
+      type: 'supplier' as const,
+    }));
+
   return {
     customersOwing: positive,
     suppliersWithCredit: [],
