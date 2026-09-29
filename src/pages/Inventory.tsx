@@ -24,6 +24,7 @@ interface Props {
   weeklyInventoryCounts?: WeeklyInventoryCount[];
   onAddCount?: (count: WeeklyInventoryCount) => void;
   onUpdateCount?: (count: WeeklyInventoryCount) => void;
+  onApproveCount?: (countId: string) => { success: boolean; message?: string };
   stockTransfers?: StockTransferType[];
   onAddTransfer?: (transfer: StockTransferType) => void;
   onUpdateTransfer?: (transfer: StockTransferType) => void;
@@ -45,7 +46,7 @@ interface UnifiedSuggestion {
 
 export default function Inventory({
   products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onDeleteProduct,
-  weeklyInventoryCounts = [], onAddCount, onUpdateCount,
+  weeklyInventoryCounts = [], onAddCount, onUpdateCount, onApproveCount,
   stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan,
 }: Props) {
   // ✅ Tab navigation for inventory sub-sections
@@ -89,7 +90,7 @@ export default function Inventory({
       (s.imei1 || '').toLowerCase().includes(q) ||
       (s.imei2 || '').toLowerCase().includes(q)
     ).slice(0, 6).forEach(s => {
-      const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محوّل' : '↩️ مرتجع';
+      const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محوّل' : s.status === 'missing' ? '⚠️ مفقود' : '↩️ مرتجع';
       results.push({ type: 'serial', data: s, title: s.serial, subtitle: `${s.productName} • ${statusLabel}`, searchLabel: s.serial, typeLabel: 'سيريال' });
     });
 
@@ -532,7 +533,7 @@ export default function Inventory({
                   <tr><td style="padding:6px;border:1px solid #eee;color:#666">السيريال</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${serial.serial}</td></tr>
                   ${serial.imei1 ? `<tr><td style="padding:6px;border:1px solid #eee;color:#666">IMEI 1</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${serial.imei1}</td></tr>` : ''}
                   ${serial.imei2 ? `<tr><td style="padding:6px;border:1px solid #eee;color:#666">IMEI 2</td><td style="padding:6px;border:1px solid #eee;font-family:monospace">${serial.imei2}</td></tr>` : ''}
-                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">الحالة</td><td style="padding:6px;border:1px solid #eee">${serial.status === 'available' ? '✅ متاح' : serial.status === 'sold' ? '🛒 مباع' : serial.status === 'transferred' ? '📦 محوّل' : '↩️ مرتجع'}</td></tr>
+                  <tr><td style="padding:6px;border:1px solid #eee;color:#666">الحالة</td><td style="padding:6px;border:1px solid #eee">${serial.status === 'available' ? '✅ متاح' : serial.status === 'sold' ? '🛒 مباع' : serial.status === 'transferred' ? '📦 محوّل' : serial.status === 'missing' ? '⚠️ مفقود' : '↩️ مرتجع'}</td></tr>
                 </table>
                 ${purchase ? `
                 <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
@@ -577,7 +578,7 @@ export default function Inventory({
                     'bg-gray-900/40 text-gray-400'
                   }`}>
                     {serial.status === 'available' ? '✅ متاح' : serial.status === 'sold' ? '🛒 مباع' :
-                     serial.status === 'transferred' ? '📦 محوّل' : '↩️ مرتجع'}
+                     serial.status === 'transferred' ? '📦 محوّل' : serial.status === 'missing' ? '⚠️ مفقود' : '↩️ مرتجع'}
                   </span>
                   {serial.purchasePricePending && (
                     <span className="text-xs bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full">⏳ سعر معلّق</span>
@@ -1481,6 +1482,11 @@ export default function Inventory({
               weeklyInventoryCounts={weeklyInventoryCounts}
               onAddCount={onAddCount || (() => {})}
               onUpdateCount={onUpdateCount || (() => {})}
+              onApproveCount={onApproveCount}
+              purchaseInvoices={purchaseInvoices}
+              saleInvoices={saleInvoices}
+              stockTransfers={stockTransfers}
+              noonOrders={noonOrders}
             />
           )}
         </div>

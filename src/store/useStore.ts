@@ -71,7 +71,7 @@ export function useStore() {
           products, serials, customers, suppliers, saleInvoices, purchaseInvoices,
           payments, expenses, noonOrders, brands, dailyJournals, partners,
           profitDistributions, employees, treasuryTransactions, dailyClosings, weeklyInventoryCounts,
-          stockTransfers, dailyOperations, dailyInventoryScans,
+          stockTransfers, dailyOperations, dailyInventoryScans, partiesRows,
           settingsRows, treasuryRows,
         ] = await Promise.all([
           loadCollection<Product>('products'),
@@ -94,6 +94,7 @@ export function useStore() {
           loadCollection<StockTransfer>('stockTransfers'),
           loadCollection<DailyOperationEntry>('dailyOperations'),
           loadCollection<DailyInventoryScan>('dailyInventoryScans'),
+          loadCollection<Party>('parties'),
           loadCollection<AppSettings>('settings'),
           loadCollection<{ cashBalance: number; bankBalance: number }>('treasury'),
         ]);
@@ -105,10 +106,23 @@ export function useStore() {
 
         // ==================== توحيد الحسابات القديمة ====================
         // نبني حسابًا واحدًا لكل اسم، ثم نعيد ربط كل الفواتير والدفعات بنفس الـID.
-        const unified = buildUnifiedParties(customers, suppliers);
-        const canonicalParties = unified.parties;
-        const canonicalCustomerMap = unified.customerMap;
-        const canonicalSupplierMap = unified.supplierMap;
+        // لو قاعدة الأطراف الموحدة موجودة بالفعل، نستخدمها كمصدر الحقيقة.
+        // ده يمنع إعادة جمع الرصيد الافتتاحي من سجلات customers/suppliers
+        // في كل تحميل وبالتالي يمنع تضاعف الرصيد السالب أو الموجب.
+        let canonicalParties: Party[];
+        let canonicalCustomerMap: Map<string,string>;
+        let canonicalSupplierMap: Map<string,string>;
+        if (partiesRows.length > 0) {
+          canonicalParties = partiesRows;
+          const byName = new Map(canonicalParties.map(p => [partyKey(p.name), p.id]));
+          canonicalCustomerMap = new Map(customers.map(c => [c.id, byName.get(partyKey(c.name)) || c.id]));
+          canonicalSupplierMap = new Map(suppliers.map(s => [s.id, byName.get(partyKey(s.name)) || s.id]));
+        } else {
+          const unified = buildUnifiedParties(customers, suppliers);
+          canonicalParties = unified.parties;
+          canonicalCustomerMap = unified.customerMap;
+          canonicalSupplierMap = unified.supplierMap;
+        }
         const migratedSaleInvoices = saleInvoices.map(inv => {
           const id = canonicalCustomerMap.get(inv.customerId) || inv.customerId;
           const party = canonicalParties.find(p => p.id === id);
@@ -1238,7 +1252,9 @@ export function useStore() {
       if (payment.direction === 'in') {
         newState.cashBalance = treasury === 'cash' ? newState.cashBalance + payment.amount : newState.cashBalance;
         newState.bankBalance = treasury === 'bank' ? newState.bankBalance + payment.amount : newState.bankBalance;
-        if (payment.type === 'sale') {
+        // أي دفعة داخلة من طرف تُسدد فواتير البيع لهذا الطرف، حتى لو كانت
+        // الواجهة القديمة قد أرسلت type=opening. الاتجاه هو مصدر الحقيقة.
+        if (payment.type === 'sale' || payment.type === 'opening') {
           changedCustomer = newState.customers.find(c => c.id === payment.referenceId) || null;
           let remaining = payment.amount;
           const sortedInvoices = [...newState.saleInvoices]
@@ -1267,7 +1283,8 @@ export function useStore() {
       } else {
         newState.cashBalance = treasury === 'cash' ? newState.cashBalance - payment.amount : newState.cashBalance;
         newState.bankBalance = treasury === 'bank' ? newState.bankBalance - payment.amount : newState.bankBalance;
-        if (payment.type === 'purchase') {
+        // أي دفعة خارجة من طرف تُسدد فواتير الشراء لهذا الطرف.
+        if (payment.type === 'purchase' || payment.type === 'opening') {
           changedSupplier = newState.suppliers.find(s => s.id === payment.referenceId) || null;
           let remaining = payment.amount;
           const sortedInvoices = [...newState.purchaseInvoices]
@@ -1295,7 +1312,7 @@ export function useStore() {
         }
       }
 
-      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+      const treasuryTransaction: TreasuryTransaction = {
         id: makeTransactionId(),
         type: payment.direction === 'in' ? 'payment_in' : 'payment_out',
         description: payment.notes || `دفعة - ${payment.referenceName}`,
@@ -1305,9 +1322,12 @@ export function useStore() {
         referenceId: payment.referenceId,
         date: payment.date,
         createdAt: new Date().toISOString(),
-      }];
+      };
+      newState.treasuryTransactions = [...newState.treasuryTransactions, treasuryTransaction];
 
       saveToFirebase('payments', payment.id, payment);
+      saveToFirebase('treasuryTransactions', treasuryTransaction.id, treasuryTransaction);
+      saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
       const partyCustomer = newState.customers.find(c => c.id === payment.referenceId);
       const partySupplier = newState.suppliers.find(s => s.id === payment.referenceId);
       if (partyCustomer) saveToFirebase('customers', partyCustomer.id, partyCustomer);
@@ -2031,6 +2051,28 @@ export function useStore() {
     saveToFirebase?.('weeklyInventoryCounts', count.id, count);
   }, [updateState]);
 
+  const approveWeeklyInventoryCount = useCallback((countId: string): { success: boolean; message?: string } => {
+    let result: { success: boolean; message?: string } = { success: true };
+    updateState(prev => {
+      const count = (prev.weeklyInventoryCounts || []).find(c => c.id === countId);
+      if (!count) { result = { success: false, message: 'الجرد غير موجود.' }; return prev; }
+      if (count.status === 'approved') return prev;
+      const missingIds = new Set(count.missingSerialIds || []);
+      let changedSerials = prev.serials;
+      if (missingIds.size) {
+        changedSerials = prev.serials.map(serial => {
+          if (!missingIds.has(serial.id) || serial.status !== 'available') return serial;
+          return { ...serial, status: 'missing' as const };
+        });
+        changedSerials.filter((serial, idx) => serial !== prev.serials[idx]).forEach(serial => saveToFirebase('serials', serial.id, serial));
+      }
+      const approved = { ...count, status: 'approved' as const, approvedAt: new Date().toISOString() };
+      saveToFirebase('weeklyInventoryCounts', approved.id, approved);
+      return { ...prev, serials: changedSerials, weeklyInventoryCounts: (prev.weeklyInventoryCounts || []).map(c => c.id === countId ? approved : c) };
+    });
+    return result;
+  }, [updateState]);
+
   // ==================== Phase 2: Stock Transfers ====================
   const addStockTransfer = useCallback((transfer: StockTransfer) => {
     updateState(prev => {
@@ -2103,7 +2145,7 @@ export function useStore() {
     // ✅ توزيع الأرباح
     saveDistribution, deleteDistribution,
     // ✅ Phase 1: Weekly Inventory
-    addWeeklyInventoryCount, updateWeeklyInventoryCount,
+    addWeeklyInventoryCount, updateWeeklyInventoryCount, approveWeeklyInventoryCount,
     // ✅ Phase 2: Stock Transfers
     addStockTransfer, updateStockTransfer,
     // ✅ Phase 3: Daily Operations

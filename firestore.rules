@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ONE is a private authenticated ERP. The app already requires Firebase Auth.
+    // Keep the database closed to anonymous clients; individual application
+    // authorization remains inside the authenticated ERP account.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

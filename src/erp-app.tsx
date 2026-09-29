@@ -211,6 +211,7 @@ export default function ErpApp() {
             weeklyInventoryCounts={state.weeklyInventoryCounts}
             onAddCount={store.addWeeklyInventoryCount}
             onUpdateCount={store.updateWeeklyInventoryCount}
+            onApproveCount={store.approveWeeklyInventoryCount}
             stockTransfers={state.stockTransfers}
             onAddTransfer={store.addStockTransfer}
             onUpdateTransfer={store.updateStockTransfer}

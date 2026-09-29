@@ -1,5 +1,4 @@
 import { AppState, Customer, Supplier, Party, TreasuryTransaction } from '../../types';
-import { normalizeForCompare } from '../../utils/helpers';
 
 export interface PartyBalance {
   id: string;
@@ -7,6 +6,7 @@ export interface PartyBalance {
   phone?: string;
   balance: number;
   type: 'customer' | 'supplier';
+  oldestDueDate?: string;
 }
 
 export interface BalanceSnapshot {
@@ -45,23 +45,19 @@ export interface HealthIssue {
 }
 
 const EPSILON = 0.01;
-
 const sum = (values: number[]) => values.reduce((total, value) => total + (Number(value) || 0), 0);
 
 export const calculateCustomerBalance = (saleInvoices: AppState['saleInvoices'], customer: Pick<Customer, 'id' | 'openingBalance'>): number => {
   const invoices = saleInvoices.filter(invoice => invoice.customerId === customer.id);
   return sum(invoices.map(invoice => invoice.total)) + (customer.openingBalance || 0) - sum(invoices.map(invoice => invoice.paid));
 };
-
-export const getCustomerBalance = (state: AppState, customer: Pick<Customer, 'id' | 'openingBalance'>): number => calculateCustomerBalance(state.saleInvoices, customer);
+export const getCustomerBalance = (state: AppState, customer: Pick<Customer | Supplier, 'id' | 'openingBalance'>): number => calculateCustomerBalance(state.saleInvoices, customer as Customer);
 
 export const calculateSupplierBalance = (purchaseInvoices: AppState['purchaseInvoices'], supplier: Pick<Supplier, 'id' | 'openingBalance'>): number => {
   const invoices = purchaseInvoices.filter(invoice => invoice.supplierId === supplier.id);
   return sum(invoices.map(invoice => invoice.total)) + (supplier.openingBalance || 0) - sum(invoices.map(invoice => invoice.paid));
 };
-
-export const getSupplierBalance = (state: AppState, supplier: Pick<Supplier, 'id' | 'openingBalance'>): number => calculateSupplierBalance(state.purchaseInvoices, supplier);
-
+export const getSupplierBalance = (state: AppState, supplier: Pick<Customer | Supplier, 'id' | 'openingBalance'>): number => calculateSupplierBalance(state.purchaseInvoices, supplier as Supplier);
 
 export const calculatePartyBalance = (
   state: Pick<AppState, 'saleInvoices' | 'purchaseInvoices' | 'payments'>,
@@ -77,68 +73,37 @@ export const calculatePartyBalance = (
     + sum(payments.filter(p => p.direction === 'out').map(p => p.amount));
 };
 
-export const getPartyBalance = (state: AppState, party: Pick<Customer | Supplier, 'id' | 'openingBalance'>): number =>
-  calculatePartyBalance(state, party);
+export const getPartyBalance = (state: AppState, party: Pick<Customer | Supplier, 'id' | 'openingBalance'>): number => calculatePartyBalance(state, party);
 
 export const getPartyBalances = (state: AppState): BalanceSnapshot => {
-  // دفتر الديون يجب أن يعرض الطرف مرة واحدة فقط، حتى لو بقيت له سجلات
-  // قديمة متعددة (عميل/مورد) في البيانات. نجمع كل السجلات المتشابهة بالاسم
-  // أولًا ثم نعرض صافي الحركة في اتجاه واحد فقط.
-  const parties: Party[] = state.parties || [];
-  const grouped = new Map<string, {
-    id: string;
-    name: string;
-    phone?: string;
-    balance: number;
-    ids: Set<string>;
-  }>();
-
-  parties.forEach(party => {
-    const key = normalizeForCompare(party.name || '');
-    const current = grouped.get(key);
+  // نجمع أي سجلات قديمة بنفس الاسم قبل التصنيف حتى لا يظهر الطرف مرتين.
+  const grouped = new Map<string, { id: string; name: string; phone?: string; balance: number; oldestDueDate?: string }>();
+  (state.parties || []).forEach(party => {
+    const key = party.name.trim().replace(/\s+/g, ' ').toLowerCase();
     const balance = getPartyBalance(state, party);
+    const dueDates = [
+      ...state.saleInvoices.filter(i => i.customerId === party.id && i.remaining > EPSILON).map(i => i.date),
+      ...state.purchaseInvoices.filter(i => i.supplierId === party.id && i.remaining > EPSILON).map(i => i.date),
+    ].sort();
+    const current = grouped.get(key);
     if (current) {
       current.balance += balance;
       current.phone ||= party.phone;
-      current.ids.add(party.id);
+      const oldest = dueDates[0];
+      if (oldest && (!current.oldestDueDate || oldest < current.oldestDueDate)) current.oldestDueDate = oldest;
     } else {
-      grouped.set(key, {
-        id: party.id,
-        name: party.name,
-        phone: party.phone,
-        balance,
-        ids: new Set([party.id]),
-      });
+      grouped.set(key, { id: party.id, name: party.name, phone: party.phone, balance, oldestDueDate: dueDates[0] });
     }
   });
-
-  const positive = [...grouped.values()]
-    .filter(item => item.balance > EPSILON)
-    .map(item => ({
-      id: item.id,
-      name: item.name,
-      phone: item.phone,
-      balance: item.balance,
-      type: 'customer' as const,
-    }));
-
-  const negative = [...grouped.values()]
-    .filter(item => item.balance < -EPSILON)
-    .map(item => ({
-      id: item.id,
-      name: item.name,
-      phone: item.phone,
-      balance: Math.abs(item.balance),
-      type: 'supplier' as const,
-    }));
-
+  const positive = [...grouped.values()].filter(x => x.balance > EPSILON).map(x => ({ ...x, balance: x.balance, type: 'customer' as const }));
+  const negative = [...grouped.values()].filter(x => x.balance < -EPSILON).map(x => ({ ...x, balance: Math.abs(x.balance), type: 'supplier' as const }));
   return {
     customersOwing: positive,
     suppliersWithCredit: [],
     suppliersOwed: negative,
     customersWithDebit: [],
-    totalOwing: sum(positive.map(item => item.balance)),
-    totalOwed: sum(negative.map(item => item.balance)),
+    totalOwing: sum(positive.map(x => x.balance)),
+    totalOwed: sum(negative.map(x => x.balance)),
   };
 };
 

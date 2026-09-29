@@ -49,7 +49,7 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
     // سيريالات (بحث دقيق بالسيريال أو IMEI، يربط للمخزون)
     state.serials.forEach(s => {
       if (s.serial.toLowerCase().includes(q) || (s.imei1 || '').includes(q) || (s.imei2 || '').includes(q)) {
-        const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محول (نون/أمازون)' : s.status;
+        const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محول (نون/أمازون)' : s.status === 'missing' ? '⚠️ مفقود' : s.status;
         out.push({
           type: 'serial', id: s.id, title: `${s.serial} — ${s.productName}`,
           subtitle: statusLabel,

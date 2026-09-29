@@ -102,8 +102,13 @@ const pendingSerials = state.serials
   const customersWithDebit = partyBalances.customersWithDebit;
   const totalOwing = partyBalances.totalOwing;
   const totalOwed = partyBalances.totalOwed;
-  const allOwingUs = [...customersOwing, ...suppliersWithCredit].sort((a, b) => b.balance - a.balance);
-  const allWeOwe = [...suppliersOwed, ...customersWithDebit].sort((a, b) => b.balance - a.balance);
+  const debtSort = (a: any, b: any) => {
+    const ad = a.oldestDueDate || '9999-12-31';
+    const bd = b.oldestDueDate || '9999-12-31';
+    return ad.localeCompare(bd) || b.balance - a.balance;
+  };
+  const allOwingUs = [...customersOwing, ...suppliersWithCredit].sort(debtSort);
+  const allWeOwe = [...suppliersOwed, ...customersWithDebit].sort(debtSort);
 
   const netBalance = totalOwing - totalOwed;
 
@@ -145,7 +150,11 @@ const pendingSerials = state.serials
 
   const handleDebtPayment = () => {
     const amount = Number(paymentAmount);
-    if (!paymentParty || !(amount > 0) || !onAddPayment) return;
+    if (!paymentParty || !(amount > 0)) return;
+    if (!onAddPayment) {
+      alert('تعذر تسجيل الدفعة: مسار حفظ الدفعات غير متصل.');
+      return;
+    }
     onAddPayment({
       id: `pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: paymentDirection === 'in' ? 'sale' : 'purchase',
@@ -660,7 +669,7 @@ const pendingSerials = state.serials
       </div>
 
       {paymentParty && (
-        <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4" onClick={() => setPaymentParty(null)}>
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4" onClick={() => setPaymentParty(null)}>
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-white mb-1">💰 تسجيل دفعة — {paymentParty.name}</h3>
             <p className="text-xs text-gray-400 mb-4">{paymentDirection === 'in' ? 'دخول دفعة من التاجر' : 'خروج دفعة للتاجر'}</p>

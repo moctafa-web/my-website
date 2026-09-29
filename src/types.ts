@@ -51,7 +51,7 @@ export interface SerialItem {
   serial: string;
   imei1?: string;
   imei2?: string;
-  status: 'available' | 'sold' | 'transferred' | 'returned';
+  status: 'available' | 'sold' | 'transferred' | 'returned' | 'missing';
   purchaseInvoiceId?: string;
   saleInvoiceId?: string;
   noonOrderId?: string;
@@ -405,6 +405,9 @@ export interface InventoryCountLine {
   category: 'matched' | 'shortage' | 'surplus'; // الحالة النهائية بعد حفظ الجرد: مطابق/ناقص/زيادة
   notes?: string;
   countedBy?: string;            // من قام بالجرد
+  shortageValue?: number;         // تكلفة النقص بسعر الشراء
+  location?: WarehouseLocation;   // موقع الجرد
+  missingSerialIds?: string[];    // السيريالات التي ظهرت ناقصة
 }
 
 export interface DailyInventoryScanLine {
@@ -442,6 +445,8 @@ export interface WeeklyInventoryCount {
   /** Serial IDs physically scanned during this count; used when reopening/editing a saved count. */
   countedSerialIds?: string[];
   status: 'draft' | 'completed' | 'approved';
+  location?: WarehouseLocation;
+  missingSerialIds?: string[];
   totalTheoretical: number;      // إجمالي القيمة النظرية
   totalPhysical: number;         // إجمالي القيمة الفعلية
   totalDifference: number;       // الفرق الإجمالي

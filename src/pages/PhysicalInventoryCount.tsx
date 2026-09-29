@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Product, SerialItem, WeeklyInventoryCount, InventoryCountLine } from '../types';
-import { getTodayStr } from '../utils/helpers';
+import { Product, SerialItem, WeeklyInventoryCount, InventoryCountLine, WarehouseLocation, PurchaseInvoice, SaleInvoice, StockTransfer, NoonOrder } from '../types';
+import { getTodayStr, formatCurrency } from '../utils/helpers';
 import { makeInventoryCountId } from '../store/domains/id.store';
 import { loadCollection } from '../services/firebasePersistence';
 type ScanFeedback = { id: number; type: 'success' | 'error'; message: string };
@@ -12,6 +12,11 @@ interface PhysicalInventoryCountProps {
   weeklyInventoryCounts: WeeklyInventoryCount[];
   onAddCount: (count: WeeklyInventoryCount) => void;
   onUpdateCount: (count: WeeklyInventoryCount) => void;
+  onApproveCount?: (countId: string) => { success: boolean; message?: string };
+  purchaseInvoices?: PurchaseInvoice[];
+  saleInvoices?: SaleInvoice[];
+  stockTransfers?: StockTransfer[];
+  noonOrders?: NoonOrder[];
 }
 
 type CountCategory = InventoryCountLine['category'] | 'pending';
@@ -38,6 +43,11 @@ export default function PhysicalInventoryCount({
   weeklyInventoryCounts,
   onAddCount,
   onUpdateCount,
+  onApproveCount,
+  purchaseInvoices = [],
+  saleInvoices = [],
+  stockTransfers = [],
+  noonOrders = [],
 }: PhysicalInventoryCountProps) {
   const [viewMode, setViewMode] = useState<'list' | 'count'>('list');
   const [visibleCounts, setVisibleCounts] = useState<WeeklyInventoryCount[]>(weeklyInventoryCounts || []);
@@ -49,6 +59,7 @@ export default function PhysicalInventoryCount({
   const [showReport, setShowReport] = useState(false);
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
   const [countedSerials, setCountedSerials] = useState<Set<string>>(new Set());
+  const [countLocation, setCountLocation] = useState<WarehouseLocation>('both');
 
   const currentWeek = getWeekNumber();
   const currentYear = new Date().getFullYear();
@@ -76,11 +87,47 @@ export default function PhysicalInventoryCount({
   }, [viewMode]);
   const isEditingSavedCount = !!selectedCount;
 
+  const inSelectedLocation = (location?: WarehouseLocation) => {
+    if (countLocation === 'both') return true;
+    return !location || location === countLocation || location === 'both';
+  };
+
+  const productCost = (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    const serialCosts = serials.filter(s => s.productId === productId && inSelectedLocation(s.location)).map(s => Number(s.costPrice) || 0).filter(v => v > 0);
+    if (serialCosts.length) return serialCosts.reduce((a,b)=>a+b,0) / serialCosts.length;
+    return Number(product?.costPrice) || 0;
+  };
+
+  const missingSerialsForProduct = (productId: string) => serials.filter(s => s.productId === productId && s.status === 'available' && inSelectedLocation(s.location) && !countedSerials.has(s.id));
+
+  const lastMovementForSerial = (serial: SerialItem) => {
+    const events: { date: string; text: string }[] = [];
+    if (serial.purchaseInvoiceId) { const inv = purchaseInvoices.find(x=>x.id===serial.purchaseInvoiceId); if (inv) events.push({date:inv.date,text:`شراء — ${inv.supplierName} — ${inv.invoiceNumber}`}); }
+    if (serial.saleInvoiceId) { const inv = saleInvoices.find(x=>x.id===serial.saleInvoiceId); if (inv) events.push({date:inv.date,text:`بيع — ${inv.customerName} — ${inv.invoiceNumber}`}); }
+    stockTransfers.filter(t=>t.items.some(i=>(i.serials||[]).some(x=>x.serial===serial.serial))).forEach(t=>events.push({date:t.date,text:`نقل — ${t.fromLocation} → ${t.toLocation} — ${t.transferNumber}`}));
+    if (serial.noonOrderId) { const order=noonOrders.find(x=>x.id===serial.noonOrderId); if(order) events.push({date:order.date,text:`منصة — ${order.platform} — ${order.orderNumber}`}); }
+    events.sort((a,b)=>b.date.localeCompare(a.date));
+    return events[0] || {date:serial.createdAt?.slice(0,10)||'—', text:'إنشاء السيريال في النظام'};
+  };
+
+  const missingRepeatMap = useMemo(() => {
+    const map = new Map<string, number>();
+    visibleCounts.forEach(c => (c.missingSerialIds || []).forEach(id => map.set(id, (map.get(id)||0)+1)));
+    return map;
+  }, [visibleCounts]);
+
+  const previousComparable = useMemo(() => {
+    if (!selectedCount) return null;
+    const older = visibleCounts.filter(c => c.id !== selectedCount.id && `${c.year}-${String(c.weekNumber).padStart(2,'0')}` < `${selectedCount.year}-${String(selectedCount.weekNumber).padStart(2,'0')}`).sort((a,b)=>`${b.year}-${String(b.weekNumber).padStart(2,'0')}`.localeCompare(`${a.year}-${String(a.weekNumber).padStart(2,'0')}`));
+    return older[0] || null;
+  }, [selectedCount, visibleCounts]);
+
   const buildNewLines = (): WorkingLine[] => products
     .map(product => {
       const theoreticalQty = product.productType === 'serial'
-        ? serials.filter(s => s.productId === product.id && s.status === 'available').length
-        : product.stock || 0;
+        ? serials.filter(s => s.productId === product.id && s.status === 'available' && inSelectedLocation(s.location)).length
+        : (countLocation === 'both' || !product.location || product.location === countLocation || product.location === 'both') ? (product.stock || 0) : 0;
       return {
         productId: product.id,
         productName: product.name,
@@ -106,7 +153,9 @@ export default function PhysicalInventoryCount({
   };
 
   const openSavedCountForEdit = (count: WeeklyInventoryCount) => {
+    if (count.status === 'approved') { setSelectedCount(count); setCountLocation(count.location || 'both'); setCountLines(count.lines.map(line => ({ ...line, category: line.category }))); setCountedSerials(new Set(count.countedSerialIds || [])); setUnrecognizedScans([...(count.unrecognizedScans || [])]); setShowReport(true); setViewMode('count'); return; }
     setSelectedCount(count);
+    setCountLocation(count.location || 'both');
     // أثناء التعديل نعيد الحالة إلى محايدة حتى لا نعرض نتيجة قديمة قبل إعادة الحفظ.
     setCountLines(count.lines.map(line => ({ ...line, category: emptyWorkingCategory() })));
     setCountedSerials(new Set(count.countedSerialIds || []));
@@ -160,18 +209,20 @@ export default function PhysicalInventoryCount({
 
   const finalizeLines = (lines: WorkingLine[]): InventoryCountLine[] => lines.map(line => {
     const category = finalCategory(line.theoreticalQty, line.physicalQty);
+    const product = products.find(p => p.id === line.productId);
+    const scannedForProduct = product?.productType === 'serial' && serials.some(serial => serial.productId === line.productId && countedSerials.has(serial.id));
+    const missing = category === 'shortage' && product?.productType === 'serial' && scannedForProduct ? missingSerialsForProduct(line.productId) : [];
+    const shortageValue = category === 'shortage'
+      ? (missing.length ? missing.reduce((s, serial) => s + (Number(serial.costPrice)||0), 0) : Math.abs(line.difference) * productCost(line.productId))
+      : 0;
     let notes = line.notes || '';
-    if (category === 'shortage' && line.productId) {
-      const missing = serials
-        .filter(s => s.productId === line.productId && s.status === 'available' && !countedSerials.has(s.id))
-        .map(s => s.serial)
-        .filter(Boolean);
-      if (missing.length) notes = `سيريالات لم يتم جردها: ${missing.join(', ')}`;
-    }
-    return { ...line, category, notes };
+    if (missing.length) notes = `سيريالات لم يتم جردها: ${missing.map(s => s.serial).join(', ')}`;
+    return { ...line, category, notes, shortageValue, location: countLocation, missingSerialIds: missing.map(s=>s.id) };
   });
 
+
   const saveCount = () => {
+    if (selectedCount?.status === 'approved') return;
     if (!countLines.length) return;
     const finalizedLines = finalizeLines(countLines);
     const totalTheoretical = finalizedLines.reduce((sum, l) => sum + l.theoreticalQty, 0);
@@ -190,6 +241,8 @@ export default function PhysicalInventoryCount({
           unrecognizedScans: [...unrecognizedScans],
           countedSerialIds: Array.from(countedSerials),
           status: 'completed',
+          location: countLocation,
+          missingSerialIds: finalizedLines.flatMap(l => l.missingSerialIds || []),
           endDate: getTodayStr(),
           totalTheoretical,
           totalPhysical,
@@ -208,6 +261,8 @@ export default function PhysicalInventoryCount({
           unrecognizedScans: [...unrecognizedScans],
           countedSerialIds: Array.from(countedSerials),
           status: 'completed',
+          location: countLocation,
+          missingSerialIds: finalizedLines.flatMap(l => l.missingSerialIds || []),
           totalTheoretical,
           totalPhysical,
           totalDifference,
@@ -249,7 +304,8 @@ export default function PhysicalInventoryCount({
           <p className="text-gray-500 text-sm">أسبوع {currentWeek} - {currentYear}</p>
         </div>
         {viewMode === 'list' && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+          <select value={countLocation} onChange={e=>setCountLocation(e.target.value as WarehouseLocation)} className="input-dark text-sm"><option value="both">كل المواقع</option><option value="warehouse">المخزن</option><option value="store">المحل</option></select>
           <button onClick={refreshCounts} disabled={refreshing} className="btn-secondary flex items-center gap-2"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''}/> تحديث الجردات</button>
           <button onClick={startNewCount} className="btn-primary flex items-center gap-2">
             <Plus size={16} /> جرد جديد
@@ -271,7 +327,8 @@ export default function PhysicalInventoryCount({
                   <span className={`px-3 py-1 rounded-lg text-xs font-medium ${count.status === 'approved' ? 'bg-green-900/30 text-green-300' : count.status === 'completed' ? 'bg-blue-900/30 text-blue-300' : 'bg-yellow-900/30 text-yellow-300'}`}>
                     {count.status === 'approved' ? '✅ معتمد' : count.status === 'completed' ? '✓ مكتمل' : '📝 مسودة'}
                   </span>
-                  <button onClick={() => openSavedCountForEdit(count)} className="btn-secondary text-xs">عرض / تعديل</button>
+                  <button onClick={() => openSavedCountForEdit(count)} className="btn-secondary text-xs">{count.status === 'approved' ? 'عرض' : 'عرض / تعديل'}</button>
+                  {count.status === 'completed' && onApproveCount && <button onClick={() => { const r = onApproveCount(count.id); if (r.success) setVisibleCounts(prev => prev.map(c => c.id === count.id ? { ...c, status: 'approved', approvedAt: new Date().toISOString() } : c)); }} className="btn-primary text-xs">اعتماد الجرد</button>}
                 </div>
               </div>
               <div className="grid grid-cols-4 gap-2 text-xs">
@@ -294,11 +351,17 @@ export default function PhysicalInventoryCount({
             {scanFeedback && <div className={`text-xs mt-2 ${scanFeedback.type === 'success' ? 'text-emerald-300' : 'text-red-300'}`}>{scanFeedback.message}</div>}
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="bg-elevated border border-blue-700/30 rounded-2xl p-4 flex flex-wrap items-center gap-3">
+            <div className="font-bold text-white">📍 موقع الجرد: {countLocation==='both'?'كل المواقع':countLocation==='warehouse'?'المخزن':'المحل'}</div>
+            <div className="text-xs text-gray-500">الجرد النظري والسيريالات الناقصة محسوبة حسب الموقع المختار.</div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="bg-emerald-900/20 border border-emerald-700/30 rounded-xl p-3 text-center"><div className="text-emerald-300 font-mono text-lg">{matchedLines.length}</div><div className="text-xs text-gray-500">مطابق</div></div>
             <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center"><div className="text-red-300 font-mono text-lg">{shortageLines.length}</div><div className="text-xs text-gray-500">ناقص</div></div>
             <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-3 text-center"><div className="text-orange-300 font-mono text-lg">{surplusLines.length + unrecognizedScans.length}</div><div className="text-xs text-gray-500">زيادة</div></div>
             <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-3 text-center"><div className="text-gray-300 font-mono text-lg">{pendingLines.length}</div><div className="text-xs text-gray-500">لم يُحسم</div></div>
+            <div className="bg-red-900/10 border border-red-700/20 rounded-xl p-3 text-center"><div className="text-red-300 font-mono text-lg">{formatCurrency(shortageLines.reduce((s,l)=>s+(l.shortageValue||0),0))}</div><div className="text-xs text-gray-500">قيمة النقص</div></div>
           </div>
 
           <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-x-auto">
@@ -337,12 +400,15 @@ export default function PhysicalInventoryCount({
 
               <section className="mt-6"><h4 className="font-bold text-lg mb-2">✅ المطابق</h4>{matchedLines.length ? <table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">SKU</th><th className="p-2">نظري</th><th className="p-2">فعلي</th><th className="p-2">فرق</th><th className="p-2">الحالة</th></tr></thead><tbody>{matchedLines.map(l => <tr key={l.productId} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 text-center">{l.sku || '-'}</td><td className="p-2 text-center">{l.theoreticalQty}</td><td className="p-2 text-center">{l.physicalQty}</td><td className="p-2 text-center">0</td><td className="p-2 text-center">مطابق</td></tr>)}</tbody></table> : <div className="text-sm">لا توجد أصناف مطابقة.</div>}</section>
 
-              <section className="mt-6"><h4 className="font-bold text-lg mb-2">🔴 الناقص</h4>{shortageLines.length ? <table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">SKU</th><th className="p-2">نظري</th><th className="p-2">فعلي</th><th className="p-2">فرق</th><th className="p-2 text-right">السيريالات غير المجردة</th></tr></thead><tbody>{shortageLines.map(l => <tr key={l.productId} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 text-center">{l.sku || '-'}</td><td className="p-2 text-center">{l.theoreticalQty}</td><td className="p-2 text-center">{l.physicalQty}</td><td className="p-2 text-center">{l.difference}</td><td className="p-2 text-xs">{l.notes || '-'}</td></tr>)}</tbody></table> : <div className="text-sm">لا توجد أصناف ناقصة.</div>}</section>
+              <section className="mt-6"><h4 className="font-bold text-lg mb-2">🔴 الناقص</h4>{shortageLines.length ? <table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">SKU</th><th className="p-2">نظري</th><th className="p-2">فعلي</th><th className="p-2">فرق</th><th className="p-2">قيمة النقص</th><th className="p-2 text-right">السيريالات غير المجردة</th></tr></thead><tbody>{shortageLines.map(l => <tr key={l.productId} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 text-center">{l.sku || '-'}</td><td className="p-2 text-center">{l.theoreticalQty}</td><td className="p-2 text-center">{l.physicalQty}</td><td className="p-2 text-center">{l.difference}</td><td className="p-2 text-center">{formatCurrency(l.shortageValue||0)}</td><td className="p-2 text-xs">{l.notes || '-'}</td></tr>)}</tbody></table> : <div className="text-sm">لا توجد أصناف ناقصة.</div>}</section>
 
               <section className="mt-6"><h4 className="font-bold text-lg mb-2">🟠 الزيادة / غير موجود بالنظام</h4>{surplusLines.length || unrecognizedScans.length ? <>
                 {surplusLines.length ? <table className="w-full text-sm border-collapse mb-3"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">SKU</th><th className="p-2">نظري</th><th className="p-2">فعلي</th><th className="p-2">فرق</th></tr></thead><tbody>{surplusLines.map(l => <tr key={l.productId} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 text-center">{l.sku || '-'}</td><td className="p-2 text-center">{l.theoreticalQty}</td><td className="p-2 text-center">{l.physicalQty}</td><td className="p-2 text-center">+{l.difference}</td></tr>)}</tbody></table> : null}
                 {unrecognizedScans.length ? <div><div className="font-semibold mb-1">أكواد تم مسحها وغير موجودة في النظام:</div><div className="flex flex-wrap gap-2">{unrecognizedScans.map(code => <span key={code} className="px-2 py-1 rounded bg-orange-50 font-mono text-sm">{code}</span>)}</div></div> : null}
               </> : <div className="text-sm">لا توجد زيادة أو أكواد غير معروفة.</div>}</section>
+
+              {shortageLines.some(l=>(l.missingSerialIds||[]).length) && <section className="mt-6"><h4 className="font-bold text-lg mb-2">🔎 آخر حركة للسيريالات الناقصة</h4><table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">السيريال</th><th className="p-2">المنتج</th><th className="p-2">آخر تاريخ</th><th className="p-2 text-right">آخر حركة ولمن</th><th className="p-2">مرات النقص</th></tr></thead><tbody>{shortageLines.flatMap(l=>(l.missingSerialIds||[]).map(id=>serials.find(s=>s.id===id))).filter(Boolean).map(serial=>{const m=lastMovementForSerial(serial!); return <tr key={serial!.id} className="border-b"><td className="p-2 font-mono">{serial!.serial}</td><td className="p-2">{serial!.productName}</td><td className="p-2 text-center">{m.date}</td><td className="p-2">{m.text}</td><td className="p-2 text-center">{missingRepeatMap.get(serial!.id)||1}</td></tr>})}</tbody></table></section>}
+              {previousComparable && selectedCount && <section className="mt-6"><h4 className="font-bold text-lg mb-2">🔄 مقارنة بالجرد السابق</h4><div className="grid grid-cols-2 gap-3"><div className="p-3 rounded-lg bg-gray-50">الجرد السابق: {previousComparable.endDate} — ناقص {previousComparable.shortageItems} صنف</div><div className="p-3 rounded-lg bg-gray-50">الجرد الحالي: ناقص {shortageLines.length} صنف</div></div><div className="mt-2 text-sm">{(() => { const prev=new Set(previousComparable.missingSerialIds||[]); const cur=new Set(shortageLines.flatMap(l=>l.missingSerialIds||[])); const solved=[...prev].filter(id=>!cur.has(id)).length; const still=[...prev].filter(id=>cur.has(id)).length; return `من السيريالات التي كانت ناقصة: تم حل ${solved}، وما زال ${still} ناقصًا.`; })()}</div></section>}
 
               <div className="mt-8 pt-4 border-t text-sm grid grid-cols-3 gap-4"><div><strong>إجمالي نظري:</strong> {countLines.reduce((s,l) => s + l.theoreticalQty, 0)}</div><div><strong>إجمالي فعلي:</strong> {countLines.reduce((s,l) => s + l.physicalQty, 0)}</div><div><strong>الفرق:</strong> {countLines.reduce((s,l) => s + l.difference, 0)}</div></div>
             </div>
@@ -350,7 +416,8 @@ export default function PhysicalInventoryCount({
 
           <div className="flex items-center gap-2 justify-end">
             <button onClick={resetToList} className="btn-secondary flex items-center gap-1"><X size={14} /> إلغاء</button>
-            <button onClick={saveCount} className="btn-primary flex items-center gap-1"><Save size={14} /> {isEditingSavedCount ? 'حفظ التعديلات' : 'حفظ الجرد'}</button>
+            {selectedCount?.status !== 'approved' && <button onClick={saveCount} className="btn-primary flex items-center gap-1"><Save size={14} /> {isEditingSavedCount ? 'حفظ التعديلات' : 'حفظ الجرد'}</button>}
+            {selectedCount?.status === 'completed' && onApproveCount && <button onClick={() => { const r=onApproveCount(selectedCount.id); if(r.success){ const approved={...selectedCount,status:'approved' as const,approvedAt:new Date().toISOString()}; setSelectedCount(approved); setVisibleCounts(prev=>prev.map(c=>c.id===approved.id?approved:c)); } }} className="btn-primary flex items-center gap-1">✅ اعتماد الجرد</button>}
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardCheck, FileSpreadsheet, Printer, RefreshCw, Save, ScanLine, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, Copy, FileSpreadsheet, Printer, RefreshCw, Save, ScanLine, Trash2, XCircle } from 'lucide-react';
 import { Product, SerialItem, DailyInventoryScan, DailyInventoryScanLine } from '../types';
 import { generateId, getTodayStr } from '../utils/helpers';
 import * as XLSX from 'xlsx';
@@ -35,6 +35,8 @@ export default function DailyInventoryScanner({ products: _products, serials, se
   const [scannerInput, setScannerInput] = useState('');
   const [date, setDate] = useState(getTodayStr());
   const [refreshing, setRefreshing] = useState(false);
+  const [printSections, setPrintSections] = useState({ matched: true, missing: true, extra: true, duplicates: false });
+  const [shareFeedback, setShareFeedback] = useState('');
 
   useEffect(() => setVisibleSessions(sessions || []), [sessions]);
 
@@ -152,6 +154,57 @@ export default function DailyInventoryScanner({ products: _products, serials, se
   const uniqueMatchedIds = new Set(matchedLines.map(l => l.serialId).filter(Boolean));
   const summary = useMemo(() => ({ matched: uniqueMatchedIds.size, missing: missingSerials.length, extra: extraLines.length, scanned: session?.lines.length || 0 }), [session, missingSerials.length, extraLines.length, uniqueMatchedIds.size]);
 
+  const reportText = useMemo(() => {
+    const lines: string[] = [
+      `ONE — تقرير نتيجة الجرد اليومي`,
+      `التاريخ: ${date}`,
+      `مطابق: ${summary.matched} | ناقص/مفقود: ${summary.missing} | زيادة/غير موجود: ${summary.extra}`,
+      ''
+    ];
+    if (printSections.matched) {
+      lines.push('✅ المطابق');
+      matchedLines.forEach(l => lines.push(`${l.productName} — ${l.serial || l.code} — مطابق`));
+      lines.push('');
+    }
+    if (printSections.missing) {
+      lines.push('🔴 الناقص / المفقود');
+      missingSerials.forEach(s => lines.push(`${s.productName} — ${s.serial || '-'} — لم يتم جرده`));
+      lines.push('');
+    }
+    if (printSections.extra) {
+      lines.push('🟠 الزيادة / غير موجود في النظام');
+      extraLines.forEach(l => lines.push(`${l.code} — ${l.productName} — ${l.note || 'غير موجود بالنظام'}`));
+      lines.push('');
+    }
+    if (printSections.duplicates && duplicateLines.length) {
+      lines.push('⚠️ القراءات المكررة');
+      duplicateLines.forEach(l => lines.push(`${l.code} — ${l.productName}`));
+    }
+    return lines.join('\n');
+  }, [date, summary, printSections, matchedLines, missingSerials, extraLines, duplicateLines]);
+
+  const copyReport = async (kind: 'whatsapp' | 'email') => {
+    const emailText = [
+      `ONE — تقرير نتيجة الجرد اليومي`,
+      `التاريخ: ${date}`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `ملخص الجرد`,
+      `• المطابق: ${summary.matched}`,
+      `• الناقص / المفقود: ${summary.missing}`,
+      `• الزيادة / غير موجود: ${summary.extra}`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      reportText.replace(`ONE — تقرير نتيجة الجرد اليومي\nالتاريخ: ${date}\nمطابق: ${summary.matched} | ناقص/مفقود: ${summary.missing} | زيادة/غير موجود: ${summary.extra}\n\n`, '')
+    ].join('\n');
+    const text = kind === 'whatsapp' ? reportText : emailText;
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareFeedback(kind === 'whatsapp' ? 'تم نسخ التقرير بصيغة مناسبة للواتساب' : 'تم نسخ التقرير بصيغة مناسبة للإيميل');
+      window.setTimeout(() => setShareFeedback(''), 2200);
+    } catch {
+      setShareFeedback('تعذر النسخ تلقائيًا. استخدم زر الطباعة أو انسخ التقرير يدويًا.');
+    }
+  };
+
   return <div className="space-y-4">
     <div className="flex items-center justify-between gap-3 flex-wrap">
       <div><h2 className="text-lg font-bold text-white">جرد يومي بالسكانر</h2><p className="text-xs text-muted mt-1">الجرد بالسكانر اللاسلكي فقط. الجلسة محفوظة في Firebase ويمكن فتحها وتعديلها من أي جهاز.</p></div>
@@ -170,12 +223,21 @@ export default function DailyInventoryScanner({ products: _products, serials, se
       <div className="card p-4 flex flex-col md:flex-row gap-2"><div className="card p-3 flex-1 border border-emerald-700/30"><div className="text-sm font-bold">🔗 السكانر اللاسلكي</div><div className="text-xs text-muted mt-1">وصل Deli S228W بالموبايل أو اللابتوب بوضع Keyboard/HID، ثم اضغط داخل الخانة مرة واحدة.</div><input autoFocus value={scannerInput} onChange={e=>setScannerInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();processCode(scannerInput);setScannerInput('')}}} placeholder="جاهز لاستقبال Serial / IMEI من السكانر..." className="input-dark mt-2 w-full"/></div><label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer"><FileSpreadsheet size={18}/> استيراد Excel<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importExcel(f);e.currentTarget.value=''}}/></label><input value={manual} onChange={e=>setManual(e.target.value)} placeholder="إدخال يدوي اختياري Serial / IMEI" className="input-dark flex-1" onKeyDown={e=>{if(e.key==='Enter'){processCode(manual);setManual('')}}}/><button onClick={save} className="btn-secondary flex items-center gap-2"><Save size={16}/> حفظ الجرد</button></div>
       {feedback && <div className={`text-xs ${feedback.type==='success'?'text-emerald-300':'text-red-300'}`}>{feedback.message}</div>}
 
-      {showReport && <div className="print-area card p-5 bg-white text-black"><div className="flex items-center justify-between gap-2 border-b pb-4"><div><h3 className="font-bold text-2xl">ONE — تقرير نتيجة الجرد اليومي</h3><div className="text-sm mt-1">التاريخ: {date} • إجمالي السيريالات المتاحة بالنظام: {expectedSerials.length}</div></div><button onClick={()=>window.print()} className="btn-primary flex items-center gap-2 print:hidden"><Printer size={16}/> طباعة التقرير</button></div>
+      {showReport && <div className="print-area card p-5 bg-white text-black"><div className="flex items-center justify-between gap-2 border-b pb-4"><div><h3 className="font-bold text-2xl">ONE — تقرير نتيجة الجرد اليومي</h3><div className="text-sm mt-1">التاريخ: {date} • إجمالي السيريالات المتاحة بالنظام: {expectedSerials.length}</div></div><div className="flex flex-wrap items-center gap-2 print:hidden">
+          <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={printSections.matched} onChange={e=>setPrintSections(p=>({...p,matched:e.target.checked}))}/> المطابق</label>
+          <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={printSections.missing} onChange={e=>setPrintSections(p=>({...p,missing:e.target.checked}))}/> الناقص</label>
+          <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={printSections.extra} onChange={e=>setPrintSections(p=>({...p,extra:e.target.checked}))}/> الزيادة</label>
+          {duplicateLines.length>0 && <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={printSections.duplicates} onChange={e=>setPrintSections(p=>({...p,duplicates:e.target.checked}))}/> المكرر</label>}
+          <button onClick={()=>window.print()} className="btn-primary flex items-center gap-2"><Printer size={16}/> طباعة المحدد</button>
+          <button onClick={() => copyReport('whatsapp')} className="btn-secondary flex items-center gap-1"><Copy size={15}/> نسخ للواتساب</button>
+          <button onClick={() => copyReport('email')} className="btn-secondary flex items-center gap-1"><Copy size={15}/> نسخ للإيميل</button>
+          {shareFeedback && <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">{shareFeedback}</span>}
+        </div></div>
         <div className="grid grid-cols-4 gap-3 mt-5"><div className="p-3 rounded-lg bg-emerald-50 text-center"><div className="font-bold text-lg">{summary.matched}</div><div className="text-sm">مطابق</div></div><div className="p-3 rounded-lg bg-red-50 text-center"><div className="font-bold text-lg">{summary.missing}</div><div className="text-sm">ناقص / مفقود</div></div><div className="p-3 rounded-lg bg-orange-50 text-center"><div className="font-bold text-lg">{summary.extra}</div><div className="text-sm">زيادة / غير موجود</div></div><div className="p-3 rounded-lg bg-gray-100 text-center"><div className="font-bold text-lg">{summary.scanned}</div><div className="text-sm">إجمالي القراءات</div></div></div>
-        <section className="mt-6"><h4 className="font-bold text-lg mb-2">✅ المطابق</h4>{matchedLines.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">Serial</th><th className="p-2">الكود الممسوح</th><th className="p-2">الحالة</th></tr></thead><tbody>{matchedLines.map(l=><tr key={l.id} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 font-mono">{l.serial||'-'}</td><td className="p-2 font-mono">{l.code}</td><td className="p-2 text-center">مطابق</td></tr>)}</tbody></table>:<div className="text-sm">لا توجد قراءات مطابقة.</div>}</section>
-        <section className="mt-6"><h4 className="font-bold text-lg mb-2">🔴 الناقص / المفقود</h4>{missingSerials.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">Serial</th><th className="p-2">IMEI1</th><th className="p-2">IMEI2</th><th className="p-2">الحالة</th></tr></thead><tbody>{missingSerials.map(s=><tr key={s.id} className="border-b"><td className="p-2">{s.productName}</td><td className="p-2 font-mono">{s.serial||'-'}</td><td className="p-2 font-mono">{s.imei1||'-'}</td><td className="p-2 font-mono">{s.imei2||'-'}</td><td className="p-2 text-center">مفقود / لم يتم جرده</td></tr>)}</tbody></table>:<div className="text-sm">لا يوجد سيريال ناقص — كل السيريالات المتاحة تم جردها.</div>}</section>
-        <section className="mt-6"><h4 className="font-bold text-lg mb-2">🟠 الزيادة / غير موجود في النظام</h4>{extraLines.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2 text-right">البيان</th></tr></thead><tbody>{extraLines.map(l=><tr key={l.id} className="border-b"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2">{l.note||'غير موجود بالنظام'}</td></tr>)}</tbody></table>:<div className="text-sm">لا توجد زيادة أو أكواد غير معروفة.</div>}</section>
-        {duplicateLines.length>0 && <section className="mt-6"><h4 className="font-bold text-lg mb-2">⚠️ قراءات مكررة</h4><table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2">البيان</th></tr></thead><tbody>{duplicateLines.map(l=><tr key={l.id} className="border-b"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2">{l.note}</td></tr>)}</tbody></table></section>}
+        <section className={`mt-6 ${printSections.matched ? '' : 'print-skip'}`}><h4 className="font-bold text-lg mb-2">✅ المطابق</h4>{matchedLines.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">Serial</th><th className="p-2">الحالة</th></tr></thead><tbody>{matchedLines.map(l=><tr key={l.id} className="border-b"><td className="p-2">{l.productName}</td><td className="p-2 font-mono">{l.serial||l.code||'-'}</td><td className="p-2 text-center">مطابق</td></tr>)}</tbody></table>:<div className="text-sm">لا توجد قراءات مطابقة.</div>}</section>
+        <section className={`mt-6 ${printSections.missing ? '' : 'print-skip'}`}><h4 className="font-bold text-lg mb-2">🔴 الناقص / المفقود</h4>{missingSerials.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2 text-right">المنتج</th><th className="p-2">Serial</th><th className="p-2">IMEI1</th><th className="p-2">IMEI2</th><th className="p-2">الحالة</th></tr></thead><tbody>{missingSerials.map(s=><tr key={s.id} className="border-b"><td className="p-2">{s.productName}</td><td className="p-2 font-mono">{s.serial||'-'}</td><td className="p-2 font-mono">{s.imei1||'-'}</td><td className="p-2 font-mono">{s.imei2||'-'}</td><td className="p-2 text-center">مفقود / لم يتم جرده</td></tr>)}</tbody></table>:<div className="text-sm">لا يوجد سيريال ناقص — كل السيريالات المتاحة تم جردها.</div>}</section>
+        <section className={`mt-6 ${printSections.extra ? '' : 'print-skip'}`}><h4 className="font-bold text-lg mb-2">🟠 الزيادة / غير موجود في النظام</h4>{extraLines.length?<table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2 text-right">البيان</th></tr></thead><tbody>{extraLines.map(l=><tr key={l.id} className="border-b"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2">{l.note||'غير موجود بالنظام'}</td></tr>)}</tbody></table>:<div className="text-sm">لا توجد زيادة أو أكواد غير معروفة.</div>}</section>
+        {duplicateLines.length>0 && <section className={`mt-6 ${printSections.duplicates ? '' : 'print-skip'}`}><h4 className="font-bold text-lg mb-2">⚠️ قراءات مكررة</h4><table className="w-full text-sm border-collapse"><thead><tr className="border-b-2"><th className="p-2">الكود</th><th className="p-2 text-right">المنتج</th><th className="p-2">البيان</th></tr></thead><tbody>{duplicateLines.map(l=><tr key={l.id} className="border-b"><td className="p-2 font-mono">{l.code}</td><td className="p-2">{l.productName}</td><td className="p-2">{l.note}</td></tr>)}</tbody></table></section>}
         <div className="mt-8 pt-4 border-t text-sm grid grid-cols-3 gap-4"><div><strong>المتوقع:</strong> {expectedSerials.length}</div><div><strong>تم العثور عليه:</strong> {summary.matched}</div><div><strong>لم يتم العثور عليه:</strong> {summary.missing}</div></div>
       </div>}
 

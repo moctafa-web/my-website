@@ -132,3 +132,7 @@ select.input-dark {
     border: 0 !important;
   }
 }
+
+@media print {
+  .print-skip { display: none !important; }
+}
