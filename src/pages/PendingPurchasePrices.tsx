@@ -5,8 +5,8 @@
 // الفاتورة القديمة، والحقل الوحيد المطلوب هو السعر (المورد ميتسألش عنه تاني).
 import React, { useMemo, useState } from 'react';
 import { PurchaseInvoice, SerialItem, Supplier } from '../types';
-import { formatCurrency } from '../utils/helpers';
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { formatCurrency, printElement } from '../utils/helpers';
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Printer } from 'lucide-react';
 
 interface Props {
   serials: SerialItem[];
@@ -140,6 +140,67 @@ export default function PendingPurchasePrices({
 
   const doneCount = pendingSerials.filter(s => getRow(s.id).status === 'done').length;
 
+  const printPendingSerials = () => {
+    if (pendingSerials.length === 0) {
+      alert('لا توجد سيريالات بسعر شراء معلّق للطباعة.');
+      return;
+    }
+
+    const rows = pendingSerials.map((serial, index) => {
+      const originInvoice = serial.purchaseInvoiceId ? invoiceById[serial.purchaseInvoiceId] : null;
+      const serialValue = serial.serial || '-';
+      const imei = serial.imei1 || serial.imei2 || '';
+      const supplier = originInvoice?.supplierName || '-';
+      const date = originInvoice?.date || (serial.createdAt ? serial.createdAt.slice(0, 10) : '-');
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td style="text-align:right;font-weight:700">${serial.productName || '-'}</td>
+          <td style="font-family:monospace;font-size:13px;direction:ltr">${serialValue}</td>
+          <td style="font-family:monospace;font-size:12px;direction:ltr">${imei || '-'}</td>
+          <td>${supplier}</td>
+          <td>${date}</td>
+          <td style="min-width:110px;height:38px"></td>
+        </tr>`;
+    }).join('');
+
+    printElement(`
+      <div dir="rtl" style="font-family:Arial,sans-serif;padding:20px;color:#111">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #222;padding-bottom:12px;margin-bottom:14px">
+          <div>
+            <h1 style="margin:0 0 6px;font-size:22px">ONE — كشف سيريالات بسعر شراء معلّق</h1>
+            <div style="font-size:13px;color:#555">السيريالات التي تحتاج تحديد سعر الشراء بواسطة المدير</div>
+          </div>
+          <div style="text-align:left;font-size:12px;color:#555">
+            <div>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-EG')}</div>
+            <div style="margin-top:4px">الإجمالي: <b style="color:#111">${pendingSerials.length}</b> سيريال</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f1f1f1">
+              <th style="border:1px solid #999;padding:8px;width:38px">#</th>
+              <th style="border:1px solid #999;padding:8px">المنتج</th>
+              <th style="border:1px solid #999;padding:8px">Serial</th>
+              <th style="border:1px solid #999;padding:8px">IMEI</th>
+              <th style="border:1px solid #999;padding:8px">المورد</th>
+              <th style="border:1px solid #999;padding:8px">تاريخ الدخول</th>
+              <th style="border:1px solid #999;padding:8px">سعر الشراء</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:18px;border:1px solid #999;padding:10px;font-size:12px">
+          <b>تعليمات:</b> اكتب سعر الشراء الحقيقي في خانة «سعر الشراء» أمام كل سيريال، ثم أدخل الأسعار في النظام من صفحة السيريالات المعلّقة.
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:28px;font-size:12px">
+          <span>اعتماد المدير: ____________________</span>
+          <span>التوقيع: ____________________</span>
+        </div>
+      </div>
+    `, 'سيريالات بسعر شراء معلّق');
+  };
+
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -156,11 +217,20 @@ export default function PendingPurchasePrices({
             </p>
           </div>
         </div>
-        {filledCount > 0 && (
-          <button onClick={saveAll} className="btn-primary text-sm">
-            💾 حفظ كل الأسعار المكتوبة ({filledCount})
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={printPendingSerials}
+            disabled={pendingSerials.length === 0}
+            className="btn-secondary text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Printer size={16} /> طباعة السيريالات ({pendingSerials.length})
           </button>
-        )}
+          {filledCount > 0 && (
+            <button onClick={saveAll} className="btn-primary text-sm">
+              💾 حفظ كل الأسعار المكتوبة ({filledCount})
+            </button>
+          )}
+        </div>
       </div>
 
       {pendingSerials.length === 0 ? (
