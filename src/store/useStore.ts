@@ -1295,7 +1295,7 @@ export function useStore() {
         }
       }
 
-      newState.treasuryTransactions = [...newState.treasuryTransactions, {
+      const treasuryTransaction: TreasuryTransaction = {
         id: makeTransactionId(),
         type: payment.direction === 'in' ? 'payment_in' : 'payment_out',
         description: payment.notes || `دفعة - ${payment.referenceName}`,
@@ -1305,9 +1305,12 @@ export function useStore() {
         referenceId: payment.referenceId,
         date: payment.date,
         createdAt: new Date().toISOString(),
-      }];
+      };
+      newState.treasuryTransactions = [...newState.treasuryTransactions, treasuryTransaction];
 
       saveToFirebase('payments', payment.id, payment);
+      saveToFirebase('treasuryTransactions', treasuryTransaction.id, treasuryTransaction);
+      saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
       const partyCustomer = newState.customers.find(c => c.id === payment.referenceId);
       const partySupplier = newState.suppliers.find(s => s.id === payment.referenceId);
       if (partyCustomer) saveToFirebase('customers', partyCustomer.id, partyCustomer);

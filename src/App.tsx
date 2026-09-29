@@ -93,6 +93,11 @@ export default function App() {
             onNewSale={() => setCurrentPage('sales')}
             onNewPurchase={() => setCurrentPage('purchases')}
             adjustTreasury={store.adjustTreasury}
+            onAddPayment={store.addPayment}
+            onOpenStatement={(type, id) => {
+              setPendingCustomerId(id);
+              setCurrentPage('parties');
+            }}
             onCompletePendingSerial={(serialId) => {
               setPendingSerialId(serialId);
               setCurrentPage('purchases');
@@ -113,6 +118,8 @@ export default function App() {
             onAddPayment={store.addPayment}
             onNavigateToSales={(id) => { setPendingCustomerId(id); setCurrentPage('sales'); }}
             onNavigateToPurchases={(id) => { setPendingSupplierId(id); setCurrentPage('purchases'); }}
+            preselectedStatementId={pendingCustomerId}
+            onPreselectedStatementHandled={() => setPendingCustomerId(null)}
           />
         );
 

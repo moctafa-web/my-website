@@ -23,6 +23,7 @@ interface Props {
   ) => void;
   // ✅ فتح كشف حساب شخص معيّن مباشرة (عميل/مورد) - يُستخدم من دفتر الديون
   onOpenStatement?: (type: 'customer' | 'supplier', id: string) => void;
+  onAddPayment?: (p: any) => void;
   // ✅ الانتقال لصفحة المبيعات/المشتريات مع فلترة على فواتير اليوم بس
   onViewTodayInvoices?: (kind: 'sales' | 'purchases') => void;
 }
@@ -35,11 +36,18 @@ export default function Dashboard({
   onCompletePendingSerial,
   adjustTreasury,
   onOpenStatement,
+  onAddPayment,
   onViewTodayInvoices,
 }: Props) {
   const [showTreasury, setShowTreasury] = useState(false);
   const [showDebtBook, setShowDebtBook] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [paymentParty, setPaymentParty] = useState<any | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDirection, setPaymentDirection] = useState<'in' | 'out'>('in');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank'>('cash');
+  const [paymentDate, setPaymentDate] = useState(getTodayStr());
+  const [paymentNotes, setPaymentNotes] = useState('');
 
   const [treasuryForm, setTreasuryForm] = useState({
     type: 'cash' as 'cash' | 'bank',
@@ -124,6 +132,35 @@ const pendingSerials = state.serials
     );
     setTreasuryForm({ type: 'cash', amount: '', direction: 'in', description: '' });
     setShowTreasury(false);
+  };
+
+  const openDebtPayment = (party: any, direction: 'in' | 'out') => {
+    setPaymentParty(party);
+    setPaymentDirection(direction);
+    setPaymentAmount('');
+    setPaymentMethod('cash');
+    setPaymentDate(getTodayStr());
+    setPaymentNotes('');
+  };
+
+  const handleDebtPayment = () => {
+    const amount = Number(paymentAmount);
+    if (!paymentParty || !(amount > 0) || !onAddPayment) return;
+    onAddPayment({
+      id: `pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: paymentDirection === 'in' ? 'sale' : 'purchase',
+      referenceId: paymentParty.id,
+      referenceName: paymentParty.name,
+      amount,
+      paymentMethod,
+      direction: paymentDirection,
+      date: paymentDate || getTodayStr(),
+      notes: paymentNotes.trim(),
+      createdAt: new Date().toISOString(),
+    });
+    setPaymentParty(null);
+    setPaymentAmount('');
+    setPaymentNotes('');
   };
 
   /* ─── طباعة دفتر الديون ─── */
@@ -622,6 +659,32 @@ const pendingSerials = state.serials
         </div>
       </div>
 
+      {paymentParty && (
+        <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4" onClick={() => setPaymentParty(null)}>
+          <div className="bg-elevated border border-violet-900/40 rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-white mb-1">💰 تسجيل دفعة — {paymentParty.name}</h3>
+            <p className="text-xs text-gray-400 mb-4">{paymentDirection === 'in' ? 'دخول دفعة من التاجر' : 'خروج دفعة للتاجر'}</p>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button onClick={() => setPaymentDirection('in')} className={`py-2 rounded-xl border text-sm ${paymentDirection === 'in' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>⬅️ دخول دفعة</button>
+              <button onClick={() => setPaymentDirection('out')} className={`py-2 rounded-xl border text-sm ${paymentDirection === 'out' ? 'bg-red-700/30 border-red-500/50 text-red-300' : 'border-white/10 text-gray-400'}`}>➡️ خروج دفعة</button>
+            </div>
+            <div className="space-y-3">
+              <input type="number" min="0" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="input-dark w-full" placeholder="المبلغ" autoFocus />
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setPaymentMethod('cash')} className={`py-2 rounded-xl border text-sm ${paymentMethod === 'cash' ? 'bg-green-700/30 border-green-500/50 text-green-300' : 'border-white/10 text-gray-400'}`}>💵 كاش</button>
+                <button onClick={() => setPaymentMethod('bank')} className={`py-2 rounded-xl border text-sm ${paymentMethod === 'bank' ? 'bg-blue-700/30 border-blue-500/50 text-blue-300' : 'border-white/10 text-gray-400'}`}>🏦 بنك</button>
+              </div>
+              <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="input-dark w-full" />
+              <input type="text" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} className="input-dark w-full" placeholder="ملاحظات اختيارية" />
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={handleDebtPayment} disabled={!(Number(paymentAmount) > 0)} className="btn-primary flex-1 disabled:opacity-50">✅ تأكيد الدفعة</button>
+              <button onClick={() => setPaymentParty(null)} className="btn-secondary flex-1">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══ MODAL: دفتر الديون ══ */}
       {showDebtBook && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
@@ -728,14 +791,18 @@ const pendingSerials = state.serials
                             <div className="text-xs text-gray-500">مستحق لنا</div>
                           </div>
                           <button
+                            onClick={() => openDebtPayment(c, 'in')}
+                            className="text-xs text-green-300 bg-green-900/20 hover:bg-green-900/40 px-3 py-1.5 rounded-lg transition-colors">
+                            دخول دفعة
+                          </button>
+                          <button
                             onClick={() => {
                               setShowDebtBook(false);
                               if (onOpenStatement) onOpenStatement(c.type, c.id);
                               else onNavigate('parties');
                             }}
                             className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
-                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
-                                       opacity-0 group-hover:opacity-100">
+                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors">
                             كشف حساب
                           </button>
                         </div>
@@ -792,14 +859,18 @@ const pendingSerials = state.serials
                             <div className="text-xs text-gray-500">مستحق لهم</div>
                           </div>
                           <button
+                            onClick={() => openDebtPayment(s, 'out')}
+                            className="text-xs text-red-300 bg-red-900/20 hover:bg-red-900/40 px-3 py-1.5 rounded-lg transition-colors">
+                            خروج دفعة
+                          </button>
+                          <button
                             onClick={() => {
                               setShowDebtBook(false);
                               if (onOpenStatement) onOpenStatement(s.type, s.id);
                               else onNavigate('parties');
                             }}
                             className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
-                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
-                                       opacity-0 group-hover:opacity-100">
+                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors">
                             كشف حساب
                           </button>
                         </div>
