@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CNY3tETQ.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BrCduSoX.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -4492,14 +4492,37 @@ function Sales({ saleInvoices, customers, products, serials, settings, suppliers
 		if (dateFilter && inv.date !== dateFilter) return false;
 		return inv.invoiceNumber.toLowerCase().includes(searchQuery) || inv.customerName.toLowerCase().includes(searchQuery) || inv.date.includes(searchQuery);
 	}).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-	const allParties = [...customers.map((c) => ({
-		...c,
-		partyType: "customer"
-	})), ...suppliers.map((s) => ({
-		...s,
-		partyType: "supplier"
-	}))];
-	const filteredCustomers = allParties.filter((p) => p.name.toLowerCase().includes(customerSearch.toLowerCase()) || (p.phone || "").includes(customerSearch));
+	const allParties = (() => {
+		const byId = /* @__PURE__ */ new Map();
+		customers.forEach((c) => {
+			byId.set(c.id, {
+				...c,
+				partyType: "customer"
+			});
+		});
+		suppliers.forEach((s) => {
+			const existing = byId.get(s.id);
+			if (existing) byId.set(s.id, {
+				...existing,
+				...s,
+				partyType: "both",
+				phone: existing.phone || s.phone,
+				email: existing.email || s.email,
+				address: existing.address || s.address
+			});
+			else byId.set(s.id, {
+				...s,
+				partyType: "supplier"
+			});
+		});
+		return Array.from(byId.values());
+	})();
+	const partySearchMatches = (name, phone, query) => {
+		const q = normalizeForCompare(query);
+		if (!q) return true;
+		return normalizeForCompare(name).includes(q) || normalizeForCompare(phone || "").includes(q);
+	};
+	const filteredCustomers = allParties.filter((p) => partySearchMatches(p.name, p.phone, customerSearch));
 	const subtotal = saleItems.reduce((s, item) => s + item.total, 0);
 	const totalAfterDiscount = Math.max(0, subtotal - discount);
 	const paidAmount = parseFloat(paid) || 0;
@@ -5561,8 +5584,8 @@ function Sales({ saleInvoices, customers, products, serials, settings, suppliers
 															")"
 														]
 													})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: `text-xs px-1.5 py-0.5 rounded-md mr-2 shrink-0 ${p.partyType === "supplier" ? "bg-blue-900/40 text-blue-400" : "bg-violet-900/40 text-violet-400"}`,
-														children: p.partyType === "supplier" ? "مورد/تاجر" : "عميل"
+														className: `text-xs px-1.5 py-0.5 rounded-md mr-2 shrink-0 ${p.partyType === "supplier" ? "bg-blue-900/40 text-blue-400" : p.partyType === "both" ? "bg-emerald-900/40 text-emerald-400" : "bg-violet-900/40 text-violet-400"}`,
+														children: p.partyType === "supplier" ? "مورد/تاجر" : p.partyType === "both" ? "عميل / مورد" : "عميل"
 													})]
 												})
 											}, p.id)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -7493,26 +7516,52 @@ function Purchases({ purchaseInvoices, suppliers, customers = [], products, seri
 		const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || "";
 		return inv.invoiceNumber.toLowerCase().includes(q) || inv.supplierName.toLowerCase().includes(q) || supplierName.toLowerCase().includes(q);
 	}).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-	const allParties = [...suppliers.map((s) => ({
-		...s,
-		partyType: "supplier"
-	})), ...customers.map((c) => ({
-		id: c.id,
-		name: c.name,
-		phone: c.phone,
-		email: c.email,
-		address: c.address,
-		type: "both",
-		openingBalance: c.openingBalance,
-		totalInvoices: c.totalInvoices,
-		totalPaid: c.totalPaid,
-		notes: c.notes,
-		createdAt: c.createdAt,
-		partyType: "customer"
-	}))];
+	const allParties = (() => {
+		const byId = /* @__PURE__ */ new Map();
+		suppliers.forEach((s) => {
+			byId.set(s.id, {
+				...s,
+				partyType: "supplier"
+			});
+		});
+		customers.forEach((c) => {
+			const existing = byId.get(c.id);
+			const customerProjection = {
+				id: c.id,
+				name: c.name,
+				phone: c.phone,
+				email: c.email,
+				address: c.address,
+				type: "both",
+				openingBalance: c.openingBalance,
+				totalInvoices: c.totalInvoices,
+				totalPaid: c.totalPaid,
+				notes: c.notes,
+				createdAt: c.createdAt
+			};
+			if (existing) byId.set(c.id, {
+				...existing,
+				...customerProjection,
+				partyType: "both",
+				phone: existing.phone || c.phone,
+				email: existing.email || c.email,
+				address: existing.address || c.address
+			});
+			else byId.set(c.id, {
+				...customerProjection,
+				partyType: "customer"
+			});
+		});
+		return Array.from(byId.values());
+	})();
+	const partySearchMatches = (name, phone, query) => {
+		const q = normalizeForCompare(query);
+		if (!q) return true;
+		return normalizeForCompare(name).includes(q) || normalizeForCompare(phone || "").includes(q);
+	};
 	const selectedSupplier = allParties.find((s) => s.id === supplierId);
-	const filteredSuppliers = allParties.filter((s) => s.name.toLowerCase().includes(supplierSearch.toLowerCase()) || (s.phone || "").includes(supplierSearch));
-	const filteredSuppliersForComplete = allParties.filter((s) => s.name.toLowerCase().includes(completePendingForm.supplierSearch.toLowerCase()) || (s.phone || "").includes(completePendingForm.supplierSearch));
+	const filteredSuppliers = allParties.filter((s) => partySearchMatches(s.name, s.phone, supplierSearch));
+	const filteredSuppliersForComplete = allParties.filter((s) => partySearchMatches(s.name, s.phone, completePendingForm.supplierSearch));
 	const subtotal = purchItems.reduce((s, item) => s + item.total, 0);
 	const paidAmount = parseFloat(paid) || 0;
 	const remaining = subtotal - paidAmount;

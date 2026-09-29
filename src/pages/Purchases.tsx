@@ -393,26 +393,49 @@ export default function Purchases({
     );
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  // أي شخص يمكن أن نشتري منه، سواء كان مسجلاً كعميل أو كمورد/تاجر.
-  // نستخدم نفس الـ id حتى تظل كل الحركات على كشف حساب واحد.
-  const allParties = [
-    ...suppliers.map(s => ({ ...s, partyType: 'supplier' as const })),
-    ...customers.map(c => ({
-      id: c.id, name: c.name, phone: c.phone, email: c.email, address: c.address,
-      type: 'both' as const, openingBalance: c.openingBalance, totalInvoices: c.totalInvoices,
-      totalPaid: c.totalPaid, notes: c.notes, createdAt: c.createdAt, partyType: 'customer' as const,
-    })),
-  ];
+  // نفس الشخص قد يكون عميلًا وموردًا في نفس الوقت، لذلك لا نعرضه مرتين.
+  // الدمج هنا حسب الـID الموحد القادم من useStore.
+  const allParties = (() => {
+    const byId = new Map<string, any>();
+    suppliers.forEach(s => {
+      byId.set(s.id, { ...s, partyType: 'supplier' as const });
+    });
+    customers.forEach(c => {
+      const existing = byId.get(c.id);
+      const customerProjection = {
+        id: c.id, name: c.name, phone: c.phone, email: c.email, address: c.address,
+        type: 'both' as const, openingBalance: c.openingBalance, totalInvoices: c.totalInvoices,
+        totalPaid: c.totalPaid, notes: c.notes, createdAt: c.createdAt,
+      };
+      if (existing) {
+        byId.set(c.id, {
+          ...existing,
+          ...customerProjection,
+          partyType: 'both' as const,
+          phone: existing.phone || c.phone,
+          email: existing.email || c.email,
+          address: existing.address || c.address,
+        });
+      } else {
+        byId.set(c.id, { ...customerProjection, partyType: 'customer' as const });
+      }
+    });
+    return Array.from(byId.values());
+  })();
+
+  const partySearchMatches = (name: string, phone: string | undefined, query: string) => {
+    const q = normalizeForCompare(query);
+    if (!q) return true;
+    return normalizeForCompare(name).includes(q) || normalizeForCompare(phone || '').includes(q);
+  };
 
   const selectedSupplier = allParties.find(s => s.id === supplierId);
   const filteredSuppliers = allParties.filter(s =>
-    s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
-    (s.phone || '').includes(supplierSearch)
+    partySearchMatches(s.name, s.phone, supplierSearch)
   );
 
   const filteredSuppliersForComplete = allParties.filter(s =>
-    s.name.toLowerCase().includes(completePendingForm.supplierSearch.toLowerCase()) ||
-    (s.phone || '').includes(completePendingForm.supplierSearch)
+    partySearchMatches(s.name, s.phone, completePendingForm.supplierSearch)
   );
 
   const subtotal = purchItems.reduce((s, item) => s + item.total, 0);

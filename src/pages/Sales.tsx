@@ -1,7 +1,7 @@
 // src/pages/Sales.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
-import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, getProductUPCs, productHasUPC } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
 import BarcodeScanner, { DetectedScan } from '../components/BarcodeScanner';
@@ -229,14 +229,39 @@ export default function Sales({
     );
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const allParties = [
-    ...customers.map(c => ({ ...c, partyType: 'customer' as const })),
-    ...suppliers.map(s => ({ ...s, partyType: 'supplier' as const })),
-  ];
+  // نفس الشخص قد يظهر في customers و suppliers بنفس الـID لأنه عميل ومورد معًا.
+  // داخل الفاتورة نعرضه مرة واحدة فقط، مع الاحتفاظ بكل بياناته.
+  const allParties = (() => {
+    const byId = new Map<string, any>();
+    customers.forEach(c => {
+      byId.set(c.id, { ...c, partyType: 'customer' as const });
+    });
+    suppliers.forEach(s => {
+      const existing = byId.get(s.id);
+      if (existing) {
+        byId.set(s.id, {
+          ...existing,
+          ...s,
+          partyType: 'both' as const,
+          phone: existing.phone || s.phone,
+          email: existing.email || s.email,
+          address: existing.address || s.address,
+        });
+      } else {
+        byId.set(s.id, { ...s, partyType: 'supplier' as const });
+      }
+    });
+    return Array.from(byId.values());
+  })();
+
+  const partySearchMatches = (name: string, phone: string | undefined, query: string) => {
+    const q = normalizeForCompare(query);
+    if (!q) return true;
+    return normalizeForCompare(name).includes(q) || normalizeForCompare(phone || '').includes(q);
+  };
 
   const filteredCustomers = allParties.filter(p =>
-    p.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    (p.phone || '').includes(customerSearch)
+    partySearchMatches(p.name, p.phone, customerSearch)
   );
 
   const subtotal = saleItems.reduce((s, item) => s + item.total, 0);
@@ -1139,9 +1164,11 @@ const validateStock = (): string | null => {
                           <span className={`text-xs px-1.5 py-0.5 rounded-md mr-2 shrink-0 ${
                             p.partyType === 'supplier'
                               ? 'bg-blue-900/40 text-blue-400'
-                              : 'bg-violet-900/40 text-violet-400'
+                              : p.partyType === 'both'
+                                ? 'bg-emerald-900/40 text-emerald-400'
+                                : 'bg-violet-900/40 text-violet-400'
                           }`}>
-                            {p.partyType === 'supplier' ? 'مورد/تاجر' : 'عميل'}
+                            {p.partyType === 'supplier' ? 'مورد/تاجر' : p.partyType === 'both' ? 'عميل / مورد' : 'عميل'}
                           </span>
                         </div>
                       </button>
