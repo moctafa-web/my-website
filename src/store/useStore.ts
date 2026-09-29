@@ -113,10 +113,32 @@ export function useStore() {
         let canonicalCustomerMap: Map<string,string>;
         let canonicalSupplierMap: Map<string,string>;
         if (partiesRows.length > 0) {
-          canonicalParties = partiesRows;
+          // لو اتكرر نفس الحساب الموحد في Firebase (مثلاً نفس اسم التاجر
+          // بسجلين مختلفين)، نحتفظ بأول ID ثابت ونضم إليه بيانات السجلات الأخرى.
+          // بعد ذلك كل الفواتير والدفعات ستُعاد ربطها بهذا الـID الواحد.
+          const mergedByName = new Map<string, Party>();
+          const duplicatePartyIds: string[] = [];
+          partiesRows.forEach(rawParty => {
+            const key = partyKey(rawParty.name);
+            const existing = mergedByName.get(key);
+            if (!existing) {
+              mergedByName.set(key, { ...rawParty, roles: { ...rawParty.roles } });
+              return;
+            }
+            existing.roles.customer = existing.roles.customer || rawParty.roles.customer;
+            existing.roles.supplier = existing.roles.supplier || rawParty.roles.supplier;
+            existing.phone ||= rawParty.phone;
+            existing.email ||= rawParty.email;
+            existing.address ||= rawParty.address;
+            existing.notes ||= rawParty.notes;
+            existing.openingBalance += Number(rawParty.openingBalance || 0);
+            duplicatePartyIds.push(rawParty.id);
+          });
+          canonicalParties = [...mergedByName.values()];
           const byName = new Map(canonicalParties.map(p => [partyKey(p.name), p.id]));
           canonicalCustomerMap = new Map(customers.map(c => [c.id, byName.get(partyKey(c.name)) || c.id]));
           canonicalSupplierMap = new Map(suppliers.map(s => [s.id, byName.get(partyKey(s.name)) || s.id]));
+          duplicatePartyIds.forEach(id => void deleteFromFirebase('parties', id));
         } else {
           const unified = buildUnifiedParties(customers, suppliers);
           canonicalParties = unified.parties;

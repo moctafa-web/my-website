@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Party, SaleInvoice, PurchaseInvoice, Payment } from '../types';
 import { generateId, getTodayStr, formatCurrency, printElement } from '../utils/helpers';
-import { Plus, Search, Edit, Trash2, Eye, DollarSign, X, Printer, Copy, Check } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Eye, DollarSign, X, Printer, Copy, Check, ShieldCheck } from 'lucide-react';
 import { calculatePartyBalance } from '../store/domains/accounting.store';
 
 interface Props {
@@ -162,6 +162,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
       {([['all','كل الناس'],['owing','اللي عليهم فلوس'],['owed','اللي ليهم فلوس']] as [Filter,string][]).map(([key,label]) => <button key={key} onClick={()=>setFilter(key)} className={`px-4 py-2 rounded-xl text-sm border ${filter===key?'bg-violet-700/30 border-violet-500/50 text-violet-200':'border-border text-gray-400 hover:bg-white/5'}`}>{label}</button>)}
     </div>
     <div className="relative"><Search className="absolute right-3 top-3 text-gray-500" size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث بالاسم أو الهاتف..." className="input-dark w-full pr-10"/></div>
+    <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200"><ShieldCheck size={15}/><span>النظام يمنع إنشاء حساب موحد بنفس الاسم، وأي حسابات قديمة مكررة بنفس الاسم يتم توحيدها تلقائيًا عند تحميل البيانات مع الحفاظ على الفواتير والدفعات.</span></div>
 
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-muted"><th className="p-3 text-right">الحساب</th><th className="p-3">الدور</th><th className="p-3">الرصيد</th><th className="p-3">الحركات</th><th className="p-3">إجراءات</th></tr></thead>
