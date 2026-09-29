@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-1QsNLMZ_.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-DtDls05G.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -40,14 +40,9 @@ var navItems = [
 		icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Boxes, { size: 18 })
 	},
 	{
-		id: "customers",
-		label: "العملاء",
+		id: "parties",
+		label: "الأطراف والحسابات",
 		icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { size: 18 })
-	},
-	{
-		id: "suppliers",
-		label: "الموردون",
-		icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Truck, { size: 18 })
 	},
 	{
 		id: "noon",
@@ -1289,58 +1284,36 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 }
 var EPSILON = .01;
 var sum = (values) => values.reduce((total, value) => total + (Number(value) || 0), 0);
-var calculateCustomerBalance = (saleInvoices, customer) => {
-	const invoices = saleInvoices.filter((invoice) => invoice.customerId === customer.id);
-	return sum(invoices.map((invoice) => invoice.total)) + (customer.openingBalance || 0) - sum(invoices.map((invoice) => invoice.paid));
-};
-var getCustomerBalance = (state, customer) => calculateCustomerBalance(state.saleInvoices, customer);
-var calculateSupplierBalance = (purchaseInvoices, supplier) => {
-	const invoices = purchaseInvoices.filter((invoice) => invoice.supplierId === supplier.id);
-	return sum(invoices.map((invoice) => invoice.total)) + (supplier.openingBalance || 0) - sum(invoices.map((invoice) => invoice.paid));
-};
-var getSupplierBalance = (state, supplier) => calculateSupplierBalance(state.purchaseInvoices, supplier);
 var calculatePartyBalance = (state, party) => {
 	const sales = state.saleInvoices.filter((i) => i.customerId === party.id);
 	const purchases = state.purchaseInvoices.filter((i) => i.supplierId === party.id);
 	const payments = state.payments.filter((p) => p.referenceId === party.id);
 	return (party.openingBalance || 0) + sum(sales.map((i) => i.total)) - sum(purchases.map((i) => i.total)) - sum(payments.filter((p) => p.direction === "in").map((p) => p.amount)) + sum(payments.filter((p) => p.direction === "out").map((p) => p.amount));
 };
+var getPartyBalance = (state, party) => calculatePartyBalance(state, party);
 var getPartyBalances = (state) => {
-	const customersOwing = state.customers.map((customer) => ({
-		id: customer.id,
-		name: customer.name,
-		phone: customer.phone,
-		balance: getCustomerBalance(state, customer),
+	const parties = state.parties || [];
+	const positive = parties.map((party) => ({
+		id: party.id,
+		name: party.name,
+		phone: party.phone,
+		balance: getPartyBalance(state, party),
 		type: "customer"
 	})).filter((item) => item.balance > EPSILON);
-	const suppliersWithCredit = state.suppliers.map((supplier) => ({
-		id: supplier.id,
-		name: supplier.name,
-		phone: supplier.phone,
-		balance: -getSupplierBalance(state, supplier),
+	const negative = parties.map((party) => ({
+		id: party.id,
+		name: party.name,
+		phone: party.phone,
+		balance: Math.abs(getPartyBalance(state, party)),
 		type: "supplier"
-	})).filter((item) => item.balance > EPSILON);
-	const suppliersOwed = state.suppliers.map((supplier) => ({
-		id: supplier.id,
-		name: supplier.name,
-		phone: supplier.phone,
-		balance: getSupplierBalance(state, supplier),
-		type: "supplier"
-	})).filter((item) => item.balance > EPSILON);
-	const customersWithDebit = state.customers.map((customer) => ({
-		id: customer.id,
-		name: customer.name,
-		phone: customer.phone,
-		balance: -getCustomerBalance(state, customer),
-		type: "customer"
 	})).filter((item) => item.balance > EPSILON);
 	return {
-		customersOwing,
-		suppliersWithCredit,
-		suppliersOwed,
-		customersWithDebit,
-		totalOwing: sum([...customersOwing, ...suppliersWithCredit].map((item) => item.balance)),
-		totalOwed: sum([...suppliersOwed, ...customersWithDebit].map((item) => item.balance))
+		customersOwing: positive,
+		suppliersWithCredit: [],
+		suppliersOwed: negative,
+		customersWithDebit: [],
+		totalOwing: sum(positive.map((item) => item.balance)),
+		totalOwed: sum(negative.map((item) => item.balance))
 	};
 };
 var getDailySummary = (state, date) => {
@@ -2413,7 +2386,7 @@ function Dashboard({ state, onNavigate, onNewSale, onNewPurchase, onCompletePend
 												onClick: () => {
 													setShowDebtBook(false);
 													if (onOpenStatement) onOpenStatement(c.type, c.id);
-													else onNavigate(c.type === "supplier" ? "suppliers" : "customers");
+													else onNavigate("parties");
 												},
 												className: "text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20\n                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors\n                                       opacity-0 group-hover:opacity-100",
 												children: "كشف حساب"
@@ -2476,7 +2449,7 @@ function Dashboard({ state, onNavigate, onNewSale, onNewPurchase, onCompletePend
 												onClick: () => {
 													setShowDebtBook(false);
 													if (onOpenStatement) onOpenStatement(s.type, s.id);
-													else onNavigate(s.type === "customer" ? "customers" : "suppliers");
+													else onNavigate("parties");
 												},
 												className: "text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20\n                                       hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors\n                                       opacity-0 group-hover:opacity-100",
 												children: "كشف حساب"
@@ -10732,6 +10705,612 @@ function Customers({ customers, saleInvoices, purchaseInvoices, payments, onAddC
 								onClick: () => setConfirmDelete(null),
 								className: "flex-1 py-2 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 text-sm font-medium",
 								children: "إلغاء"
+							})]
+						})
+					]
+				})
+			})
+		]
+	});
+}
+function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onNavigateToSales, onNavigateToPurchases, preselectedStatementId, onPreselectedStatementHandled }) {
+	const [search, setSearch] = (0, import_react.useState)("");
+	const [showForm, setShowForm] = (0, import_react.useState)(false);
+	const [edit, setEdit] = (0, import_react.useState)(null);
+	const [view, setView] = (0, import_react.useState)(null);
+	const [paymentParty, setPaymentParty] = (0, import_react.useState)(null);
+	const [paymentAmount, setPaymentAmount] = (0, import_react.useState)("");
+	const [paymentDirection, setPaymentDirection] = (0, import_react.useState)("in");
+	const [paymentMethod, setPaymentMethod] = (0, import_react.useState)("cash");
+	const [error, setError] = (0, import_react.useState)("");
+	const [form, setForm] = (0, import_react.useState)({
+		name: "",
+		phone: "",
+		email: "",
+		address: "",
+		customer: true,
+		supplier: true,
+		openingBalance: "",
+		notes: ""
+	});
+	(0, import_react.useEffect)(() => {
+		if (!preselectedStatementId) return;
+		const p = parties.find((x) => x.id === preselectedStatementId);
+		if (p) setView(p);
+		onPreselectedStatementHandled?.();
+	}, [
+		preselectedStatementId,
+		parties,
+		onPreselectedStatementHandled
+	]);
+	const filtered = (0, import_react.useMemo)(() => parties.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || (p.phone || "").includes(search)), [parties, search]);
+	const balance = (p) => calculatePartyBalance({
+		saleInvoices,
+		purchaseInvoices,
+		payments
+	}, p);
+	const openAdd = () => {
+		setEdit(null);
+		setError("");
+		setForm({
+			name: "",
+			phone: "",
+			email: "",
+			address: "",
+			customer: true,
+			supplier: true,
+			openingBalance: "",
+			notes: ""
+		});
+		setShowForm(true);
+	};
+	const openEdit = (p) => {
+		setEdit(p);
+		setError("");
+		setForm({
+			name: p.name,
+			phone: p.phone || "",
+			email: p.email || "",
+			address: p.address || "",
+			customer: p.roles.customer,
+			supplier: p.roles.supplier,
+			openingBalance: String(p.openingBalance || 0),
+			notes: p.notes || ""
+		});
+		setShowForm(true);
+	};
+	const save = () => {
+		if (!form.name.trim() || !form.customer && !form.supplier) {
+			setError("اكتب الاسم واختر عميل أو مورد على الأقل.");
+			return;
+		}
+		const p = {
+			id: edit?.id || generateId(),
+			name: form.name.trim(),
+			phone: form.phone.trim(),
+			email: form.email.trim(),
+			address: form.address.trim(),
+			roles: {
+				customer: form.customer,
+				supplier: form.supplier
+			},
+			openingBalance: Number(form.openingBalance) || 0,
+			notes: form.notes.trim(),
+			createdAt: edit?.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+		};
+		const result = edit ? (onUpdateParty(p), { success: true }) : onAddParty(p);
+		if (result && result.success === false) {
+			setError(result.message || "تعذر حفظ الحساب");
+			return;
+		}
+		setShowForm(false);
+	};
+	const submitPayment = () => {
+		if (!paymentParty || !(Number(paymentAmount) > 0)) return;
+		onAddPayment({
+			id: generateId(),
+			type: "opening",
+			referenceId: paymentParty.id,
+			referenceName: paymentParty.name,
+			amount: Number(paymentAmount),
+			paymentMethod,
+			direction: paymentDirection,
+			date: getTodayStr(),
+			createdAt: (/* @__PURE__ */ new Date()).toISOString()
+		});
+		setPaymentParty(null);
+		setPaymentAmount("");
+	};
+	const statement = view ? [
+		...saleInvoices.filter((i) => i.customerId === view.id).map((i) => ({
+			date: i.date,
+			text: `فاتورة بيع ${i.invoiceNumber}`,
+			debit: i.total,
+			credit: 0
+		})),
+		...purchaseInvoices.filter((i) => i.supplierId === view.id).map((i) => ({
+			date: i.date,
+			text: `فاتورة شراء ${i.invoiceNumber}`,
+			debit: 0,
+			credit: i.total
+		})),
+		...payments.filter((p) => p.referenceId === view.id).map((p) => ({
+			date: p.date,
+			text: p.direction === "in" ? "دفعة واردة" : "دفعة خارجة",
+			debit: p.direction === "out" ? p.amount : 0,
+			credit: p.direction === "in" ? p.amount : 0
+		}))
+	].sort((a, b) => a.date.localeCompare(b.date)) : [];
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "p-4 md:p-6 space-y-5 h-full overflow-auto",
+		dir: "rtl",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex flex-wrap items-center justify-between gap-3",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+					className: "text-xl font-bold text-white",
+					children: "👥 الأطراف والحسابات"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-sm text-gray-500",
+					children: "حساب واحد للشخص أو الشركة مهما كان يتعامل معك كعميل أو مورد"
+				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+					onClick: openAdd,
+					className: "btn-primary flex items-center gap-2",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 16 }), " حساب جديد"]
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "grid grid-cols-1 md:grid-cols-3 gap-3",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "bg-surface border border-border rounded-xl p-4",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-xs text-muted",
+							children: "إجمالي الحسابات"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-2xl font-black text-white mt-1",
+							children: parties.length
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "bg-surface border border-border rounded-xl p-4",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-xs text-muted",
+							children: "عملاء + موردون"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-2xl font-black text-violet-300 mt-1",
+							children: parties.filter((p) => p.roles.customer && p.roles.supplier).length
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "bg-surface border border-border rounded-xl p-4",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-xs text-muted",
+							children: "إجمالي الأرصدة الصافية"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-2xl font-black text-white mt-1",
+							children: formatCurrency(parties.reduce((a, p) => a + Math.abs(balance(p)), 0))
+						})]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "relative",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, {
+					className: "absolute right-3 top-3 text-gray-500",
+					size: 17
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+					value: search,
+					onChange: (e) => setSearch(e.target.value),
+					placeholder: "ابحث بالاسم أو الهاتف...",
+					className: "input-dark w-full pr-10"
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "bg-surface border border-border rounded-xl overflow-hidden",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "overflow-x-auto",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+						className: "w-full text-sm",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+							className: "border-b border-border text-muted",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "p-3 text-right",
+									children: "الحساب"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "p-3",
+									children: "الدور"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "p-3",
+									children: "الرصيد"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "p-3",
+									children: "الحركات"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "p-3",
+									children: "إجراءات"
+								})
+							]
+						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: filtered.map((p) => {
+							const b = balance(p);
+							const count = saleInvoices.filter((i) => i.customerId === p.id).length + purchaseInvoices.filter((i) => i.supplierId === p.id).length + payments.filter((x) => x.referenceId === p.id).length;
+							return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+								className: "border-b border-border/60 hover:bg-white/[.02]",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+										className: "p-3",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "font-bold text-white",
+											children: p.name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "text-xs text-muted",
+											children: p.phone || ""
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3 text-center",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "text-xs",
+											children: [
+												p.roles.customer ? "عميل" : "",
+												p.roles.customer && p.roles.supplier ? " + " : "",
+												p.roles.supplier ? "مورد" : ""
+											]
+										})
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+										className: `p-3 text-center font-bold ${b > 0 ? "text-red-400" : b < 0 ? "text-green-400" : "text-gray-400"}`,
+										children: [
+											formatCurrency(Math.abs(b)),
+											" ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] font-normal",
+												children: b > 0 ? "مستحق لنا" : b < 0 ? "مستحق له" : "متطابق"
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3 text-center",
+										children: count
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+										className: "p-3",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex justify-center gap-1",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => setView(p),
+													className: "p-2 rounded-lg text-violet-300 hover:bg-violet-900/20",
+													title: "كشف الحساب",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 15 })
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => setPaymentParty(p),
+													className: "p-2 rounded-lg text-green-300 hover:bg-green-900/20",
+													title: "دفعة",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DollarSign, { size: 15 })
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => openEdit(p),
+													className: "p-2 rounded-lg text-blue-300 hover:bg-blue-900/20",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SquarePen, { size: 15 })
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => {
+														const r = onDeleteParty(p.id);
+														if (r?.success === false) setError(r.message || "لا يمكن حذف الحساب");
+													},
+													className: "p-2 rounded-lg text-red-300 hover:bg-red-900/20",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 15 })
+												})
+											]
+										})
+									})
+								]
+							}, p.id);
+						}) })]
+					})
+				}), filtered.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "text-center text-muted py-12",
+					children: "لا توجد حسابات مطابقة"
+				})]
+			}),
+			showForm && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 overflow-auto",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "w-full max-w-xl bg-surface border border-border rounded-2xl p-5 mt-4",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex justify-between items-center mb-5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "font-bold text-white",
+								children: edit ? "تعديل الحساب" : "إضافة حساب موحد"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setShowForm(false),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 18 })
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid md:grid-cols-2 gap-3",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark",
+									placeholder: "الاسم *",
+									value: form.name,
+									onChange: (e) => setForm({
+										...form,
+										name: e.target.value
+									})
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark",
+									placeholder: "الهاتف",
+									value: form.phone,
+									onChange: (e) => setForm({
+										...form,
+										phone: e.target.value
+									})
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark",
+									placeholder: "البريد الإلكتروني",
+									value: form.email,
+									onChange: (e) => setForm({
+										...form,
+										email: e.target.value
+									})
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark",
+									placeholder: "العنوان",
+									value: form.address,
+									onChange: (e) => setForm({
+										...form,
+										address: e.target.value
+									})
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "input-dark",
+									type: "number",
+									placeholder: "الرصيد الافتتاحي (+ لنا / - عليه)",
+									value: form.openingBalance,
+									onChange: (e) => setForm({
+										...form,
+										openingBalance: e.target.value
+									})
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+							className: "input-dark w-full mt-3",
+							placeholder: "ملاحظات",
+							value: form.notes,
+							onChange: (e) => setForm({
+								...form,
+								notes: e.target.value
+							})
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-4 mt-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "text-sm text-white",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: form.customer,
+									onChange: (e) => setForm({
+										...form,
+										customer: e.target.checked
+									})
+								}), " عميل"]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "text-sm text-white",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: form.supplier,
+									onChange: (e) => setForm({
+										...form,
+										supplier: e.target.checked
+									})
+								}), " مورد / تاجر"]
+							})]
+						}),
+						error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-red-400 text-sm mt-3",
+							children: error
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex justify-end gap-2 mt-5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setShowForm(false),
+								className: "btn-secondary",
+								children: "إلغاء"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: save,
+								className: "btn-primary",
+								children: "حفظ الحساب"
+							})]
+						})
+					]
+				})
+			}),
+			paymentParty && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "w-full max-w-md bg-surface border border-border rounded-2xl p-5 mt-12",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex justify-between",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+								className: "font-bold text-white",
+								children: ["دفعة — ", paymentParty.name]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setPaymentParty(null),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 18 })
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							className: "input-dark w-full mt-4",
+							type: "number",
+							placeholder: "المبلغ",
+							value: paymentAmount,
+							onChange: (e) => setPaymentAmount(e.target.value)
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-2 gap-2 mt-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+								className: "input-dark",
+								value: paymentDirection,
+								onChange: (e) => setPaymentDirection(e.target.value),
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+									value: "in",
+									children: "وارد — قبضت منه"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+									value: "out",
+									children: "صادر — دفعت له"
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+								className: "input-dark",
+								value: paymentMethod,
+								onChange: (e) => setPaymentMethod(e.target.value),
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: "cash",
+										children: "كاش"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: "bank",
+										children: "بنك"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: "transfer",
+										children: "تحويل"
+									})
+								]
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							onClick: submitPayment,
+							className: "btn-primary w-full mt-4",
+							children: "تسجيل الدفعة"
+						})
+					]
+				})
+			}),
+			view && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 overflow-auto",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "w-full max-w-4xl bg-surface border border-border rounded-2xl p-5 mt-4",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex justify-between items-center",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+								className: "text-xl font-bold text-white",
+								children: ["كشف حساب — ", view.name]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-sm text-muted mt-1",
+								children: view.phone || ""
+							})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => setView(null),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 18 })
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-3 gap-3 my-5",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "bg-elevated rounded-xl p-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs text-muted",
+										children: "الرصيد"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-black text-white",
+										children: formatCurrency(Math.abs(balance(view)))
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "bg-elevated rounded-xl p-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs text-muted",
+										children: "مبيعات"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-bold text-white",
+										children: formatCurrency(saleInvoices.filter((i) => i.customerId === view.id).reduce((a, i) => a + i.total, 0))
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "bg-elevated rounded-xl p-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-xs text-muted",
+										children: "مشتريات"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-bold text-white",
+										children: formatCurrency(purchaseInvoices.filter((i) => i.supplierId === view.id).reduce((a, i) => a + i.total, 0))
+									})]
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "overflow-auto",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+								className: "w-full text-sm",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b border-border text-muted",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "التاريخ"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2 text-right",
+											children: "البيان"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "مدين"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "دائن"
+										})
+									]
+								}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: statement.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: "border-b border-border/40",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2",
+											children: r.date
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2",
+											children: r.text
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: r.debit ? formatCurrency(r.debit) : "-"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "p-2 text-center",
+											children: r.credit ? formatCurrency(r.credit) : "-"
+										})
+									]
+								}, i)) })]
+							})
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex justify-end gap-2 mt-5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => onNavigateToSales?.(view.id),
+								className: "btn-secondary",
+								children: "فواتير البيع"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => onNavigateToPurchases?.(view.id),
+								className: "btn-primary",
+								children: "فواتير الشراء"
 							})]
 						})
 					]
@@ -24999,6 +25578,33 @@ function generateDemoData() {
 		serials,
 		customers,
 		suppliers,
+		parties: [...customers.map((c) => ({
+			id: c.id,
+			name: c.name,
+			phone: c.phone,
+			email: c.email,
+			address: c.address,
+			roles: {
+				customer: true,
+				supplier: false
+			},
+			openingBalance: c.openingBalance,
+			notes: c.notes,
+			createdAt: c.createdAt
+		})), ...suppliers.filter((s) => !customers.some((c) => c.id === s.id || c.name.trim().toLowerCase() === s.name.trim().toLowerCase())).map((s) => ({
+			id: s.id,
+			name: s.name,
+			phone: s.phone,
+			email: s.email,
+			address: s.address,
+			roles: {
+				customer: false,
+				supplier: true
+			},
+			openingBalance: -s.openingBalance,
+			notes: s.notes,
+			createdAt: s.createdAt
+		}))],
 		saleInvoices,
 		purchaseInvoices,
 		payments,
@@ -25039,6 +25645,80 @@ function generateDemoData() {
 		settings: defaultSettings
 	};
 }
+var partyKey = (name) => normalizeForCompare(name || "");
+var customerFromParty = (party) => ({
+	id: party.id,
+	name: party.name,
+	phone: party.phone,
+	email: party.email,
+	address: party.address,
+	type: party.roles.supplier && !party.roles.customer ? "trader" : "individual",
+	openingBalance: party.openingBalance,
+	totalInvoices: 0,
+	totalPaid: 0,
+	notes: party.notes,
+	createdAt: party.createdAt
+});
+var supplierFromParty = (party) => ({
+	id: party.id,
+	name: party.name,
+	phone: party.phone,
+	email: party.email,
+	address: party.address,
+	type: party.roles.customer && party.roles.supplier ? "both" : "supplier",
+	openingBalance: Math.max(0, -party.openingBalance),
+	totalInvoices: 0,
+	totalPaid: 0,
+	notes: party.notes,
+	createdAt: party.createdAt
+});
+var buildUnifiedParties = (customers, suppliers) => {
+	const byName = /* @__PURE__ */ new Map();
+	const customerMap = /* @__PURE__ */ new Map();
+	const supplierMap = /* @__PURE__ */ new Map();
+	const ensure = (id, name, side, data) => {
+		const key = partyKey(name);
+		let party = byName.get(key);
+		if (!party) {
+			party = {
+				id,
+				name: data.name,
+				phone: data.phone,
+				email: data.email,
+				address: data.address,
+				roles: {
+					customer: false,
+					supplier: false
+				},
+				openingBalance: 0,
+				notes: data.notes,
+				createdAt: data.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+			};
+			byName.set(key, party);
+		} else {
+			party.phone ||= data.phone;
+			party.email ||= data.email;
+			party.address ||= data.address;
+			party.notes ||= data.notes;
+		}
+		if (side === "customer") {
+			party.roles.customer = true;
+			party.openingBalance += Number(data.openingBalance || 0);
+			customerMap.set(id, party.id);
+		} else {
+			party.roles.supplier = true;
+			party.openingBalance -= Number(data.openingBalance || 0);
+			supplierMap.set(id, party.id);
+		}
+	};
+	customers.forEach((c) => ensure(c.id, c.name, "customer", c));
+	suppliers.forEach((s) => ensure(s.id, s.name, "supplier", s));
+	return {
+		parties: [...byName.values()],
+		customerMap,
+		supplierMap
+	};
+};
 function useStore() {
 	const [state, setState] = (0, import_react.useState)(() => generateDemoData());
 	const [hydrated, setHydrated] = (0, import_react.useState)(false);
@@ -25079,6 +25759,60 @@ function useStore() {
 				]);
 				if (cancelled) return;
 				const normalizedProducts = products;
+				const unified = buildUnifiedParties(customers, suppliers);
+				const canonicalParties = unified.parties;
+				const canonicalCustomerMap = unified.customerMap;
+				const canonicalSupplierMap = unified.supplierMap;
+				const migratedSaleInvoices = saleInvoices.map((inv) => {
+					const id = canonicalCustomerMap.get(inv.customerId) || inv.customerId;
+					const party = canonicalParties.find((p) => p.id === id);
+					return party ? {
+						...inv,
+						customerId: id,
+						customerName: party.name
+					} : inv;
+				});
+				const migratedPurchaseInvoices = purchaseInvoices.map((inv) => {
+					const id = canonicalSupplierMap.get(inv.supplierId) || inv.supplierId;
+					const party = canonicalParties.find((p) => p.id === id);
+					return party ? {
+						...inv,
+						supplierId: id,
+						supplierName: party.name
+					} : inv;
+				});
+				const migratedPayments = payments.map((payment) => {
+					const id = canonicalCustomerMap.get(payment.referenceId) || canonicalSupplierMap.get(payment.referenceId) || payment.referenceId;
+					const party = canonicalParties.find((p) => p.id === id);
+					return party ? {
+						...payment,
+						referenceId: id,
+						referenceName: party.name
+					} : payment;
+				});
+				const unifiedCustomers = canonicalParties.map(customerFromParty);
+				const unifiedSuppliers = canonicalParties.map(supplierFromParty);
+				canonicalParties.forEach((party) => {
+					saveToFirebase("parties", party.id, party);
+				});
+				customers.forEach((c) => {
+					const canonicalId = canonicalCustomerMap.get(c.id);
+					if (canonicalId && canonicalId !== c.id) deleteFromFirebase("customers", c.id);
+				});
+				suppliers.forEach((s) => {
+					const canonicalId = canonicalSupplierMap.get(s.id);
+					if (canonicalId && canonicalId !== s.id) deleteFromFirebase("suppliers", s.id);
+				});
+				migratedSaleInvoices.forEach((inv) => {
+					if (inv.customerId !== saleInvoices.find((x) => x.id === inv.id)?.customerId || inv.customerName !== saleInvoices.find((x) => x.id === inv.id)?.customerName) saveToFirebase("saleInvoices", inv.id, inv);
+				});
+				migratedPurchaseInvoices.forEach((inv) => {
+					if (inv.supplierId !== purchaseInvoices.find((x) => x.id === inv.id)?.supplierId || inv.supplierName !== purchaseInvoices.find((x) => x.id === inv.id)?.supplierName) saveToFirebase("purchaseInvoices", inv.id, inv);
+				});
+				migratedPayments.forEach((payment) => {
+					const old = payments.find((x) => x.id === payment.id);
+					if (old && (old.referenceId !== payment.referenceId || old.referenceName !== payment.referenceName)) saveToFirebase("payments", payment.id, payment);
+				});
 				const purchaseInvoiceIds = new Set(purchaseInvoices.map((invoice) => invoice.id));
 				const orphanAvailableSerials = serials.filter((serial) => (serial.status === "available" || serial.purchasePricePending) && (!serial.purchaseInvoiceId || !purchaseInvoiceIds.has(serial.purchaseInvoiceId)));
 				const cleanedSerials = serials.filter((serial) => !orphanAvailableSerials.some((orphan) => orphan.id === serial.id));
@@ -25091,11 +25825,12 @@ function useStore() {
 					...prev,
 					products: normalizedProducts,
 					serials: cleanedSerials,
-					customers,
-					suppliers,
-					saleInvoices,
-					purchaseInvoices,
-					payments,
+					customers: unifiedCustomers,
+					suppliers: unifiedSuppliers,
+					parties: canonicalParties,
+					saleInvoices: migratedSaleInvoices,
+					purchaseInvoices: migratedPurchaseInvoices,
+					payments: migratedPayments,
 					expenses,
 					noonOrders,
 					dailyJournals,
@@ -25316,12 +26051,98 @@ function useStore() {
 		});
 		return result;
 	}, []);
+	const addParty = (0, import_react.useCallback)((party) => {
+		const normalizedName = partyKey(party.name);
+		let duplicate = false;
+		setState((prev) => {
+			if ((prev.parties || []).some((p) => partyKey(p.name) === normalizedName)) {
+				duplicate = true;
+				return prev;
+			}
+			const nextCustomers = [...prev.customers, customerFromParty(party)];
+			const nextSuppliers = [...prev.suppliers, supplierFromParty(party)];
+			return {
+				...prev,
+				parties: [...prev.parties || [], party],
+				customers: nextCustomers,
+				suppliers: nextSuppliers
+			};
+		});
+		if (duplicate) return {
+			success: false,
+			message: `يوجد حساب بنفس الاسم بالفعل: ${party.name}`
+		};
+		saveToFirebase("parties", party.id, party);
+		saveToFirebase("customers", party.id, customerFromParty(party));
+		saveToFirebase("suppliers", party.id, supplierFromParty(party));
+		return { success: true };
+	}, []);
+	const updateParty = (0, import_react.useCallback)((party) => {
+		setState((prev) => {
+			const nextCustomer = customerFromParty(party);
+			const nextSupplier = supplierFromParty(party);
+			const newState = {
+				...prev,
+				parties: (prev.parties || []).map((p) => p.id === party.id ? party : p),
+				customers: prev.customers.map((c) => c.id === party.id ? nextCustomer : c),
+				suppliers: prev.suppliers.map((s) => s.id === party.id ? nextSupplier : s),
+				saleInvoices: prev.saleInvoices.map((inv) => inv.customerId === party.id ? {
+					...inv,
+					customerName: party.name
+				} : inv),
+				purchaseInvoices: prev.purchaseInvoices.map((inv) => inv.supplierId === party.id ? {
+					...inv,
+					supplierName: party.name
+				} : inv),
+				payments: prev.payments.map((p) => p.referenceId === party.id ? {
+					...p,
+					referenceName: party.name
+				} : p),
+				treasuryTransactions: prev.treasuryTransactions.map((t) => t.referenceId === party.id ? {
+					...t,
+					description: t.description.replace(/- .*$/, `- ${party.name}`),
+					partyName: party.name
+				} : t)
+			};
+			saveToFirebase("parties", party.id, party);
+			saveToFirebase("customers", party.id, nextCustomer);
+			saveToFirebase("suppliers", party.id, nextSupplier);
+			newState.saleInvoices.filter((i) => i.customerId === party.id).forEach((i) => saveToFirebase("saleInvoices", i.id, i));
+			newState.purchaseInvoices.filter((i) => i.supplierId === party.id).forEach((i) => saveToFirebase("purchaseInvoices", i.id, i));
+			newState.payments.filter((p) => p.referenceId === party.id).forEach((p) => saveToFirebase("payments", p.id, p));
+			newState.treasuryTransactions.filter((t) => t.referenceId === party.id).forEach((t) => saveToFirebase("treasuryTransactions", t.id, t));
+			return newState;
+		});
+	}, []);
+	const deleteParty = (0, import_react.useCallback)((id) => {
+		let blocked = false;
+		setState((prev) => {
+			if (prev.saleInvoices.some((i) => i.customerId === id) || prev.purchaseInvoices.some((i) => i.supplierId === id) || prev.payments.some((p) => p.referenceId === id)) {
+				blocked = true;
+				return prev;
+			}
+			return {
+				...prev,
+				parties: (prev.parties || []).filter((p) => p.id !== id),
+				customers: prev.customers.filter((c) => c.id !== id),
+				suppliers: prev.suppliers.filter((s) => s.id !== id)
+			};
+		});
+		if (blocked) return {
+			success: false,
+			message: "لا يمكن حذف الحساب لأنه مرتبط بفواتير أو دفعات. احتفظ بالتاريخ ويمكنك تعديل بياناته."
+		};
+		deleteFromFirebase("parties", id);
+		deleteFromFirebase("customers", id);
+		deleteFromFirebase("suppliers", id);
+		return { success: true };
+	}, []);
 	const addCustomer = (0, import_react.useCallback)((customer) => {
 		const normalizedName = normalizeForCompare(customer.name);
 		const normalizedPhone = normalizeForCompare(customer.phone || "");
 		let isDuplicate = false;
 		setState((prev) => {
-			if (prev.customers.some((c) => normalizeForCompare(c.name) === normalizedName && normalizeForCompare(c.phone || "") === normalizedPhone)) {
+			if ((prev.parties || []).some((p) => partyKey(p.name) === normalizedName) || prev.customers.some((c) => normalizeForCompare(c.name) === normalizedName && normalizeForCompare(c.phone || "") === normalizedPhone)) {
 				isDuplicate = true;
 				return prev;
 			}
@@ -25332,8 +26153,29 @@ function useStore() {
 		});
 		if (isDuplicate) return {
 			success: false,
-			message: `يوجد عميل بنفس الاسم ورقم الهاتف: ${customer.name}`
+			message: `يوجد حساب بنفس الاسم بالفعل: ${customer.name}`
 		};
+		const party = {
+			id: customer.id,
+			name: customer.name,
+			phone: customer.phone,
+			email: customer.email,
+			address: customer.address,
+			roles: {
+				customer: true,
+				supplier: false
+			},
+			openingBalance: customer.openingBalance || 0,
+			notes: customer.notes,
+			createdAt: customer.createdAt
+		};
+		setState((prev) => ({
+			...prev,
+			parties: [...prev.parties || [], party],
+			suppliers: [...prev.suppliers, supplierFromParty(party)]
+		}));
+		saveToFirebase("parties", party.id, party);
+		saveToFirebase("suppliers", party.id, supplierFromParty(party));
 		saveToFirebase("customers", customer.id, customer);
 		return { success: true };
 	}, []);
@@ -25379,7 +26221,7 @@ function useStore() {
 		const normalizedName = normalizeForCompare(supplier.name);
 		let isDuplicate = false;
 		setState((prev) => {
-			if (prev.suppliers.some((s) => normalizeForCompare(s.name) === normalizedName)) {
+			if ((prev.parties || []).some((p) => partyKey(p.name) === normalizedName) || prev.suppliers.some((s) => normalizeForCompare(s.name) === normalizedName)) {
 				isDuplicate = true;
 				return prev;
 			}
@@ -25390,8 +26232,29 @@ function useStore() {
 		});
 		if (isDuplicate) return {
 			success: false,
-			message: `يوجد مورد/تاجر بنفس الاسم بالفعل: ${supplier.name}`
+			message: `يوجد حساب بنفس الاسم بالفعل: ${supplier.name}`
 		};
+		const party = {
+			id: supplier.id,
+			name: supplier.name,
+			phone: supplier.phone,
+			email: supplier.email,
+			address: supplier.address,
+			roles: {
+				customer: false,
+				supplier: true
+			},
+			openingBalance: -(supplier.openingBalance || 0),
+			notes: supplier.notes,
+			createdAt: supplier.createdAt
+		};
+		setState((prev) => ({
+			...prev,
+			parties: [...prev.parties || [], party],
+			customers: [...prev.customers, customerFromParty(party)]
+		}));
+		saveToFirebase("parties", party.id, party);
+		saveToFirebase("customers", party.id, customerFromParty(party));
 		saveToFirebase("suppliers", supplier.id, supplier);
 		return { success: true };
 	}, []);
@@ -26604,12 +27467,18 @@ function useStore() {
 		deleteFromFirebase("profitDistributions", id);
 	}, []);
 	const restoreFullState = (0, import_react.useCallback)(async (restored) => {
-		setState(restored);
+		const restoredParties = restored.parties?.length ? restored.parties : buildUnifiedParties(restored.customers || [], restored.suppliers || []).parties;
+		const normalizedRestored = {
+			...restored,
+			parties: restoredParties
+		};
+		setState(normalizedRestored);
 		const collections = [
 			["products", restored.products],
 			["serials", restored.serials],
 			["customers", restored.customers],
-			["suppliers", restored.suppliers],
+			["suppliers", normalizedRestored.suppliers],
+			["parties", normalizedRestored.parties],
 			["saleInvoices", restored.saleInvoices],
 			["purchaseInvoices", restored.purchaseInvoices],
 			["payments", restored.payments],
@@ -26724,6 +27593,7 @@ function useStore() {
 				serials: [],
 				customers: resetCustomers,
 				suppliers: resetSuppliers,
+				parties: [],
 				saleInvoices: [],
 				purchaseInvoices: [],
 				payments: [],
@@ -26918,6 +27788,9 @@ function useStore() {
 		addSerial,
 		updateSerial,
 		addSerials,
+		addParty,
+		updateParty,
+		deleteParty,
 		addCustomer,
 		updateCustomer,
 		deleteCustomer,
@@ -27153,10 +28026,10 @@ function ErpApp() {
 				onOpenStatement: (type, id) => {
 					if (type === "customer") {
 						setPendingCustomerStatementId(id);
-						setCurrentPage("customers");
+						setCurrentPage("parties");
 					} else {
 						setPendingSupplierStatementId(id);
-						setCurrentPage("suppliers");
+						setCurrentPage("parties");
 					}
 				},
 				onViewTodayInvoices: (kind) => {
@@ -27168,6 +28041,29 @@ function ErpApp() {
 						setPendingPurchasesDateFilter(today);
 						setCurrentPage("purchases");
 					}
+				}
+			});
+			case "parties": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Parties, {
+				parties: state.parties,
+				saleInvoices: state.saleInvoices,
+				purchaseInvoices: state.purchaseInvoices,
+				payments: state.payments,
+				onAddParty: store.addParty,
+				onUpdateParty: store.updateParty,
+				onDeleteParty: store.deleteParty,
+				onAddPayment: store.addPayment,
+				onNavigateToSales: (id) => {
+					setPendingCustomerId(id);
+					setCurrentPage("sales");
+				},
+				onNavigateToPurchases: (id) => {
+					setPendingSupplierId(id);
+					setCurrentPage("purchases");
+				},
+				preselectedStatementId: pendingCustomerStatementId || pendingSupplierStatementId,
+				onPreselectedStatementHandled: () => {
+					setPendingCustomerStatementId(null);
+					setPendingSupplierStatementId(null);
 				}
 			});
 			case "customers": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Customers, {

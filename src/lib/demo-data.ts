@@ -75,6 +75,7 @@ export function hydrateState(raw: Partial<AppState>): AppState {
     serials: raw.serials ?? base.serials,
     customers: raw.customers ?? base.customers,
     suppliers: raw.suppliers ?? base.suppliers,
+    parties: raw.parties ?? base.parties,
     saleInvoices: raw.saleInvoices ?? base.saleInvoices,
     purchaseInvoices: raw.purchaseInvoices ?? base.purchaseInvoices,
     payments: raw.payments ?? base.payments,
@@ -286,6 +287,10 @@ export function generateDemoData(): AppState {
     serials,
     customers,
     suppliers,
+    parties: [
+      ...customers.map(c => ({ id:c.id, name:c.name, phone:c.phone, email:c.email, address:c.address, roles:{customer:true, supplier:false}, openingBalance:c.openingBalance, notes:c.notes, createdAt:c.createdAt })),
+      ...suppliers.filter(s => !customers.some(c => c.id===s.id || c.name.trim().toLowerCase()===s.name.trim().toLowerCase())).map(s => ({ id:s.id, name:s.name, phone:s.phone, email:s.email, address:s.address, roles:{customer:false, supplier:true}, openingBalance:-s.openingBalance, notes:s.notes, createdAt:s.createdAt }))
+    ],
     saleInvoices,
     purchaseInvoices,
     payments,

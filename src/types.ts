@@ -3,6 +3,18 @@
 export type PaymentMethod = 'cash' | 'bank' | 'instapay' | 'credit' | 'card' | 'check' | 'transfer';
 export type CustomerType = 'individual' | 'company' | 'wholesale' | 'trader';
 export type SupplierType = 'supplier' | 'trader' | 'both';
+
+export interface Party {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  roles: { customer: boolean; supplier: boolean };
+  openingBalance: number;
+  notes?: string;
+  createdAt: string;
+}
 export type ProductCategory = 'phones' | 'tablets' | 'laptops' | 'accessories' | 'other';
 export type ProductType = 'serial' | 'normal';
 export type OrderStatus = 'pending' | 'shipped' | 'delivered' | 'canceled' | 'settled' | 'returned' | 'paid';
@@ -501,6 +513,8 @@ export interface AppState {
   serials: SerialItem[];
   customers: Customer[];
   suppliers: Supplier[];
+  /** Canonical unified party/account records. Legacy customers/suppliers arrays remain as compatibility projections. */
+  parties: Party[];
   saleInvoices: SaleInvoice[];
   purchaseInvoices: PurchaseInvoice[];
   payments: Payment[];

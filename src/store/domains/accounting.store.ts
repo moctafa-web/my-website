@@ -1,4 +1,4 @@
-import { AppState, Customer, Supplier, TreasuryTransaction } from '../../types';
+import { AppState, Customer, Supplier, Party, TreasuryTransaction } from '../../types';
 
 export interface PartyBalance {
   id: string;
@@ -80,38 +80,22 @@ export const getPartyBalance = (state: AppState, party: Pick<Customer | Supplier
   calculatePartyBalance(state, party);
 
 export const getPartyBalances = (state: AppState): BalanceSnapshot => {
-  const customersOwing = state.customers
-    .map(customer => ({
-      id: customer.id, name: customer.name, phone: customer.phone,
-      balance: getCustomerBalance(state, customer), type: 'customer' as const,
-    }))
+  // الحساب الموحد هو المصدر الوحيد للرصيد حتى لا يظهر نفس الشخص مرتين
+  // مرة كعميل ومرة كمورد بعد توحيد قاعدة الأطراف.
+  const parties: Party[] = state.parties || [];
+  const positive = parties
+    .map(party => ({ id: party.id, name: party.name, phone: party.phone, balance: getPartyBalance(state, party), type: 'customer' as const }))
     .filter(item => item.balance > EPSILON);
-
-  const suppliersWithCredit = state.suppliers
-    .map(supplier => ({
-      id: supplier.id, name: supplier.name, phone: supplier.phone,
-      balance: -getSupplierBalance(state, supplier), type: 'supplier' as const,
-    }))
+  const negative = parties
+    .map(party => ({ id: party.id, name: party.name, phone: party.phone, balance: Math.abs(getPartyBalance(state, party)), type: 'supplier' as const }))
     .filter(item => item.balance > EPSILON);
-
-  const suppliersOwed = state.suppliers
-    .map(supplier => ({
-      id: supplier.id, name: supplier.name, phone: supplier.phone,
-      balance: getSupplierBalance(state, supplier), type: 'supplier' as const,
-    }))
-    .filter(item => item.balance > EPSILON);
-
-  const customersWithDebit = state.customers
-    .map(customer => ({
-      id: customer.id, name: customer.name, phone: customer.phone,
-      balance: -getCustomerBalance(state, customer), type: 'customer' as const,
-    }))
-    .filter(item => item.balance > EPSILON);
-
   return {
-    customersOwing, suppliersWithCredit, suppliersOwed, customersWithDebit,
-    totalOwing: sum([...customersOwing, ...suppliersWithCredit].map(item => item.balance)),
-    totalOwed: sum([...suppliersOwed, ...customersWithDebit].map(item => item.balance)),
+    customersOwing: positive,
+    suppliersWithCredit: [],
+    suppliersOwed: negative,
+    customersWithDebit: [],
+    totalOwing: sum(positive.map(item => item.balance)),
+    totalOwed: sum(negative.map(item => item.balance)),
   };
 };
 

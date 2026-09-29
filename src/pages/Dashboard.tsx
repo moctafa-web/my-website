@@ -731,7 +731,7 @@ const pendingSerials = state.serials
                             onClick={() => {
                               setShowDebtBook(false);
                               if (onOpenStatement) onOpenStatement(c.type, c.id);
-                              else onNavigate(c.type === 'supplier' ? 'suppliers' : 'customers');
+                              else onNavigate('parties');
                             }}
                             className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
                                        hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors
@@ -795,7 +795,7 @@ const pendingSerials = state.serials
                             onClick={() => {
                               setShowDebtBook(false);
                               if (onOpenStatement) onOpenStatement(s.type, s.id);
-                              else onNavigate(s.type === 'customer' ? 'customers' : 'suppliers');
+                              else onNavigate('parties');
                             }}
                             className="text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20
                                        hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-colors

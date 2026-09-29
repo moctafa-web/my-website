@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  AppState, Product, Customer, Supplier, SaleInvoice, PurchaseInvoice,
+  AppState, Product, Customer, Supplier, Party, SaleInvoice, PurchaseInvoice,
   Payment, Expense, TreasuryTransaction, NoonOrder, DailyClosing, InvoiceItem,
   DailyJournal, SerialItem, Brand, AppSettings, Partner, ProfitDistribution,
   WeeklyInventoryCount, StockTransfer, DailyOperationEntry, DailyInventoryScan, Employee
@@ -13,6 +13,43 @@ import { generateDemoData } from '../lib/demo-data';
 import { saveToFirebase, saveToFirebaseStrict, deleteFromFirebase, loadCollection, deleteCollectionFromFirebase } from '../services/firebasePersistence';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
+
+
+const partyKey = (name: string) => normalizeForCompare(name || '');
+
+const customerFromParty = (party: Party): Customer => ({
+  id: party.id, name: party.name, phone: party.phone, email: party.email, address: party.address,
+  type: party.roles.supplier && !party.roles.customer ? 'trader' : 'individual',
+  openingBalance: party.openingBalance, totalInvoices: 0, totalPaid: 0, notes: party.notes, createdAt: party.createdAt,
+});
+
+const supplierFromParty = (party: Party): Supplier => ({
+  id: party.id, name: party.name, phone: party.phone, email: party.email, address: party.address,
+  type: party.roles.customer && party.roles.supplier ? 'both' : 'supplier',
+  // Legacy supplier balance is represented as the opposite side of the unified opening balance.
+  openingBalance: Math.max(0, -party.openingBalance), totalInvoices: 0, totalPaid: 0, notes: party.notes, createdAt: party.createdAt,
+});
+
+const buildUnifiedParties = (customers: Customer[], suppliers: Supplier[]): { parties: Party[]; customerMap: Map<string,string>; supplierMap: Map<string,string> } => {
+  const byName = new Map<string, Party>();
+  const customerMap = new Map<string,string>();
+  const supplierMap = new Map<string,string>();
+  const ensure = (id: string, name: string, side: 'customer'|'supplier', data: Customer|Supplier) => {
+    const key = partyKey(name);
+    let party = byName.get(key);
+    if (!party) {
+      party = { id, name: data.name, phone: data.phone, email: data.email, address: data.address, roles: { customer: false, supplier: false }, openingBalance: 0, notes: data.notes, createdAt: data.createdAt || new Date().toISOString() };
+      byName.set(key, party);
+    } else {
+      party.phone ||= data.phone; party.email ||= data.email; party.address ||= data.address; party.notes ||= data.notes;
+    }
+    if (side === 'customer') { party.roles.customer = true; party.openingBalance += Number((data as Customer).openingBalance || 0); customerMap.set(id, party.id); }
+    else { party.roles.supplier = true; party.openingBalance -= Number((data as Supplier).openingBalance || 0); supplierMap.set(id, party.id); }
+  };
+  customers.forEach(c => ensure(c.id, c.name, 'customer', c));
+  suppliers.forEach(s => ensure(s.id, s.name, 'supplier', s));
+  return { parties: [...byName.values()], customerMap, supplierMap };
+};
 
 export function useStore() {
   const [state, setState] = useState<AppState>(() => generateDemoData());
@@ -66,6 +103,40 @@ export function useStore() {
         // Keep the loaded products unchanged; import logic determines product type explicitly.
         const normalizedProducts = products;
 
+        // ==================== توحيد الحسابات القديمة ====================
+        // نبني حسابًا واحدًا لكل اسم، ثم نعيد ربط كل الفواتير والدفعات بنفس الـID.
+        const unified = buildUnifiedParties(customers, suppliers);
+        const canonicalParties = unified.parties;
+        const canonicalCustomerMap = unified.customerMap;
+        const canonicalSupplierMap = unified.supplierMap;
+        const migratedSaleInvoices = saleInvoices.map(inv => {
+          const id = canonicalCustomerMap.get(inv.customerId) || inv.customerId;
+          const party = canonicalParties.find(p => p.id === id);
+          return party ? { ...inv, customerId: id, customerName: party.name } : inv;
+        });
+        const migratedPurchaseInvoices = purchaseInvoices.map(inv => {
+          const id = canonicalSupplierMap.get(inv.supplierId) || inv.supplierId;
+          const party = canonicalParties.find(p => p.id === id);
+          return party ? { ...inv, supplierId: id, supplierName: party.name } : inv;
+        });
+        const migratedPayments = payments.map(payment => {
+          const id = canonicalCustomerMap.get(payment.referenceId) || canonicalSupplierMap.get(payment.referenceId) || payment.referenceId;
+          const party = canonicalParties.find(p => p.id === id);
+          return party ? { ...payment, referenceId: id, referenceName: party.name } : payment;
+        });
+        // كل طرف أصبح متاحًا في شاشتي البيع والشراء؛ الدور يحدد الاستخدام وليس مكان تخزين الحساب.
+        const unifiedCustomers = canonicalParties.map(customerFromParty);
+        const unifiedSuppliers = canonicalParties.map(supplierFromParty);
+        canonicalParties.forEach(party => {
+          void saveToFirebase('parties', party.id, party);
+        });
+        // إزالة سجلات العملاء/الموردين القديمة التي تم دمجها تحت ID موحد.
+        customers.forEach(c => { const canonicalId = canonicalCustomerMap.get(c.id); if (canonicalId && canonicalId !== c.id) void deleteFromFirebase('customers', c.id); });
+        suppliers.forEach(s => { const canonicalId = canonicalSupplierMap.get(s.id); if (canonicalId && canonicalId !== s.id) void deleteFromFirebase('suppliers', s.id); });
+        migratedSaleInvoices.forEach(inv => { if (inv.customerId !== saleInvoices.find(x => x.id === inv.id)?.customerId || inv.customerName !== saleInvoices.find(x => x.id === inv.id)?.customerName) void saveToFirebase('saleInvoices', inv.id, inv); });
+        migratedPurchaseInvoices.forEach(inv => { if (inv.supplierId !== purchaseInvoices.find(x => x.id === inv.id)?.supplierId || inv.supplierName !== purchaseInvoices.find(x => x.id === inv.id)?.supplierName) void saveToFirebase('purchaseInvoices', inv.id, inv); });
+        migratedPayments.forEach(payment => { const old = payments.find(x => x.id === payment.id); if (old && (old.referenceId !== payment.referenceId || old.referenceName !== payment.referenceName)) void saveToFirebase('payments', payment.id, payment); });
+
         // تنظيف السيريالات اليتيمة: السيريال المتاح لا يُعتبر مخزوناً إلا إذا كانت
         // فاتورة الشراء الأصلية ما زالت موجودة. هذا يعالج السيريالات القديمة التي
         // بقيت في Firebase بعد حذف فاتورة شراء في نسخة سابقة من النظام.
@@ -88,11 +159,12 @@ export function useStore() {
           ...prev,
           products: normalizedProducts,
           serials: cleanedSerials,
-          customers,
-          suppliers,
-          saleInvoices,
-          purchaseInvoices,
-          payments,
+          customers: unifiedCustomers,
+          suppliers: unifiedSuppliers,
+          parties: canonicalParties,
+          saleInvoices: migratedSaleInvoices,
+          purchaseInvoices: migratedPurchaseInvoices,
+          payments: migratedPayments,
           expenses,
           noonOrders,
           dailyJournals,
@@ -305,20 +377,79 @@ export function useStore() {
     return result;
   }, []);
 
+
+  // ==================== UNIFIED PARTIES / ACCOUNTS ====================
+  const addParty = useCallback((party: Party): { success: boolean; message?: string } => {
+    const normalizedName = partyKey(party.name);
+    let duplicate = false;
+    setState(prev => {
+      if ((prev.parties || []).some(p => partyKey(p.name) === normalizedName)) { duplicate = true; return prev; }
+      const nextCustomers = [...prev.customers, customerFromParty(party)];
+      const nextSuppliers = [...prev.suppliers, supplierFromParty(party)];
+      return { ...prev, parties: [...(prev.parties || []), party], customers: nextCustomers, suppliers: nextSuppliers };
+    });
+    if (duplicate) return { success: false, message: `يوجد حساب بنفس الاسم بالفعل: ${party.name}` };
+    saveToFirebase('parties', party.id, party);
+    saveToFirebase('customers', party.id, customerFromParty(party));
+    saveToFirebase('suppliers', party.id, supplierFromParty(party));
+    return { success: true };
+  }, []);
+
+  const updateParty = useCallback((party: Party) => {
+    setState(prev => {
+      const nextCustomer = customerFromParty(party);
+      const nextSupplier = supplierFromParty(party);
+      const newState = {
+        ...prev,
+        parties: (prev.parties || []).map(p => p.id === party.id ? party : p),
+        customers: prev.customers.map(c => c.id === party.id ? nextCustomer : c),
+        suppliers: prev.suppliers.map(s => s.id === party.id ? nextSupplier : s),
+        saleInvoices: prev.saleInvoices.map(inv => inv.customerId === party.id ? { ...inv, customerName: party.name } : inv),
+        purchaseInvoices: prev.purchaseInvoices.map(inv => inv.supplierId === party.id ? { ...inv, supplierName: party.name } : inv),
+        payments: prev.payments.map(p => p.referenceId === party.id ? { ...p, referenceName: party.name } : p),
+        treasuryTransactions: prev.treasuryTransactions.map(t => t.referenceId === party.id ? { ...t, description: t.description.replace(/- .*$/, `- ${party.name}`), partyName: party.name } : t),
+      };
+      saveToFirebase('parties', party.id, party);
+      saveToFirebase('customers', party.id, nextCustomer);
+      saveToFirebase('suppliers', party.id, nextSupplier);
+      newState.saleInvoices.filter(i => i.customerId === party.id).forEach(i => saveToFirebase('saleInvoices', i.id, i));
+      newState.purchaseInvoices.filter(i => i.supplierId === party.id).forEach(i => saveToFirebase('purchaseInvoices', i.id, i));
+      newState.payments.filter(p => p.referenceId === party.id).forEach(p => saveToFirebase('payments', p.id, p));
+      newState.treasuryTransactions.filter(t => t.referenceId === party.id).forEach(t => saveToFirebase('treasuryTransactions', t.id, t));
+      return newState;
+    });
+  }, []);
+
+  const deleteParty = useCallback((id: string): { success: boolean; message?: string } => {
+    let blocked = false;
+    setState(prev => {
+      const hasHistory = prev.saleInvoices.some(i => i.customerId === id) || prev.purchaseInvoices.some(i => i.supplierId === id) || prev.payments.some(p => p.referenceId === id);
+      if (hasHistory) { blocked = true; return prev; }
+      return { ...prev, parties: (prev.parties || []).filter(p => p.id !== id), customers: prev.customers.filter(c => c.id !== id), suppliers: prev.suppliers.filter(s => s.id !== id) };
+    });
+    if (blocked) return { success: false, message: 'لا يمكن حذف الحساب لأنه مرتبط بفواتير أو دفعات. احتفظ بالتاريخ ويمكنك تعديل بياناته.' };
+    deleteFromFirebase('parties', id); deleteFromFirebase('customers', id); deleteFromFirebase('suppliers', id);
+    return { success: true };
+  }, []);
+
   // ==================== CUSTOMERS ====================
   const addCustomer = useCallback((customer: Customer): { success: boolean; message?: string } => {
     const normalizedName = normalizeForCompare(customer.name);
     const normalizedPhone = normalizeForCompare(customer.phone || '');
     let isDuplicate = false;
     setState(prev => {
-      const exists = prev.customers.some(c =>
+      const exists = (prev.parties || []).some(p => partyKey(p.name) === normalizedName) || prev.customers.some(c =>
         normalizeForCompare(c.name) === normalizedName &&
         normalizeForCompare(c.phone || '') === normalizedPhone
       );
       if (exists) { isDuplicate = true; return prev; }
       return { ...prev, customers: [...prev.customers, customer] };
     });
-    if (isDuplicate) return { success: false, message: `يوجد عميل بنفس الاسم ورقم الهاتف: ${customer.name}` };
+    if (isDuplicate) return { success: false, message: `يوجد حساب بنفس الاسم بالفعل: ${customer.name}` };
+    const party: Party = { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, address: customer.address, roles: { customer: true, supplier: false }, openingBalance: customer.openingBalance || 0, notes: customer.notes, createdAt: customer.createdAt };
+    setState(prev => ({ ...prev, parties: [...(prev.parties || []), party], suppliers: [...prev.suppliers, supplierFromParty(party)] }));
+    saveToFirebase('parties', party.id, party);
+    saveToFirebase('suppliers', party.id, supplierFromParty(party));
     saveToFirebase('customers', customer.id, customer);
     return { success: true };
   }, []);
@@ -354,11 +485,15 @@ export function useStore() {
     const normalizedName = normalizeForCompare(supplier.name);
     let isDuplicate = false;
     setState(prev => {
-      const exists = prev.suppliers.some(s => normalizeForCompare(s.name) === normalizedName);
+      const exists = (prev.parties || []).some(p => partyKey(p.name) === normalizedName) || prev.suppliers.some(s => normalizeForCompare(s.name) === normalizedName);
       if (exists) { isDuplicate = true; return prev; }
       return { ...prev, suppliers: [...prev.suppliers, supplier] };
     });
-    if (isDuplicate) return { success: false, message: `يوجد مورد/تاجر بنفس الاسم بالفعل: ${supplier.name}` };
+    if (isDuplicate) return { success: false, message: `يوجد حساب بنفس الاسم بالفعل: ${supplier.name}` };
+    const party: Party = { id: supplier.id, name: supplier.name, phone: supplier.phone, email: supplier.email, address: supplier.address, roles: { customer: false, supplier: true }, openingBalance: -(supplier.openingBalance || 0), notes: supplier.notes, createdAt: supplier.createdAt };
+    setState(prev => ({ ...prev, parties: [...(prev.parties || []), party], customers: [...prev.customers, customerFromParty(party)] }));
+    saveToFirebase('parties', party.id, party);
+    saveToFirebase('customers', party.id, customerFromParty(party));
     saveToFirebase('suppliers', supplier.id, supplier);
     return { success: true };
   }, []);
@@ -1605,13 +1740,16 @@ export function useStore() {
   // مش بس تغيّر الحالة المحلية (state) - وإلا الاستعادة تفضل حبيسة في المتصفح
   // اللي عمل فيه الاستعادة بس، ومتظهرش على أي متصفح/جهاز تاني.
   const restoreFullState = useCallback(async (restored: AppState) => {
-    setState(restored);
+    const restoredParties = restored.parties?.length ? restored.parties : buildUnifiedParties(restored.customers || [], restored.suppliers || []).parties;
+    const normalizedRestored = { ...restored, parties: restoredParties };
+    setState(normalizedRestored);
 
     const collections: Array<[string, unknown[]]> = [
       ['products', restored.products],
       ['serials', restored.serials],
       ['customers', restored.customers],
-      ['suppliers', restored.suppliers],
+      ['suppliers', normalizedRestored.suppliers],
+      ['parties', normalizedRestored.parties],
       ['saleInvoices', restored.saleInvoices],
       ['purchaseInvoices', restored.purchaseInvoices],
       ['payments', restored.payments],
@@ -1744,6 +1882,7 @@ export function useStore() {
         serials: [],
         customers: resetCustomers,
         suppliers: resetSuppliers,
+        parties: [],
         saleInvoices: [],
         purchaseInvoices: [],
         payments: [],
@@ -1945,6 +2084,7 @@ export function useStore() {
     updateState,
     addProduct, updateProduct, deleteProduct,
     addSerial, updateSerial, addSerials,
+    addParty, updateParty, deleteParty,
     addCustomer, updateCustomer, deleteCustomer,
     addSupplier, updateSupplier, deleteSupplier,
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,

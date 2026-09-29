@@ -8,6 +8,7 @@ import Products from "./pages/Products";
 import Sales from "./pages/Sales";
 import Purchases from "./pages/Purchases";
 import Customers from "./pages/Customers";
+import Parties from "./pages/Parties";
 import Suppliers from "./pages/Suppliers";
 import Inventory from "./pages/Inventory";
 import Finance from "./pages/Finance";
@@ -78,10 +79,10 @@ export default function ErpApp() {
             onOpenStatement={(type, id) => {
               if (type === "customer") {
                 setPendingCustomerStatementId(id);
-                setCurrentPage("customers");
+                setCurrentPage("parties");
               } else {
                 setPendingSupplierStatementId(id);
-                setCurrentPage("suppliers");
+                setCurrentPage("parties");
               }
             }}
             onViewTodayInvoices={(kind) => {
@@ -96,6 +97,24 @@ export default function ErpApp() {
             }}
           />
         );
+      case "parties":
+        return (
+          <Parties
+            parties={state.parties}
+            saleInvoices={state.saleInvoices}
+            purchaseInvoices={state.purchaseInvoices}
+            payments={state.payments}
+            onAddParty={store.addParty}
+            onUpdateParty={store.updateParty}
+            onDeleteParty={store.deleteParty}
+            onAddPayment={store.addPayment}
+            onNavigateToSales={(id) => { setPendingCustomerId(id); setCurrentPage("sales"); }}
+            onNavigateToPurchases={(id) => { setPendingSupplierId(id); setCurrentPage("purchases"); }}
+            preselectedStatementId={pendingCustomerStatementId || pendingSupplierStatementId}
+            onPreselectedStatementHandled={() => { setPendingCustomerStatementId(null); setPendingSupplierStatementId(null); }}
+          />
+        );
+
       case "customers":
         return (
           <Customers
