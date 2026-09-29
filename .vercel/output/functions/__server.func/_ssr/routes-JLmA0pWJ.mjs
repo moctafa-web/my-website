@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-BrCduSoX.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-JLmA0pWJ.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -9811,7 +9811,15 @@ function Customers({ customers, saleInvoices, purchaseInvoices, payments, onAddC
 				type: "payment",
 				ref: p
 			}))
-		].sort((a, b) => a.date.localeCompare(b.date));
+		].sort((a, b) => {
+			const dateCompare = a.date.localeCompare(b.date);
+			if (dateCompare !== 0) return dateCompare;
+			const aCreated = a.ref?.createdAt || "";
+			const bCreated = b.ref?.createdAt || "";
+			const createdCompare = aCreated.localeCompare(bCreated);
+			if (createdCompare !== 0) return createdCompare;
+			return String(a.ref?.id || "").localeCompare(String(b.ref?.id || ""));
+		});
 		let running = c.openingBalance;
 		const withRunning = rows.map((r) => {
 			running += r.debit - r.credit;
@@ -11843,7 +11851,15 @@ function Suppliers({ suppliers, purchaseInvoices, saleInvoices, payments, onAddS
 				type: "payment",
 				ref: p
 			}))
-		].sort((a, b) => a.date.localeCompare(b.date));
+		].sort((a, b) => {
+			const dateCompare = a.date.localeCompare(b.date);
+			if (dateCompare !== 0) return dateCompare;
+			const aCreated = a.ref?.createdAt || "";
+			const bCreated = b.ref?.createdAt || "";
+			const createdCompare = aCreated.localeCompare(bCreated);
+			if (createdCompare !== 0) return createdCompare;
+			return String(a.ref?.id || "").localeCompare(String(b.ref?.id || ""));
+		});
 		let running = s.openingBalance;
 		const withRunning = rows.map((r) => {
 			running += r.debit - r.credit;
@@ -27858,7 +27874,13 @@ function useStore() {
 				if (payment.type === "sale" || payment.type === "opening") {
 					newState.customers.find((c) => c.id === payment.referenceId);
 					let remaining = payment.amount;
-					const sortedInvoices = [...newState.saleInvoices].filter((inv) => inv.customerId === payment.referenceId && inv.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
+					const sortedInvoices = [...newState.saleInvoices].filter((inv) => inv.customerId === payment.referenceId && inv.remaining > 0).sort((a, b) => {
+						const dateCompare = a.date.localeCompare(b.date);
+						if (dateCompare !== 0) return dateCompare;
+						const createdCompare = (a.createdAt || "").localeCompare(b.createdAt || "");
+						if (createdCompare !== 0) return createdCompare;
+						return a.id.localeCompare(b.id);
+					});
 					const updates = /* @__PURE__ */ new Map();
 					for (const inv of sortedInvoices) {
 						if (remaining <= 0) break;
@@ -27890,7 +27912,13 @@ function useStore() {
 				if (payment.type === "purchase" || payment.type === "opening") {
 					newState.suppliers.find((s) => s.id === payment.referenceId);
 					let remaining = payment.amount;
-					const sortedInvoices = [...newState.purchaseInvoices].filter((inv) => inv.supplierId === payment.referenceId && inv.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
+					const sortedInvoices = [...newState.purchaseInvoices].filter((inv) => inv.supplierId === payment.referenceId && inv.remaining > 0).sort((a, b) => {
+						const dateCompare = a.date.localeCompare(b.date);
+						if (dateCompare !== 0) return dateCompare;
+						const createdCompare = (a.createdAt || "").localeCompare(b.createdAt || "");
+						if (createdCompare !== 0) return createdCompare;
+						return a.id.localeCompare(b.id);
+					});
 					const updates = /* @__PURE__ */ new Map();
 					for (const inv of sortedInvoices) {
 						if (remaining <= 0) break;

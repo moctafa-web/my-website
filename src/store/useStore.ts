@@ -1281,7 +1281,13 @@ export function useStore() {
           let remaining = payment.amount;
           const sortedInvoices = [...newState.saleInvoices]
             .filter(inv => inv.customerId === payment.referenceId && inv.remaining > 0)
-            .sort((a, b) => a.date.localeCompare(b.date));
+            .sort((a, b) => {
+              const dateCompare = a.date.localeCompare(b.date);
+              if (dateCompare !== 0) return dateCompare;
+              const createdCompare = (a.createdAt || '').localeCompare(b.createdAt || '');
+              if (createdCompare !== 0) return createdCompare;
+              return a.id.localeCompare(b.id);
+            });
           const updates = new Map<string, { paid: number; remaining: number; status: SaleInvoice['status'] }>();
           for (const inv of sortedInvoices) {
             if (remaining <= 0) break;
@@ -1311,7 +1317,13 @@ export function useStore() {
           let remaining = payment.amount;
           const sortedInvoices = [...newState.purchaseInvoices]
             .filter(inv => inv.supplierId === payment.referenceId && inv.remaining > 0)
-            .sort((a, b) => a.date.localeCompare(b.date));
+            .sort((a, b) => {
+              const dateCompare = a.date.localeCompare(b.date);
+              if (dateCompare !== 0) return dateCompare;
+              const createdCompare = (a.createdAt || '').localeCompare(b.createdAt || '');
+              if (createdCompare !== 0) return createdCompare;
+              return a.id.localeCompare(b.id);
+            });
           const updates = new Map<string, { paid: number; remaining: number; status: PurchaseInvoice['status'] }>();
           for (const inv of sortedInvoices) {
             if (remaining <= 0) break;

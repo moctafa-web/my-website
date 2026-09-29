@@ -96,7 +96,15 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
         type: 'payment' as const,
         ref: p
       })),
-    ].sort((a, b) => a.date.localeCompare(b.date));
+    ].sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      const aCreated = (a.ref as any)?.createdAt || '';
+      const bCreated = (b.ref as any)?.createdAt || '';
+      const createdCompare = aCreated.localeCompare(bCreated);
+      if (createdCompare !== 0) return createdCompare;
+      return String((a.ref as any)?.id || '').localeCompare(String((b.ref as any)?.id || ''));
+    });
     let running = s.openingBalance;
     const withRunning = rows.map(r => {
       running += r.debit - r.credit;
