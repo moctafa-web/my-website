@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 import {
   Product, Customer, Supplier, SaleInvoice, PurchaseInvoice, NoonOrder,
   SerialItem, InvoiceItem, PaymentMethod, AppSettings,
@@ -56,6 +57,10 @@ export default function QuickEntry({
   const [paid, setPaid] = useState('');
   const [orderNumber, setOrderNumber] = useState('');
   const [activeDropdownRow, setActiveDropdownRow] = useState<string | null>(null);
+
+  useGlobalDropdownDismiss(() => {
+    setActiveDropdownRow(null);
+  });
   const [flash, setFlash] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);

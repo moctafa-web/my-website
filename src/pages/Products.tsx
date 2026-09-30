@@ -1,3 +1,4 @@
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 // src/pages/Products.tsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Brand, SerialItem, ViewMode, ProductCategory } from '../types';
@@ -45,6 +46,10 @@ export default function Products({
   const [filterCat, setFilterCat] = useState('all');
   const [filterSub, setFilterSub] = useState('');
   const [openCat, setOpenCat]     = useState<string | null>(null);
+
+  useGlobalDropdownDismiss(() => {
+    setOpenCat(null);
+  });
   const [showForm, setShowForm]   = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [form, setForm]           = useState({ ...BLANK_PRODUCT });

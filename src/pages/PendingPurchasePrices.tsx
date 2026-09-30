@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { PurchaseInvoice, SerialItem, Supplier } from '../types';
 import { formatCurrency, printElement } from '../utils/helpers';
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Printer } from 'lucide-react';
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
   serials: SerialItem[];
@@ -66,6 +67,18 @@ export default function PendingPurchasePrices({
   }, [purchaseInvoices]);
 
   const [rows, setRows] = useState<Record<string, RowState>>({});
+
+  useGlobalDropdownDismiss(() => {
+    setRows(prev => {
+      let changed = false;
+      const next: Record<string, RowState> = {};
+      Object.entries(prev).forEach(([id, row]) => {
+        if (row.showSupplierDrop) changed = true;
+        next[id] = row.showSupplierDrop ? { ...row, showSupplierDrop: false } : row;
+      });
+      return changed ? next : prev;
+    });
+  });
 
   const getRow = (id: string): RowState => rows[id] || emptyRow;
   const updateRow = (id: string, patch: Partial<RowState>) => {

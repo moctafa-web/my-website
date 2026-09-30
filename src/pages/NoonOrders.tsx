@@ -3,6 +3,7 @@ import { NoonOrder, NoonOrderItem, Product, SerialItem, OrderStatus, OrderPlatfo
 import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote, Edit } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
   noonOrders: NoonOrder[];
@@ -46,6 +47,10 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   const [orderItems, setOrderItems] = useState<(NoonOrderItem & { tempSerial: string; tempImei1: string; tempImei2: string })[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [showProductDrop, setShowProductDrop] = useState(false);
+
+  useGlobalDropdownDismiss(() => {
+    setShowProductDrop(false);
+  });
 
   // Bulk settlement state
   const [showSettleModal, setShowSettleModal] = useState(false);

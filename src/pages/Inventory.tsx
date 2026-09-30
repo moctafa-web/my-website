@@ -10,6 +10,7 @@ import LocationReport from './LocationReport';
 import InventoryLedger from './InventoryLedger';
 import SerialTimeline from './SerialTimeline';
 import DailyInventoryScanner from './DailyInventoryScanner';
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
   products: Product[];
@@ -142,6 +143,12 @@ export default function Inventory({
 
   const [selectedSerialId, setSelectedSerialId] = useState<string | null>(null);
   const [showSerialSuggestions, setShowSerialSuggestions] = useState(false);
+
+  useGlobalDropdownDismiss(() => {
+    setShowUnifiedSuggestions(false);
+    setShowProductSuggestions(false);
+    setShowSerialSuggestions(false);
+  });
 
   const trackedSerial = selectedSerialId
     ? serials.find(s => s.id === selectedSerialId)

@@ -4,6 +4,7 @@ import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabe
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import * as XLSX from 'xlsx';
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
   purchaseInvoices: PurchaseInvoice[];
@@ -96,6 +97,12 @@ export default function Purchases({
   const [notes, setNotes] = useState('');
   const [itemSearch, setItemSearch] = useState<Record<string, string>>({});
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
+
+  useGlobalDropdownDismiss(() => {
+    setShowSupDrop(false);
+    setShowCompleteSupDrop(false);
+    setShowItemDrop({});
+  });
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});

@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
 import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
+import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
 import BarcodeScanner, { DetectedScan } from '../components/BarcodeScanner';
 
@@ -119,6 +120,13 @@ export default function Sales({
   });
   const [qpQuickAddError, setQpQuickAddError] = useState<string | null>(null);
   const qpSerialRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  useGlobalDropdownDismiss(() => {
+    setShowCustDrop(false);
+    setShowItemDrop({});
+    setQpShowSupDrop(false);
+    setQpShowItemDrop({});
+  });
 
   // ==================== Barcode Scanner States ====================
   // ✅ نظام مسح الباركود بالكاميرا - يشتغل مع فاتورة البيع وفاتورة الشراء السريعة
