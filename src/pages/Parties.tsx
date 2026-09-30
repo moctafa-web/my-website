@@ -23,6 +23,7 @@ type Filter = 'all' | 'owing' | 'owed';
 
 type StatementRow = {
   date: string;
+  createdAt?: string;
   text: string;
   debit: number;
   credit: number;
@@ -112,11 +113,11 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   const statementRows = useMemo(() => {
     if (!view) return [] as StatementRow[];
     const rows: StatementRow[] = [
-      ...saleInvoices.filter(i=>i.customerId===view.id).map(i=>({date:i.date, text:`فاتورة بيع ${i.invoiceNumber}`, debit:i.total, credit:0, reference:i.id})),
-      ...purchaseInvoices.filter(i=>i.supplierId===view.id).map(i=>({date:i.date, text:`فاتورة شراء ${i.invoiceNumber}`, debit:0, credit:i.total, reference:i.id})),
-      ...payments.filter(p=>p.referenceId===view.id).map(p=>({date:p.date, text:p.direction==='in'?'دفعة واردة':'دفعة خارجة', debit:p.direction==='out'?p.amount:0, credit:p.direction==='in'?p.amount:0, reference:p.id})),
+      ...saleInvoices.filter(i=>i.customerId===view.id).map(i=>({date:i.date, createdAt:i.createdAt, text:`فاتورة بيع ${i.invoiceNumber}`, debit:i.total, credit:0, reference:i.id})),
+      ...purchaseInvoices.filter(i=>i.supplierId===view.id).map(i=>({date:i.date, createdAt:i.createdAt, text:`فاتورة شراء ${i.invoiceNumber}`, debit:0, credit:i.total, reference:i.id})),
+      ...payments.filter(p=>p.referenceId===view.id).map(p=>({date:p.date, createdAt:p.createdAt, text:p.direction==='in'?'دفعة واردة':'دفعة خارجة', debit:p.direction==='out'?p.amount:0, credit:p.direction==='in'?p.amount:0, reference:p.id})),
     ];
-    return rows.sort((a,b)=>a.date.localeCompare(b.date) || a.text.localeCompare(b.text));
+    return rows.sort((a,b)=>a.date.localeCompare(b.date) || (a.createdAt || '').localeCompare(b.createdAt || '') || (a.reference || '').localeCompare(b.reference || ''));
   }, [view, saleInvoices, purchaseInvoices, payments]);
 
   const periodRows = useMemo(() => statementRows.filter(r => (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo)), [statementRows, dateFrom, dateTo]);

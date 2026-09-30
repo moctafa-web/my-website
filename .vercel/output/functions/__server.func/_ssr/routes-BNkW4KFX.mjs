@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-JLmA0pWJ.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BNkW4KFX.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -11076,6 +11076,7 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 		return [
 			...saleInvoices.filter((i) => i.customerId === view.id).map((i) => ({
 				date: i.date,
+				createdAt: i.createdAt,
 				text: `فاتورة بيع ${i.invoiceNumber}`,
 				debit: i.total,
 				credit: 0,
@@ -11083,6 +11084,7 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 			})),
 			...purchaseInvoices.filter((i) => i.supplierId === view.id).map((i) => ({
 				date: i.date,
+				createdAt: i.createdAt,
 				text: `فاتورة شراء ${i.invoiceNumber}`,
 				debit: 0,
 				credit: i.total,
@@ -11090,12 +11092,13 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 			})),
 			...payments.filter((p) => p.referenceId === view.id).map((p) => ({
 				date: p.date,
+				createdAt: p.createdAt,
 				text: p.direction === "in" ? "دفعة واردة" : "دفعة خارجة",
 				debit: p.direction === "out" ? p.amount : 0,
 				credit: p.direction === "in" ? p.amount : 0,
 				reference: p.id
 			}))
-		].sort((a, b) => a.date.localeCompare(b.date) || a.text.localeCompare(b.text));
+		].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || "").localeCompare(b.createdAt || "") || (a.reference || "").localeCompare(b.reference || ""));
 	}, [
 		view,
 		saleInvoices,
@@ -26539,6 +26542,62 @@ function generateDemoData() {
 	};
 }
 var partyKey = (name) => normalizeForCompare(name || "");
+var reconcilePartyInvoicePayments = (saleInvoices, purchaseInvoices, payments, partyId, side) => {
+	const isSale = side === "sale";
+	const invoices = (isSale ? saleInvoices : purchaseInvoices).filter((inv) => (isSale ? inv.customerId : inv.supplierId) === partyId).filter((inv) => inv.status !== "canceled").sort((a, b) => {
+		const dateCompare = a.date.localeCompare(b.date);
+		if (dateCompare !== 0) return dateCompare;
+		const createdCompare = (a.createdAt || "").localeCompare(b.createdAt || "");
+		if (createdCompare !== 0) return createdCompare;
+		return a.id.localeCompare(b.id);
+	});
+	const autoPaidByInvoice = /* @__PURE__ */ new Map();
+	const manualPayments = payments.filter((p) => p.referenceId === partyId && (isSale ? p.direction === "in" : p.direction === "out")).filter((p) => {
+		if (p.id.startsWith("paid_")) {
+			const invoiceId = p.id.slice(5);
+			if (invoices.some((inv) => inv.id === invoiceId)) {
+				autoPaidByInvoice.set(invoiceId, Math.max(0, Number(p.amount || 0)));
+				return false;
+			}
+		}
+		return p.type === side || p.type === "opening";
+	}).sort((a, b) => {
+		const dateCompare = a.date.localeCompare(b.date);
+		if (dateCompare !== 0) return dateCompare;
+		const createdCompare = (a.createdAt || "").localeCompare(b.createdAt || "");
+		if (createdCompare !== 0) return createdCompare;
+		return a.id.localeCompare(b.id);
+	});
+	const allocated = /* @__PURE__ */ new Map();
+	invoices.forEach((inv) => allocated.set(inv.id, Math.min(inv.total, autoPaidByInvoice.get(inv.id) || 0)));
+	for (const payment of manualPayments) {
+		let remainingPayment = Math.max(0, Number(payment.amount || 0));
+		for (const inv of invoices) {
+			if (remainingPayment <= 0) break;
+			const alreadyPaid = allocated.get(inv.id) || 0;
+			const available = Math.max(0, inv.total - alreadyPaid);
+			if (available <= 0) continue;
+			const applied = Math.min(remainingPayment, available);
+			allocated.set(inv.id, alreadyPaid + applied);
+			remainingPayment -= applied;
+		}
+	}
+	const nextInvoices = invoices.map((inv) => {
+		const paid = Math.min(inv.total, Math.max(0, allocated.get(inv.id) || 0));
+		const remaining = Math.max(0, inv.total - paid);
+		return {
+			...inv,
+			paid,
+			remaining,
+			status: remaining <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid"
+		};
+	});
+	const nextById = new Map(nextInvoices.map((inv) => [inv.id, inv]));
+	return {
+		sales: isSale ? saleInvoices.map((inv) => nextById.get(inv.id) || inv) : saleInvoices,
+		purchases: isSale ? purchaseInvoices : purchaseInvoices.map((inv) => nextById.get(inv.id) || inv)
+	};
+};
 var customerFromParty = (party) => ({
 	id: party.id,
 	name: party.name,
@@ -27378,14 +27437,19 @@ function useStore() {
 				newState.serials = newState.serials.map((s) => s.id === target.id ? updated : s);
 				changedSerials.set(updated.id, updated);
 			};
+			const oldAutoPayment = newState.payments.find((p) => p.id === `paid_${oldInvoice.id}`);
+			const oldInvoiceTreasury = newState.treasuryTransactions.find((t) => t.referenceId === oldInvoice.id);
+			const autoPaymentAmount = oldAutoPayment?.amount || 0;
+			const invoiceTreasuryAmount = oldInvoiceTreasury?.amount || 0;
 			touchParty(oldInvoice.customerId, {
 				invoices: -oldInvoice.total,
 				paid: -oldInvoice.paid
 			});
-			if (oldInvoice.paid > 0) {
+			const oldInvoicePaidAmount = invoiceTreasuryAmount || autoPaymentAmount;
+			if (oldInvoicePaidAmount > 0) {
 				const oldTreasury = oldInvoice.paymentMethod === "cash" ? "cash" : "bank";
-				newState.cashBalance = oldTreasury === "cash" ? newState.cashBalance - oldInvoice.paid : newState.cashBalance;
-				newState.bankBalance = oldTreasury === "bank" ? newState.bankBalance - oldInvoice.paid : newState.bankBalance;
+				newState.cashBalance = oldTreasury === "cash" ? newState.cashBalance - oldInvoicePaidAmount : newState.cashBalance;
+				newState.bankBalance = oldTreasury === "bank" ? newState.bankBalance - oldInvoicePaidAmount : newState.bankBalance;
 			}
 			newState.treasuryTransactions = newState.treasuryTransactions.filter((t) => t.referenceId !== oldInvoice.id);
 			newState.payments = newState.payments.filter((p) => p.id !== `paid_${invoice.id}`);
@@ -27407,32 +27471,32 @@ function useStore() {
 				invoices: invoice.total,
 				paid: invoice.paid
 			});
-			if (invoice.paid > 0) {
+			if (autoPaymentAmount > 0) {
 				const newTreasury = invoice.paymentMethod === "cash" ? "cash" : "bank";
-				newState.cashBalance = newTreasury === "cash" ? newState.cashBalance + invoice.paid : newState.cashBalance;
-				newState.bankBalance = newTreasury === "bank" ? newState.bankBalance + invoice.paid : newState.bankBalance;
+				newState.cashBalance = newTreasury === "cash" ? newState.cashBalance + autoPaymentAmount : newState.cashBalance;
+				newState.bankBalance = newTreasury === "bank" ? newState.bankBalance + autoPaymentAmount : newState.bankBalance;
 				newState.treasuryTransactions = [...newState.treasuryTransactions, {
-					id: makeTransactionId(),
+					id: oldInvoiceTreasury?.id || makeTransactionId(),
 					type: "sale",
 					description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
-					amount: invoice.paid,
+					amount: invoiceTreasuryAmount || autoPaymentAmount,
 					treasury: newTreasury,
 					direction: "in",
 					referenceId: invoice.id,
 					date: invoice.date,
-					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+					createdAt: oldInvoiceTreasury?.createdAt || (/* @__PURE__ */ new Date()).toISOString()
 				}];
 				const autoPayment = {
 					id: `paid_${invoice.id}`,
 					type: "sale",
 					referenceId: invoice.customerId,
 					referenceName: invoice.customerName,
-					amount: invoice.paid,
+					amount: autoPaymentAmount,
 					paymentMethod: invoice.paymentMethod,
 					direction: "in",
 					date: invoice.date,
-					notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
-					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+					notes: oldAutoPayment?.notes || `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
+					createdAt: oldAutoPayment?.createdAt || (/* @__PURE__ */ new Date()).toISOString()
 				};
 				newState.payments = [...newState.payments, autoPayment];
 				saveToFirebase("payments", autoPayment.id, autoPayment);
@@ -27629,6 +27693,10 @@ function useStore() {
 				...prev,
 				purchaseInvoices: prev.purchaseInvoices.map((i) => i.id === invoice.id ? invoice : i)
 			};
+			const oldAutoPayment = newState.payments.find((p) => p.id === `paid_${oldInvoice.id}`);
+			const oldInvoiceTreasury = newState.treasuryTransactions.find((t) => t.referenceId === oldInvoice.id);
+			const autoPaymentAmount = oldAutoPayment?.amount || 0;
+			const invoiceTreasuryAmount = oldInvoiceTreasury?.amount || 0;
 			const changedProducts = [];
 			const changedSerials = [];
 			const removedSerialIds = [];
@@ -27701,40 +27769,41 @@ function useStore() {
 					changedSerials.push(created);
 				}
 			});
-			if (oldInvoice.paid > 0) {
+			const oldInvoicePaidAmount = invoiceTreasuryAmount || autoPaymentAmount;
+			if (oldInvoicePaidAmount > 0) {
 				const oldTreasury = oldInvoice.paymentMethod === "cash" ? "cash" : "bank";
-				newState.cashBalance = oldTreasury === "cash" ? newState.cashBalance + oldInvoice.paid : newState.cashBalance;
-				newState.bankBalance = oldTreasury === "bank" ? newState.bankBalance + oldInvoice.paid : newState.bankBalance;
+				newState.cashBalance = oldTreasury === "cash" ? newState.cashBalance + oldInvoicePaidAmount : newState.cashBalance;
+				newState.bankBalance = oldTreasury === "bank" ? newState.bankBalance + oldInvoicePaidAmount : newState.bankBalance;
 			}
 			newState.treasuryTransactions = newState.treasuryTransactions.filter((t) => t.referenceId !== oldInvoice.id);
 			newState.payments = newState.payments.filter((p) => p.id !== `paid_${invoice.id}`);
 			deleteFromFirebase("payments", `paid_${invoice.id}`);
-			if (invoice.paid > 0) {
+			if (autoPaymentAmount > 0) {
 				const newTreasury = invoice.paymentMethod === "cash" ? "cash" : "bank";
-				newState.cashBalance = newTreasury === "cash" ? newState.cashBalance - invoice.paid : newState.cashBalance;
-				newState.bankBalance = newTreasury === "bank" ? newState.bankBalance - invoice.paid : newState.bankBalance;
+				newState.cashBalance = newTreasury === "cash" ? newState.cashBalance - autoPaymentAmount : newState.cashBalance;
+				newState.bankBalance = newTreasury === "bank" ? newState.bankBalance - autoPaymentAmount : newState.bankBalance;
 				newState.treasuryTransactions = [...newState.treasuryTransactions, {
-					id: makeTransactionId(),
+					id: oldInvoiceTreasury?.id || makeTransactionId(),
 					type: "purchase",
 					description: `فاتورة مشتريات ${invoice.invoiceNumber} - ${invoice.supplierName}`,
-					amount: invoice.paid,
+					amount: invoiceTreasuryAmount || autoPaymentAmount,
 					treasury: newTreasury,
 					direction: "out",
 					referenceId: invoice.id,
 					date: invoice.date,
-					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+					createdAt: oldInvoiceTreasury?.createdAt || (/* @__PURE__ */ new Date()).toISOString()
 				}];
 				const autoPayment = {
 					id: `paid_${invoice.id}`,
 					type: "purchase",
 					referenceId: invoice.supplierId,
 					referenceName: invoice.supplierName,
-					amount: invoice.paid,
+					amount: autoPaymentAmount,
 					paymentMethod: invoice.paymentMethod,
 					direction: "out",
 					date: invoice.date,
-					notes: `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
-					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+					notes: oldAutoPayment?.notes || `دفعة مسجلة مع فاتورة ${invoice.invoiceNumber}`,
+					createdAt: oldAutoPayment?.createdAt || (/* @__PURE__ */ new Date()).toISOString()
 				};
 				newState.payments.push(autoPayment);
 				saveToFirebase("payments", autoPayment.id, autoPayment);
@@ -27873,76 +27942,16 @@ function useStore() {
 				newState.bankBalance = treasury === "bank" ? newState.bankBalance + payment.amount : newState.bankBalance;
 				if (payment.type === "sale" || payment.type === "opening") {
 					newState.customers.find((c) => c.id === payment.referenceId);
-					let remaining = payment.amount;
-					const sortedInvoices = [...newState.saleInvoices].filter((inv) => inv.customerId === payment.referenceId && inv.remaining > 0).sort((a, b) => {
-						const dateCompare = a.date.localeCompare(b.date);
-						if (dateCompare !== 0) return dateCompare;
-						const createdCompare = (a.createdAt || "").localeCompare(b.createdAt || "");
-						if (createdCompare !== 0) return createdCompare;
-						return a.id.localeCompare(b.id);
-					});
-					const updates = /* @__PURE__ */ new Map();
-					for (const inv of sortedInvoices) {
-						if (remaining <= 0) break;
-						const applied = Math.min(remaining, inv.remaining);
-						const newPaid = inv.paid + applied;
-						const newRemaining = inv.total - newPaid;
-						updates.set(inv.id, {
-							paid: newPaid,
-							remaining: newRemaining,
-							status: newRemaining <= 0 ? "paid" : "partial"
-						});
-						remaining -= applied;
-					}
-					if (updates.size > 0) newState.saleInvoices = newState.saleInvoices.map((inv) => {
-						if (updates.has(inv.id)) {
-							const updated = {
-								...inv,
-								...updates.get(inv.id)
-							};
-							changedSaleInvoices.push(updated);
-							return updated;
-						}
-						return inv;
-					});
+					newState.saleInvoices = reconcilePartyInvoicePayments(newState.saleInvoices, newState.purchaseInvoices, newState.payments, payment.referenceId, "sale").sales;
+					changedSaleInvoices.push(...newState.saleInvoices.filter((inv) => inv.customerId === payment.referenceId));
 				}
 			} else {
 				newState.cashBalance = treasury === "cash" ? newState.cashBalance - payment.amount : newState.cashBalance;
 				newState.bankBalance = treasury === "bank" ? newState.bankBalance - payment.amount : newState.bankBalance;
 				if (payment.type === "purchase" || payment.type === "opening") {
 					newState.suppliers.find((s) => s.id === payment.referenceId);
-					let remaining = payment.amount;
-					const sortedInvoices = [...newState.purchaseInvoices].filter((inv) => inv.supplierId === payment.referenceId && inv.remaining > 0).sort((a, b) => {
-						const dateCompare = a.date.localeCompare(b.date);
-						if (dateCompare !== 0) return dateCompare;
-						const createdCompare = (a.createdAt || "").localeCompare(b.createdAt || "");
-						if (createdCompare !== 0) return createdCompare;
-						return a.id.localeCompare(b.id);
-					});
-					const updates = /* @__PURE__ */ new Map();
-					for (const inv of sortedInvoices) {
-						if (remaining <= 0) break;
-						const applied = Math.min(remaining, inv.remaining);
-						const newPaid = inv.paid + applied;
-						const newRemaining = inv.total - newPaid;
-						updates.set(inv.id, {
-							paid: newPaid,
-							remaining: newRemaining,
-							status: newRemaining <= 0 ? "paid" : "partial"
-						});
-						remaining -= applied;
-					}
-					if (updates.size > 0) newState.purchaseInvoices = newState.purchaseInvoices.map((inv) => {
-						if (updates.has(inv.id)) {
-							const updated = {
-								...inv,
-								...updates.get(inv.id)
-							};
-							changedPurchaseInvoices.push(updated);
-							return updated;
-						}
-						return inv;
-					});
+					newState.purchaseInvoices = reconcilePartyInvoicePayments(newState.saleInvoices, newState.purchaseInvoices, newState.payments, payment.referenceId, "purchase").purchases;
+					changedPurchaseInvoices.push(...newState.purchaseInvoices.filter((inv) => inv.supplierId === payment.referenceId));
 				}
 			}
 			const treasuryTransaction = {
