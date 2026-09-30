@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-BNkW4KFX.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BIw2clH0.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -447,17 +447,28 @@ function GlobalSearch({ state, onNavigate, onClose }) {
 				page: "products"
 			});
 		});
-		state.serials.forEach((s) => {
-			if (s.serial.toLowerCase().includes(q) || (s.imei1 || "").includes(q) || (s.imei2 || "").includes(q)) {
-				const statusLabel = s.status === "available" ? "🟢 متاح" : s.status === "sold" ? "🔵 مباع" : s.status === "transferred" ? "🟣 محول (نون/أمازون)" : s.status === "missing" ? "⚠️ مفقود" : s.status;
-				out.push({
-					type: "serial",
-					id: s.id,
-					title: `${s.serial} — ${s.productName}`,
-					subtitle: statusLabel,
-					page: "inventory"
-				});
-			}
+		const matchingSerials = state.serials.filter((s) => s.serial.toLowerCase().includes(q) || (s.imei1 || "").toLowerCase().includes(q) || (s.imei2 || "").toLowerCase().includes(q));
+		const serialGroups = /* @__PURE__ */ new Map();
+		matchingSerials.forEach((s) => {
+			const key = s.serial.trim().toLowerCase();
+			const group = serialGroups.get(key) || [];
+			group.push(s);
+			serialGroups.set(key, group);
+		});
+		serialGroups.forEach((group) => {
+			const current = group.find((s) => s.status === "available") || group.find((s) => s.status === "transferred") || group.find((s) => s.status === "missing") || [...group].reverse()[0];
+			if (!current) return;
+			const purchaseCount = new Set(group.map((s) => s.purchaseInvoiceId).filter(Boolean)).size;
+			const saleCount = new Set(group.map((s) => s.saleInvoiceId).filter(Boolean)).size;
+			const statusLabel = current.status === "available" ? "🟢 متاح" : current.status === "sold" ? "🔵 مباع" : current.status === "transferred" ? "🟣 محول (نون/أمازون)" : current.status === "missing" ? "⚠️ مفقود" : current.status;
+			const history = `${purchaseCount} شراء • ${saleCount} بيع`;
+			out.push({
+				type: "serial",
+				id: current.id,
+				title: `${current.serial} — ${current.productName}`,
+				subtitle: `${statusLabel} • ${history}`,
+				page: "inventory"
+			});
 		});
 		state.customers.forEach((c) => {
 			if (c.name.toLowerCase().includes(q) || (c.phone || "").includes(q)) {
@@ -4547,9 +4558,9 @@ function Sales({ saleInvoices, customers, products, serials, settings, suppliers
 	const isValidAvailableSerial = (serial, productId) => {
 		const normalized = serial.trim().toLowerCase();
 		if (!normalized) return true;
-		const record = serials.find((s) => s.serial.trim().toLowerCase() === normalized);
+		if (serials.find((s) => s.serial.trim().toLowerCase() === normalized && s.productId === productId && s.status === "available")) return true;
+		const record = serials.find((s) => s.serial.trim().toLowerCase() === normalized && s.productId === productId);
 		if (!record) return false;
-		if (record.status === "available") return true;
 		if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
 		return false;
 	};

@@ -290,9 +290,19 @@ export default function Sales({
   const isValidAvailableSerial = (serial: string, productId: string): boolean => {
     const normalized = serial.trim().toLowerCase();
     if (!normalized) return true;
-    const record = serials.find(s => s.serial.trim().toLowerCase() === normalized);
+    // نفس السيريال قد يكون له أكثر من سجل تاريخي: سجل قديم مباع + سجل أحدث أُعيد شراؤه وأصبح متاحًا.
+    // لا نعتمد على أول سجل؛ نبحث أولًا عن السجل المتاح لنفس السيريال.
+    const availableRecord = serials.find(s =>
+      s.serial.trim().toLowerCase() === normalized &&
+      s.productId === productId &&
+      s.status === 'available'
+    );
+    if (availableRecord) return true;
+    const record = serials.find(s =>
+      s.serial.trim().toLowerCase() === normalized &&
+      s.productId === productId
+    );
     if (!record) return false;
-    if (record.status === 'available') return true;
     if (editingInvoice && record.saleInvoiceId === editingInvoice.id) return true;
     return false;
   };

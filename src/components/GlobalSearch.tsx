@@ -46,16 +46,35 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
       }
     });
 
-    // سيريالات (بحث دقيق بالسيريال أو IMEI، يربط للمخزون)
-    state.serials.forEach(s => {
-      if (s.serial.toLowerCase().includes(q) || (s.imei1 || '').includes(q) || (s.imei2 || '').includes(q)) {
-        const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محول (نون/أمازون)' : s.status === 'missing' ? '⚠️ مفقود' : s.status;
-        out.push({
-          type: 'serial', id: s.id, title: `${s.serial} — ${s.productName}`,
-          subtitle: statusLabel,
-          page: 'inventory',
-        });
-      }
+    // السيريال قد يتكرر كسجل تاريخي عند شرائه مرة أخرى بعد بيعه.
+    // نعرض السيريال مرة واحدة بالحالة الحالية، مع ملخص عدد فواتير الشراء/البيع.
+    const matchingSerials = state.serials.filter(s =>
+      s.serial.toLowerCase().includes(q) ||
+      (s.imei1 || '').toLowerCase().includes(q) ||
+      (s.imei2 || '').toLowerCase().includes(q)
+    );
+    const serialGroups = new Map<string, typeof matchingSerials>();
+    matchingSerials.forEach(s => {
+      const key = s.serial.trim().toLowerCase();
+      const group = serialGroups.get(key) || [];
+      group.push(s);
+      serialGroups.set(key, group);
+    });
+    serialGroups.forEach(group => {
+      const current = group.find(s => s.status === 'available') ||
+        group.find(s => s.status === 'transferred') ||
+        group.find(s => s.status === 'missing') ||
+        [...group].reverse()[0];
+      if (!current) return;
+      const purchaseCount = new Set(group.map(s => s.purchaseInvoiceId).filter(Boolean)).size;
+      const saleCount = new Set(group.map(s => s.saleInvoiceId).filter(Boolean)).size;
+      const statusLabel = current.status === 'available' ? '🟢 متاح' : current.status === 'sold' ? '🔵 مباع' : current.status === 'transferred' ? '🟣 محول (نون/أمازون)' : current.status === 'missing' ? '⚠️ مفقود' : current.status;
+      const history = `${purchaseCount} شراء • ${saleCount} بيع`;
+      out.push({
+        type: 'serial', id: current.id, title: `${current.serial} — ${current.productName}`,
+        subtitle: `${statusLabel} • ${history}`,
+        page: 'inventory',
+      });
     });
 
     // عملاء
