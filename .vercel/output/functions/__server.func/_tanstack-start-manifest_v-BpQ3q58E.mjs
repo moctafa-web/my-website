@@ -1,19 +1,19 @@
-//#region node_modules/.nitro/vite/services/ssr/assets/_tanstack-start-manifest_v-Db2iOzR6.js
+//#region node_modules/.nitro/vite/services/ssr/assets/_tanstack-start-manifest_v-BpQ3q58E.js
 var tsrStartManifest = () => ({ routes: {
 	__root__: {
 		filePath: "C:/Users/MoCtafa/Desktop/website-clean-start-new-cycle-airpods-fixed-v4-price-groups/website-clean/src/routes/__root.tsx",
 		children: ["/"],
-		preloads: ["/assets/index-DEccjPtq.js"],
+		preloads: ["/assets/index-C1nViduo.js"],
 		scripts: [{ attrs: {
 			type: "module",
 			async: !0,
-			src: "/assets/index-DEccjPtq.js"
+			src: "/assets/index-C1nViduo.js"
 		} }]
 	},
 	"/": {
 		filePath: "C:/Users/MoCtafa/Desktop/website-clean-start-new-cycle-airpods-fixed-v4-price-groups/website-clean/src/routes/index.tsx",
 		children: void 0,
-		preloads: ["/assets/routes-Blas0XvQ.js"]
+		preloads: ["/assets/routes-cOznMQAZ.js"]
 	}
 } });
 //#endregion

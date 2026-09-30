@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-B5pJGwML.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-DxGr3ybc.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -677,14 +677,14 @@ function GlobalSearch({ state, onNavigate, onClose }) {
 */
 function useGlobalDropdownDismiss(closeDropdowns) {
 	(0, import_react.useEffect)(() => {
-		const handlePointerDown = () => closeDropdowns();
+		const handleDocumentClick = () => closeDropdowns();
 		const handleKeyDown = (event) => {
 			if (event.key === "Escape") closeDropdowns();
 		};
-		document.addEventListener("pointerdown", handlePointerDown, true);
+		document.addEventListener("click", handleDocumentClick);
 		document.addEventListener("keydown", handleKeyDown);
 		return () => {
-			document.removeEventListener("pointerdown", handlePointerDown, true);
+			document.removeEventListener("click", handleDocumentClick);
 			document.removeEventListener("keydown", handleKeyDown);
 		};
 	}, [closeDropdowns]);

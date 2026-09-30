@@ -6,15 +6,15 @@ import { useEffect } from 'react';
  */
 export function useGlobalDropdownDismiss(closeDropdowns: () => void) {
   useEffect(() => {
-    const handlePointerDown = () => closeDropdowns();
+    const handleDocumentClick = () => closeDropdowns();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeDropdowns();
     };
 
-    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('click', handleDocumentClick);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('click', handleDocumentClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [closeDropdowns]);
