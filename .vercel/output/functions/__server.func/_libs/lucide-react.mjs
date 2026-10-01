@@ -394,6 +394,50 @@ var CircleAlert = createLucideIcon("circle-alert", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var CircleArrowDown = createLucideIcon("circle-arrow-down", [
+	["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10",
+		key: "1mglay"
+	}],
+	["path", {
+		d: "M12 8v8",
+		key: "napkw2"
+	}],
+	["path", {
+		d: "m8 12 4 4 4-4",
+		key: "k98ssh"
+	}]
+]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var CircleArrowUp = createLucideIcon("circle-arrow-up", [
+	["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10",
+		key: "1mglay"
+	}],
+	["path", {
+		d: "m16 12-4-4-4 4",
+		key: "177agl"
+	}],
+	["path", {
+		d: "M12 16V8",
+		key: "1sbj14"
+	}]
+]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var CircleCheckBig = createLucideIcon("circle-check-big", [["path", {
 	d: "M21.801 10A10 10 0 1 1 17 3.335",
 	key: "yps3ct"
@@ -1537,4 +1581,4 @@ var Zap = createLucideIcon("zap", [["path", {
 	key: "1xq2db"
 }]]);
 //#endregion
-export { ChevronRight as $, Menu as A, FilePlus2 as B, Save as C, Plus as D, Printer as E, HardDrive as F, Copy as G, Download as H, Grid3x3 as I, CircleX as J, Clock as K, Funnel as L, LayoutDashboard as M, Landmark as N, Package as O, Hash as P, ChevronUp as Q, FileText as R, ScanLine as S, QrCode as T, DollarSign as U, Eye as V, CreditCard as W, CircleCheckBig as X, CircleCheck as Y, CircleAlert as Z, ShoppingBag as _, Users as a, Calendar as at, Settings as b, TriangleAlert as c, Banknote as ct, Trash2 as d, ArrowLeft as dt, ChevronLeft as et, Store as f, ArrowDownLeft as ft, ShoppingCart as g, SquareCheckBig as h, Wallet as i, Camera as it, List as j, PackagePlus as k, TrendingUp as l, ArrowUpRight as lt, SquarePen as m, ZapOff as n, Check as nt, Upload as o, Boxes as ot, Square as p, AlignJustify as pt, ClipboardCheck as q, X as r, ChartColumn as rt, Truck as s, BookOpen as st, Zap as t, ChevronDown as tt, TrendingDown as u, ArrowRight as ut, ShieldCheck as v, RefreshCw as w, Search as x, ShieldAlert as y, FileSpreadsheet as z };
+export { CircleAlert as $, Menu as A, FilePlus2 as B, Save as C, Plus as D, Printer as E, HardDrive as F, Copy as G, Download as H, Grid3x3 as I, CircleX as J, Clock as K, Funnel as L, LayoutDashboard as M, Landmark as N, Package as O, Hash as P, CircleArrowDown as Q, FileText as R, ScanLine as S, QrCode as T, DollarSign as U, Eye as V, CreditCard as W, CircleCheckBig as X, CircleCheck as Y, CircleArrowUp as Z, ShoppingBag as _, Users as a, ChartColumn as at, Settings as b, TriangleAlert as c, Boxes as ct, Trash2 as d, ArrowUpRight as dt, ChevronUp as et, Store as f, ArrowRight as ft, ShoppingCart as g, SquareCheckBig as h, AlignJustify as ht, Wallet as i, Check as it, List as j, PackagePlus as k, TrendingUp as l, BookOpen as lt, SquarePen as m, ArrowDownLeft as mt, ZapOff as n, ChevronLeft as nt, Upload as o, Camera as ot, Square as p, ArrowLeft as pt, ClipboardCheck as q, X as r, ChevronDown as rt, Truck as s, Calendar as st, Zap as t, ChevronRight as tt, TrendingDown as u, Banknote as ut, ShieldCheck as v, RefreshCw as w, Search as x, ShieldAlert as y, FileSpreadsheet as z };

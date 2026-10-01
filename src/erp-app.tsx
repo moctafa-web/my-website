@@ -34,6 +34,8 @@ export default function ErpApp() {
   const [pendingSupplierStatementId, setPendingSupplierStatementId] = useState<string | null>(null);
   const [pendingSalesDateFilter, setPendingSalesDateFilter] = useState<string | null>(null);
   const [pendingPurchasesDateFilter, setPendingPurchasesDateFilter] = useState<string | null>(null);
+  const [pendingSaleInvoiceId, setPendingSaleInvoiceId] = useState<string | null>(null);
+  const [pendingPurchaseInvoiceId, setPendingPurchaseInvoiceId] = useState<string | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showQuickEntry, setShowQuickEntry] = useState(false);
 
@@ -111,6 +113,15 @@ export default function ErpApp() {
             onAddPayment={store.addPayment}
             onNavigateToSales={(id) => { setPendingCustomerId(id); setCurrentPage("sales"); }}
             onNavigateToPurchases={(id) => { setPendingSupplierId(id); setCurrentPage("purchases"); }}
+            onOpenInvoice={(type, id) => {
+              if (type === "sale") {
+                setPendingSaleInvoiceId(id);
+                setCurrentPage("sales");
+              } else {
+                setPendingPurchaseInvoiceId(id);
+                setCurrentPage("purchases");
+              }
+            }}
             preselectedStatementId={pendingCustomerStatementId || pendingSupplierStatementId}
             onPreselectedStatementHandled={() => { setPendingCustomerStatementId(null); setPendingSupplierStatementId(null); }}
           />
@@ -160,6 +171,8 @@ export default function ErpApp() {
             onAddSerials={store.addSerials}
             preselectedDateFilter={pendingSalesDateFilter}
             onPreselectedDateFilterHandled={() => setPendingSalesDateFilter(null)}
+            preselectedInvoiceId={pendingSaleInvoiceId}
+            onPreselectedInvoiceHandled={() => setPendingSaleInvoiceId(null)}
           />
         );
       case "purchases":
@@ -185,6 +198,8 @@ export default function ErpApp() {
             onPreselectedPendingSerialHandled={() => setPendingSerialId(null)}
             preselectedDateFilter={pendingPurchasesDateFilter}
             onPreselectedDateFilterHandled={() => setPendingPurchasesDateFilter(null)}
+            preselectedInvoiceId={pendingPurchaseInvoiceId}
+            onPreselectedInvoiceHandled={() => setPendingPurchaseInvoiceId(null)}
           />
         );
       case "pending-prices":
@@ -367,6 +382,7 @@ export default function ErpApp() {
           onAddCustomer={store.addCustomer}
           onAddSupplier={store.addSupplier}
           onAddSerials={store.addSerials}
+          onAddPayment={store.addPayment}
           onClose={() => setShowQuickEntry(false)}
         />
       )}

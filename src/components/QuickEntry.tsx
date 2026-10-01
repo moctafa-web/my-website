@@ -5,7 +5,7 @@ import {
   SerialItem, InvoiceItem, PaymentMethod, AppSettings,
 } from '../types';
 import { formatCurrency, generateId, getTodayStr, normalizeForCompare } from '../utils/helpers';
-import { X, Zap, ShoppingCart, PackagePlus, Truck, Plus, Trash2, Check } from 'lucide-react';
+import { X, Zap, ShoppingCart, PackagePlus, Truck, Plus, Trash2, Check, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 
 interface Props {
   products: Product[];
@@ -21,10 +21,11 @@ interface Props {
   onAddCustomer: (c: Customer) => { success: boolean; message?: string } | void;
   onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onAddSerials: (serials: SerialItem[]) => void;
+  onAddPayment: (payment: import('../types').Payment) => void;
   onClose: () => void;
 }
 
-type Mode = 'sale' | 'purchase' | 'noon';
+type Mode = 'sale' | 'purchase' | 'noon' | 'payment_in' | 'payment_out';
 
 interface QuickLine {
   rowId: string;
@@ -47,7 +48,7 @@ const CASH_CUSTOMER_NAME = 'عميل نقدي';
 
 export default function QuickEntry({
   products, customers, suppliers, serials, saleInvoices, purchaseInvoices, settings,
-  onAddSaleInvoice, onAddPurchaseInvoice, onAddNoonOrder, onAddCustomer, onAddSupplier, onAddSerials,
+  onAddSaleInvoice, onAddPurchaseInvoice, onAddNoonOrder, onAddCustomer, onAddSupplier, onAddSerials, onAddPayment,
   onClose,
 }: Props) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -55,6 +56,7 @@ export default function QuickEntry({
   const [partyName, setPartyName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paid, setPaid] = useState('');
+  const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [orderNumber, setOrderNumber] = useState('');
   const [activeDropdownRow, setActiveDropdownRow] = useState<string | null>(null);
 
@@ -81,6 +83,7 @@ export default function QuickEntry({
     setPartyName('');
     setPaymentMethod('cash');
     setPaid('');
+    setPaymentDate(getTodayStr());
     setOrderNumber('');
     setError(null);
     setTimeout(() => firstFieldRef.current?.focus(), 50);
@@ -261,6 +264,60 @@ export default function QuickEntry({
     resetEntryFields();
   };
 
+  const paymentParties = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; role: 'customer' | 'supplier' | 'both' }>();
+    customers.forEach(c => map.set(c.id, { id: c.id, name: c.name, role: 'customer' }));
+    suppliers.forEach(s => {
+      const existing = map.get(s.id);
+      if (existing) existing.role = 'both';
+      else map.set(s.id, { id: s.id, name: s.name, role: 'supplier' });
+    });
+    return Array.from(map.values());
+  }, [customers, suppliers]);
+
+  const paymentPartySuggestions = useMemo(() => {
+    const q = partyName.trim().toLowerCase();
+    const wanted = mode === 'payment_in' ? ['customer', 'both'] : ['supplier', 'both'];
+    return paymentParties
+      .filter(p => wanted.includes(p.role) && (!q || p.name.toLowerCase().includes(q)))
+      .slice(0, 12);
+  }, [paymentParties, partyName, mode]);
+
+  const selectPaymentParty = (party: { id: string; name: string }) => {
+    setPartyName(party.name);
+    setActiveDropdownRow(null);
+  };
+
+  const handleSavePayment = () => {
+    const amount = Number(paid);
+    if (!partyName.trim()) { setError(mode === 'payment_in' ? 'اختار العميل' : 'اختار المورد / التاجر'); return; }
+    if (!(amount > 0)) { setError('اكتب مبلغ الدفعة'); return; }
+    const wantedRole = mode === 'payment_in' ? ['customer', 'both'] : ['supplier', 'both'];
+    const party = paymentParties.find(p => normalizeForCompare(p.name) === normalizeForCompare(partyName) && wantedRole.includes(p.role));
+    if (!party) { setError('اختار طرفًا موجودًا من القائمة'); return; }
+    const payment = {
+      id: generateId(),
+      type: mode === 'payment_in' ? 'sale' : 'purchase' as const,
+      referenceId: party.id,
+      referenceName: party.name,
+      amount,
+      paymentMethod,
+      direction: mode === 'payment_in' ? 'in' : 'out' as const,
+      date: paymentDate || getTodayStr(),
+      notes: '',
+      createdAt: new Date().toISOString(),
+    };
+    onAddPayment(payment);
+    setFlash(`✅ تم تسجيل ${mode === 'payment_in' ? 'دفعة واردة من' : 'دفعة خارجة إلى'} ${party.name} — ${formatCurrency(amount)}`);
+    setSavedCount(c => c + 1);
+    setPartyName('');
+    setPaid('');
+    setPaymentMethod('cash');
+    setPaymentDate(getTodayStr());
+    setError(null);
+    setActiveDropdownRow(null);
+  };
+
   const handleSaveNoon = () => {
     const valid = validLines();
     if (!orderNumber.trim()) { setError('اكتب رقم الأوردر'); return; }
@@ -291,6 +348,7 @@ export default function QuickEntry({
     if (mode === 'sale') handleSaveSale();
     else if (mode === 'purchase') handleSavePurchase();
     else if (mode === 'noon') handleSaveNoon();
+    else if (mode === 'payment_in' || mode === 'payment_out') handleSavePayment();
   };
 
   useEffect(() => {
@@ -303,6 +361,8 @@ export default function QuickEntry({
     sale: { label: 'بيع سريع', icon: ShoppingCart, color: 'green' },
     purchase: { label: 'شراء سريع', icon: PackagePlus, color: 'blue' },
     noon: { label: 'أوردر نون سريع', icon: Truck, color: 'violet' },
+    payment_in: { label: 'دفعة واردة', icon: ArrowDownCircle, color: 'green' },
+    payment_out: { label: 'دفعة خارجة', icon: ArrowUpCircle, color: 'red' },
   } as const;
 
   return (
@@ -342,7 +402,7 @@ export default function QuickEntry({
         <div className="overflow-y-auto px-5 py-4 flex-1">
           {/* Mode selection screen */}
           {!mode && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               {(Object.keys(modeConfig) as Mode[]).map(m => {
                 const cfg = modeConfig[m];
                 const Icon = cfg.icon;
@@ -373,8 +433,52 @@ export default function QuickEntry({
                 </div>
               )}
 
+              {(mode === 'payment_in' || mode === 'payment_out') && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">{mode === 'payment_in' ? 'العميل' : 'المورد / التاجر'}</label>
+                    <div className="relative">
+                      <input
+                        ref={firstFieldRef}
+                        type="text"
+                        value={partyName}
+                        onChange={e => { setPartyName(e.target.value); setActiveDropdownRow('payment-party'); }}
+                        onFocus={() => setActiveDropdownRow('payment-party')}
+                        placeholder={mode === 'payment_in' ? 'اكتب اسم العميل' : 'اكتب اسم المورد / التاجر'}
+                        className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
+                      />
+                      {activeDropdownRow === 'payment-party' && paymentPartySuggestions.length > 0 && (
+                        <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-slate-900 border border-violet-900/40 rounded-lg shadow-xl overflow-hidden">
+                          {paymentPartySuggestions.map(p => (
+                            <button key={p.id} type="button" onClick={() => selectPaymentParty(p)} className="w-full text-right px-3 py-2 text-sm text-white hover:bg-violet-700/20 flex justify-between">
+                              <span>{p.name}</span><span className="text-xs text-gray-500">{p.role === 'both' ? 'عميل / مورد' : p.role === 'customer' ? 'عميل' : 'مورد'}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">المبلغ</label>
+                    <input type="number" min="0" value={paid} onChange={e => setPaid(e.target.value)} placeholder="0" className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500" onKeyDown={e => { if (e.key === 'Enter') handleSavePayment(); }} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">طريقة الدفع</label>
+                    <div className="flex flex-wrap gap-1">
+                      {(['cash', 'bank', 'instapay', 'credit'] as PaymentMethod[]).map(pm => (
+                        <button key={pm} type="button" onClick={() => setPaymentMethod(pm)} className={`px-3 py-1.5 rounded-lg text-xs border ${paymentMethod === pm ? 'bg-violet-700/30 border-violet-500 text-violet-200' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
+                          {pm === 'cash' ? '💵 كاش' : pm === 'bank' ? '🏦 بنك' : pm === 'instapay' ? '📱 InstaPay' : '💳 ائتمان'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none" />
+                  <button type="button" onClick={handleSavePayment} disabled={!(Number(paid) > 0) || !partyName.trim()} className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold disabled:opacity-40">💰 تسجيل الدفعة</button>
+                </div>
+              )}
+
               {/* Party name */}
-              {mode !== 'noon' && (
+              {mode !== 'noon' && mode !== 'payment_in' && mode !== 'payment_out' && (
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">
                     {mode === 'sale' ? 'العميل (سيبها فاضية = عميل نقدي)' : 'المورد / التاجر'}
@@ -411,6 +515,7 @@ export default function QuickEntry({
                 </div>
               )}
 
+              {mode !== 'payment_in' && mode !== 'payment_out' && (<>
               {/* Items */}
               <div className="space-y-2">
                 <label className="text-xs text-gray-400 block">الأصناف</label>
@@ -523,8 +628,9 @@ export default function QuickEntry({
                 </button>
               </div>
 
+              </>)}
               {/* Payment (sale/purchase only) */}
-              {mode !== 'noon' && (
+              {mode !== 'noon' && mode !== 'payment_in' && mode !== 'payment_out' && (
                 <div className="flex flex-wrap gap-3 items-end">
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">طريقة الدفع</label>

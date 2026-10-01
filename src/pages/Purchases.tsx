@@ -36,6 +36,8 @@ interface Props {
   // ✅ لفتح قائمة فواتير يوم معيّن مباشرة (مثلاً "مشتريات اليوم" في الرئيسية)
   preselectedDateFilter?: string | null;
   onPreselectedDateFilterHandled?: () => void;
+  preselectedInvoiceId?: string | null;
+  onPreselectedInvoiceHandled?: () => void;
 }
 
 interface PurchItem {
@@ -57,6 +59,7 @@ export default function Purchases({
   preselectedSupplierId, onPreselectedHandled,
   preselectedPendingSerialId, onPreselectedPendingSerialHandled,
   preselectedDateFilter, onPreselectedDateFilterHandled,
+  preselectedInvoiceId, onPreselectedInvoiceHandled,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
@@ -105,6 +108,13 @@ export default function Purchases({
   });
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!preselectedInvoiceId) return;
+    const inv = purchaseInvoices.find(i => i.id === preselectedInvoiceId);
+    if (inv) setViewInvoice(inv);
+    onPreselectedInvoiceHandled?.();
+  }, [preselectedInvoiceId, purchaseInvoices, onPreselectedInvoiceHandled]);
+
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // ✅ سكانر الباركود: تحديد نوع وهدف المسح الحالي + رسالة التغذية الراجعة أثناء المسح المستمر

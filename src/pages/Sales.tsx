@@ -34,6 +34,8 @@ interface Props {
   // ✅ لفتح قائمة فواتير يوم معيّن مباشرة (مثلاً "مبيعات اليوم" في الرئيسية)
   preselectedDateFilter?: string | null;
   onPreselectedDateFilterHandled?: () => void;
+  preselectedInvoiceId?: string | null;
+  onPreselectedInvoiceHandled?: () => void;
 }
 
 interface SaleItem {
@@ -69,6 +71,7 @@ export default function Sales({
   preselectedCustomerId, onPreselectedHandled,
   onAddProduct, onAddSupplier, onAddPurchaseInvoice, onAddSerials,
   preselectedDateFilter, onPreselectedDateFilterHandled,
+  preselectedInvoiceId, onPreselectedInvoiceHandled,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
@@ -95,6 +98,13 @@ export default function Sales({
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const [stockError, setStockError] = useState<string | null>(null);
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  useEffect(() => {
+    if (!preselectedInvoiceId) return;
+    const inv = saleInvoices.find(i => i.id === preselectedInvoiceId);
+    if (inv) setViewInvoice(inv);
+    onPreselectedInvoiceHandled?.();
+  }, [preselectedInvoiceId, saleInvoices, onPreselectedInvoiceHandled]);
+
 
   // Quick Purchase states
   const [showQuickPurchase, setShowQuickPurchase] = useState(false);
