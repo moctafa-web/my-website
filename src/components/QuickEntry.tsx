@@ -608,8 +608,9 @@ export default function QuickEntry({
                 </div>
               )}
 
-              {/* Party name */}
-              {mode !== 'noon' && mode !== 'payment_in' && mode !== 'payment_out' && (
+              {/* Party name — يظهر فقط في بيع سريع/شراء سريع.
+                  حركات الخزينة والعمال والشركاء والطيارة والمصروف لا علاقة لها بمورد/تاجر. */}
+              {(mode === 'sale' || mode === 'purchase') && (
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">
                     {mode === 'sale' ? 'العميل (سيبها فاضية = عميل نقدي)' : 'المورد / التاجر'}
