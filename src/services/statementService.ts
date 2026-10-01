@@ -1,4 +1,5 @@
 import { Customer, Supplier, SaleInvoice, PurchaseInvoice, Payment, AccountStatement, StatementRow } from '../types';
+import { normalizeDateValue } from '../utils/helpers';
 
 export const StatementService = {
   /**
@@ -18,7 +19,7 @@ export const StatementService = {
     // دمج كل الحركات (فواتير + دفعات)
     const rows: StatementRow[] = [
       ...customerInvoices.map(inv => ({
-        date: inv.date,
+        date: normalizeDateValue(inv.date),
         desc: `فاتورة ${inv.invoiceNumber}`,
         debit: inv.total,
         credit: 0,
@@ -27,7 +28,7 @@ export const StatementService = {
         runningBalance: 0,
       })),
       ...customerPayments.map(p => ({
-        date: p.date,
+        date: normalizeDateValue(p.date),
         desc: `دفعة (${this.getPaymentMethodLabel(p.paymentMethod)})${p.notes ? ' - ' + p.notes : ''}`,
         debit: 0,
         credit: p.amount,
@@ -217,7 +218,7 @@ export const StatementService = {
 
     const rows: StatementRow[] = [
       ...sales.map(inv => ({
-        date: inv.date,
+        date: normalizeDateValue(inv.date),
         desc: `فاتورة بيع ${inv.invoiceNumber}`,
         debit: inv.total,
         credit: 0,
@@ -226,7 +227,7 @@ export const StatementService = {
         runningBalance: 0,
       })),
       ...purchases.map(inv => ({
-        date: inv.date,
+        date: normalizeDateValue(inv.date),
         desc: `فاتورة شراء ${inv.invoiceNumber}`,
         debit: 0,
         credit: inv.total,
@@ -235,7 +236,7 @@ export const StatementService = {
         runningBalance: 0,
       })),
       ...partyPayments.map(p => ({
-        date: p.date,
+        date: normalizeDateValue(p.date),
         desc: `${p.direction === 'in' ? 'دفعة واردة' : 'دفعة خارجة'} (${this.getPaymentMethodLabel(p.paymentMethod)})${p.notes ? ' - ' + p.notes : ''}`,
         debit: p.direction === 'out' ? p.amount : 0,
         credit: p.direction === 'in' ? p.amount : 0,

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 import {
-  Product, Customer, Supplier, SaleInvoice, PurchaseInvoice, NoonOrder,
+  Product, Customer, Supplier, Party, SaleInvoice, PurchaseInvoice, NoonOrder,
   SerialItem, InvoiceItem, PaymentMethod, AppSettings,
 } from '../types';
 import { formatCurrency, generateId, getTodayStr, normalizeForCompare } from '../utils/helpers';
@@ -11,6 +11,8 @@ interface Props {
   products: Product[];
   customers: Customer[];
   suppliers: Supplier[];
+  parties?: Party[];
+  payments?: import('../types').Payment[];
   serials: SerialItem[];
   saleInvoices: SaleInvoice[];
   purchaseInvoices: PurchaseInvoice[];
@@ -22,10 +24,19 @@ interface Props {
   onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onAddSerials: (serials: SerialItem[]) => void;
   onAddPayment: (payment: import('../types').Payment) => void;
+  expenses?: import('../types').Expense[];
+  partners?: import('../types').Partner[];
+  employees?: import('../types').Employee[];
+  cashBalance?: number;
+  bankBalance?: number;
+  onAddExpense?: (expense: import('../types').Expense) => void;
+  onAddTreasuryTransfer?: (from: 'cash' | 'bank', to: 'cash' | 'bank', amount: number, date: string, note: string) => { success: boolean; message?: string };
+  onAddTreasuryAdjustment?: (direction: 'in' | 'out', amount: number, treasury: 'cash' | 'bank', date: string, description: string) => { success: boolean; message?: string };
+  onAddPartyMoneyMovement?: (partyType: 'partner' | 'employee', partyId: string, partyName: string, treasury: 'cash' | 'bank', direction: 'in' | 'out', amount: number, note: string, date?: string) => { success: boolean; message?: string };
   onClose: () => void;
 }
 
-type Mode = 'sale' | 'purchase' | 'noon' | 'payment_in' | 'payment_out';
+type Mode = 'sale' | 'purchase' | 'noon' | 'payment_in' | 'payment_out' | 'treasury_transfer' | 'expense' | 'profit_in' | 'partner_in' | 'partner_out' | 'employee_in' | 'employee_out';
 
 interface QuickLine {
   rowId: string;
@@ -47,8 +58,9 @@ const emptyLine = (): QuickLine => ({
 const CASH_CUSTOMER_NAME = 'عميل نقدي';
 
 export default function QuickEntry({
-  products, customers, suppliers, serials, saleInvoices, purchaseInvoices, settings,
+  products, customers, suppliers, parties = [], payments = [], serials, saleInvoices, purchaseInvoices, settings,
   onAddSaleInvoice, onAddPurchaseInvoice, onAddNoonOrder, onAddCustomer, onAddSupplier, onAddSerials, onAddPayment,
+  expenses = [], partners = [], employees = [], cashBalance = 0, bankBalance = 0, onAddExpense, onAddTreasuryTransfer, onAddTreasuryAdjustment, onAddPartyMoneyMovement,
   onClose,
 }: Props) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -59,6 +71,12 @@ export default function QuickEntry({
   const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [orderNumber, setOrderNumber] = useState('');
   const [activeDropdownRow, setActiveDropdownRow] = useState<string | null>(null);
+  const [moneyDate, setMoneyDate] = useState(getTodayStr());
+  const [moneyTreasury, setMoneyTreasury] = useState<'cash' | 'bank'>('cash');
+  const [transferFrom, setTransferFrom] = useState<'cash' | 'bank'>('cash');
+  const [transferTo, setTransferTo] = useState<'cash' | 'bank'>('bank');
+  const [moneyNote, setMoneyNote] = useState('');
+  const [selectedMoneyParty, setSelectedMoneyParty] = useState('');
 
   useGlobalDropdownDismiss(() => {
     setActiveDropdownRow(null);
@@ -84,6 +102,12 @@ export default function QuickEntry({
     setPaymentMethod('cash');
     setPaid('');
     setPaymentDate(getTodayStr());
+    setMoneyDate(getTodayStr());
+    setMoneyTreasury('cash');
+    setTransferFrom('cash');
+    setTransferTo('bank');
+    setMoneyNote('');
+    setSelectedMoneyParty('');
     setOrderNumber('');
     setError(null);
     setTimeout(() => firstFieldRef.current?.focus(), 50);
@@ -283,6 +307,19 @@ export default function QuickEntry({
       .slice(0, 12);
   }, [paymentParties, partyName, mode]);
 
+  const selectedPaymentPartyBalance = useMemo(() => {
+    const party = paymentParties.find(p => normalizeForCompare(p.name) === normalizeForCompare(partyName));
+    if (!party) return null;
+    const canonical = parties.find(p => p.id === party.id);
+    const customerOpening = customers.find(c => c.id === party.id)?.openingBalance || 0;
+    const supplierOpening = suppliers.find(s => s.id === party.id)?.openingBalance || 0;
+    const sales = saleInvoices.filter(i => i.customerId === party.id).reduce((s,i)=>s + i.total, 0);
+    const purchases = purchaseInvoices.filter(i => i.supplierId === party.id).reduce((s,i)=>s + i.total, 0);
+    const incoming = payments.filter(p => p.referenceId === party.id && p.direction === 'in').reduce((s,p)=>s+p.amount,0);
+    const outgoing = payments.filter(p => p.referenceId === party.id && p.direction === 'out').reduce((s,p)=>s+p.amount,0);
+    const amount = (canonical?.openingBalance ?? Math.max(customerOpening, supplierOpening)) + sales - purchases - incoming + outgoing;
+    return { name: party.name, amount };
+  }, [paymentParties, partyName, saleInvoices, purchaseInvoices, payments, parties, customers, suppliers]);
   const selectPaymentParty = (party: { id: string; name: string }) => {
     setPartyName(party.name);
     setActiveDropdownRow(null);
@@ -343,12 +380,48 @@ export default function QuickEntry({
     resetEntryFields();
   };
 
+
+  const moneyPartyList = useMemo(() => {
+    const isPartner = mode === 'partner_in' || mode === 'partner_out';
+    return (isPartner ? partners : employees).filter(x => x.isActive);
+  }, [mode, partners, employees]);
+
+  const selectedMoneyPartyData = moneyPartyList.find(x => x.id === selectedMoneyParty);
+
+  const handleSaveMoneyMovement = () => {
+    const amount = Number(paid);
+    if (!(amount > 0)) { setError('اكتب مبلغًا أكبر من صفر'); return; }
+    const date = moneyDate || getTodayStr();
+    if (mode === 'treasury_transfer') {
+      const result = onAddTreasuryTransfer?.(transferFrom, transferTo, amount, date, moneyNote.trim());
+      if (!result?.success) { setError(result?.message || 'تعذر تسجيل التحويل'); return; }
+      setFlash(`✅ تم تحويل ${formatCurrency(amount)} من ${transferFrom === 'cash' ? 'الكاش' : 'البنك'} إلى ${transferTo === 'cash' ? 'الكاش' : 'البنك'}`);
+    } else if (mode === 'expense') {
+      if (!onAddExpense) return;
+      onAddExpense({ id: generateId(), description: moneyNote.trim() || 'مصروف', amount, paymentMethod: moneyTreasury === 'cash' ? 'cash' : 'bank', date, notes: moneyNote.trim(), createdAt: new Date().toISOString() });
+      setFlash(`✅ تم تسجيل مصروف ${formatCurrency(amount)}`);
+    } else if (mode === 'profit_in') {
+      const result = onAddTreasuryAdjustment?.('in', amount, moneyTreasury, date, `طيارة${moneyNote.trim() ? ` — ${moneyNote.trim()}` : ''}`);
+      if (!result?.success) { setError(result?.message || 'تعذر تسجيل الطيارة'); return; }
+      setFlash(`✅ تم تسجيل طيارة ${formatCurrency(amount)}`);
+    } else {
+      if (!selectedMoneyPartyData || !onAddPartyMoneyMovement) { setError('اختار الاسم أولًا'); return; }
+      const partyType = (mode === 'partner_in' || mode === 'partner_out') ? 'partner' : 'employee';
+      const direction = (mode === 'partner_in' || mode === 'employee_in') ? 'in' : 'out';
+      const result = onAddPartyMoneyMovement(partyType, selectedMoneyPartyData.id, selectedMoneyPartyData.name, moneyTreasury, direction, amount, moneyNote.trim(), date);
+      if (!result.success) { setError(result.message || 'تعذر تسجيل الحركة'); return; }
+      setFlash(`✅ تم تسجيل ${direction === 'in' ? 'دخول' : 'خروج'} ${formatCurrency(amount)} — ${selectedMoneyPartyData.name}`);
+    }
+    setSavedCount(c => c + 1); setPaid(''); setMoneyNote(''); setSelectedMoneyParty(''); setMoneyDate(getTodayStr()); setError(null);
+  };
+
   const handleSave = () => {
     setError(null);
     if (mode === 'sale') handleSaveSale();
     else if (mode === 'purchase') handleSavePurchase();
     else if (mode === 'noon') handleSaveNoon();
     else if (mode === 'payment_in' || mode === 'payment_out') handleSavePayment();
+    else handleSaveMoneyMovement();
   };
 
   useEffect(() => {
@@ -363,6 +436,13 @@ export default function QuickEntry({
     noon: { label: 'أوردر نون سريع', icon: Truck, color: 'violet' },
     payment_in: { label: 'دفعة واردة', icon: ArrowDownCircle, color: 'green' },
     payment_out: { label: 'دفعة خارجة', icon: ArrowUpCircle, color: 'red' },
+    treasury_transfer: { label: 'تحويل كاش ↔ بنك', icon: ArrowUpCircle, color: 'blue' },
+    expense: { label: 'مصروف', icon: ArrowUpCircle, color: 'red' },
+    profit_in: { label: 'طيارة — ربح صافي', icon: ArrowDownCircle, color: 'green' },
+    partner_in: { label: 'دخول من شريك', icon: ArrowDownCircle, color: 'violet' },
+    partner_out: { label: 'خروج لشريك', icon: ArrowUpCircle, color: 'red' },
+    employee_in: { label: 'دخول من عامل', icon: ArrowDownCircle, color: 'violet' },
+    employee_out: { label: 'خروج لعامل', icon: ArrowUpCircle, color: 'red' },
   } as const;
 
   return (
@@ -402,7 +482,7 @@ export default function QuickEntry({
         <div className="overflow-y-auto px-5 py-4 flex-1">
           {/* Mode selection screen */}
           {!mode && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(Object.keys(modeConfig) as Mode[]).map(m => {
                 const cfg = modeConfig[m];
                 const Icon = cfg.icon;
@@ -458,6 +538,9 @@ export default function QuickEntry({
                       )}
                     </div>
                   </div>
+                  {selectedPaymentPartyBalance && <div className={`rounded-xl border px-3 py-2 text-sm ${selectedPaymentPartyBalance.amount > 0 ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'}`}>
+                    رصيد {selectedPaymentPartyBalance.name}: <b>{formatCurrency(Math.abs(selectedPaymentPartyBalance.amount))}</b> {selectedPaymentPartyBalance.amount > 0 ? 'مستحق لنا' : selectedPaymentPartyBalance.amount < 0 ? 'مستحق له' : 'متطابق'}
+                  </div>}
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">المبلغ</label>
                     <input type="number" min="0" value={paid} onChange={e => setPaid(e.target.value)} placeholder="0" className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500" onKeyDown={e => { if (e.key === 'Enter') handleSavePayment(); }} />
@@ -474,6 +557,29 @@ export default function QuickEntry({
                   </div>
                   <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none" />
                   <button type="button" onClick={handleSavePayment} disabled={!(Number(paid) > 0) || !partyName.trim()} className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold disabled:opacity-40">💰 تسجيل الدفعة</button>
+                </div>
+              )}
+
+
+              {!['sale','purchase','noon','payment_in','payment_out'].includes(mode) && (
+                <div className="space-y-4">
+                  {(mode === 'partner_in' || mode === 'partner_out' || mode === 'employee_in' || mode === 'employee_out') && (
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">{mode.startsWith('partner') ? 'الشريك' : 'العامل'}</label>
+                      <select value={selectedMoneyParty} onChange={e => setSelectedMoneyParty(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm">
+                        <option value="">اختار الاسم</option>
+                        {moneyPartyList.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {mode === 'treasury_transfer' && <div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-400">من</label><select value={transferFrom} onChange={e=>setTransferFrom(e.target.value as 'cash'|'bank')} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"><option value="cash">💵 الكاش</option><option value="bank">🏦 البنك</option></select></div><div><label className="text-xs text-gray-400">إلى</label><select value={transferTo} onChange={e=>setTransferTo(e.target.value as 'cash'|'bank')} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"><option value="bank">🏦 البنك</option><option value="cash">💵 الكاش</option></select></div></div>}
+                  {mode !== 'treasury_transfer' && mode !== 'partner_in' && mode !== 'partner_out' && mode !== 'employee_in' && mode !== 'employee_out' && <div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setMoneyTreasury('cash')} className={`px-4 py-2 rounded-lg border ${moneyTreasury==='cash'?'bg-green-700/30 border-green-500 text-green-200':'border-white/10 text-gray-400'}`}>💵 كاش <span className="text-xs opacity-70">{formatCurrency(cashBalance)}</span></button><button type="button" onClick={()=>setMoneyTreasury('bank')} className={`px-4 py-2 rounded-lg border ${moneyTreasury==='bank'?'bg-blue-700/30 border-blue-500 text-blue-200':'border-white/10 text-gray-400'}`}>🏦 بنك <span className="text-xs opacity-70">{formatCurrency(bankBalance)}</span></button></div>}
+                  {(mode === 'partner_in' || mode === 'partner_out' || mode === 'employee_in' || mode === 'employee_out') && <div className="flex gap-2"><button type="button" onClick={()=>setMoneyTreasury('cash')} className={`flex-1 py-2 rounded-lg border ${moneyTreasury==='cash'?'bg-green-700/30 border-green-500 text-green-200':'border-white/10 text-gray-400'}`}>💵 كاش {formatCurrency(cashBalance)}</button><button type="button" onClick={()=>setMoneyTreasury('bank')} className={`flex-1 py-2 rounded-lg border ${moneyTreasury==='bank'?'bg-blue-700/30 border-blue-500 text-blue-200':'border-white/10 text-gray-400'}`}>🏦 بنك {formatCurrency(bankBalance)}</button></div>}
+                  {mode === 'treasury_transfer' && <div className="text-xs text-gray-400">الرصيد: كاش {formatCurrency(cashBalance)} — بنك {formatCurrency(bankBalance)}</div>}
+                  <div><label className="text-xs text-gray-400 mb-1 block">المبلغ</label><input ref={firstFieldRef} type="number" min="0" value={paid} onChange={e=>setPaid(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') handleSaveMoneyMovement();}} placeholder="0" className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"/></div>
+                  <input type="date" value={moneyDate} onChange={e=>setMoneyDate(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"/>
+                  <input value={moneyNote} onChange={e=>setMoneyNote(e.target.value)} placeholder={mode==='expense'?'بيان المصروف':mode==='profit_in'?'مصدر الطيارة (اختياري)':'ملاحظات (اختياري)'} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"/>
+                  <button type="button" onClick={handleSaveMoneyMovement} disabled={!(Number(paid)>0)} className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold disabled:opacity-40">✅ تسجيل الحركة</button>
                 </div>
               )}
 
@@ -515,7 +621,7 @@ export default function QuickEntry({
                 </div>
               )}
 
-              {mode !== 'payment_in' && mode !== 'payment_out' && (<>
+              {(mode === 'sale' || mode === 'purchase' || mode === 'noon') && (<>
               {/* Items */}
               <div className="space-y-2">
                 <label className="text-xs text-gray-400 block">الأصناف</label>

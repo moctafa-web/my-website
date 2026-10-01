@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-ZMLwa_jB.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-CpSDEaf-.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -269,6 +269,19 @@ var formatCurrency = (amount, currency = "EGP") => {
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2
 	})} ${currency}`;
+};
+/** يحول تاريخ Excel الرقمي مثل 46285 إلى YYYY-MM-DD. */
+var normalizeDateValue = (value) => {
+	const raw = String(value ?? "").trim();
+	if (!raw) return "";
+	if (/^\d+(?:\.\d+)?$/.test(raw)) {
+		const serial = Number(raw);
+		if (serial >= 1 && serial <= 1e5) return new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 864e5).toISOString().slice(0, 10);
+	}
+	const m = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+	if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+	const d = new Date(raw);
+	return Number.isNaN(d.getTime()) ? raw : d.toISOString().slice(0, 10);
 };
 var normalizeForCompare = (text) => {
 	return (text || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -701,7 +714,7 @@ var emptyLine = () => ({
 	imei1Input: ""
 });
 var CASH_CUSTOMER_NAME = "عميل نقدي";
-function QuickEntry({ products, customers, suppliers, serials, saleInvoices, purchaseInvoices, settings, onAddSaleInvoice, onAddPurchaseInvoice, onAddNoonOrder, onAddCustomer, onAddSupplier, onAddSerials, onAddPayment, onClose }) {
+function QuickEntry({ products, customers, suppliers, parties = [], payments = [], serials, saleInvoices, purchaseInvoices, settings, onAddSaleInvoice, onAddPurchaseInvoice, onAddNoonOrder, onAddCustomer, onAddSupplier, onAddSerials, onAddPayment, expenses = [], partners = [], employees = [], cashBalance = 0, bankBalance = 0, onAddExpense, onAddTreasuryTransfer, onAddTreasuryAdjustment, onAddPartyMoneyMovement, onClose }) {
 	const [mode, setMode] = (0, import_react.useState)(null);
 	const [lines, setLines] = (0, import_react.useState)([emptyLine()]);
 	const [partyName, setPartyName] = (0, import_react.useState)("");
@@ -710,6 +723,12 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 	const [paymentDate, setPaymentDate] = (0, import_react.useState)(getTodayStr());
 	const [orderNumber, setOrderNumber] = (0, import_react.useState)("");
 	const [activeDropdownRow, setActiveDropdownRow] = (0, import_react.useState)(null);
+	const [moneyDate, setMoneyDate] = (0, import_react.useState)(getTodayStr());
+	const [moneyTreasury, setMoneyTreasury] = (0, import_react.useState)("cash");
+	const [transferFrom, setTransferFrom] = (0, import_react.useState)("cash");
+	const [transferTo, setTransferTo] = (0, import_react.useState)("bank");
+	const [moneyNote, setMoneyNote] = (0, import_react.useState)("");
+	const [selectedMoneyParty, setSelectedMoneyParty] = (0, import_react.useState)("");
 	useGlobalDropdownDismiss(() => {
 		setActiveDropdownRow(null);
 	});
@@ -733,6 +752,12 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 		setPaymentMethod("cash");
 		setPaid("");
 		setPaymentDate(getTodayStr());
+		setMoneyDate(getTodayStr());
+		setMoneyTreasury("cash");
+		setTransferFrom("cash");
+		setTransferTo("bank");
+		setMoneyNote("");
+		setSelectedMoneyParty("");
 		setOrderNumber("");
 		setError(null);
 		setTimeout(() => firstFieldRef.current?.focus(), 50);
@@ -986,6 +1011,31 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 		partyName,
 		mode
 	]);
+	const selectedPaymentPartyBalance = (0, import_react.useMemo)(() => {
+		const party = paymentParties.find((p) => normalizeForCompare(p.name) === normalizeForCompare(partyName));
+		if (!party) return null;
+		const canonical = parties.find((p) => p.id === party.id);
+		const customerOpening = customers.find((c) => c.id === party.id)?.openingBalance || 0;
+		const supplierOpening = suppliers.find((s) => s.id === party.id)?.openingBalance || 0;
+		const sales = saleInvoices.filter((i) => i.customerId === party.id).reduce((s, i) => s + i.total, 0);
+		const purchases = purchaseInvoices.filter((i) => i.supplierId === party.id).reduce((s, i) => s + i.total, 0);
+		const incoming = payments.filter((p) => p.referenceId === party.id && p.direction === "in").reduce((s, p) => s + p.amount, 0);
+		const outgoing = payments.filter((p) => p.referenceId === party.id && p.direction === "out").reduce((s, p) => s + p.amount, 0);
+		const amount = (canonical?.openingBalance ?? Math.max(customerOpening, supplierOpening)) + sales - purchases - incoming + outgoing;
+		return {
+			name: party.name,
+			amount
+		};
+	}, [
+		paymentParties,
+		partyName,
+		saleInvoices,
+		purchaseInvoices,
+		payments,
+		parties,
+		customers,
+		suppliers
+	]);
 	const selectPaymentParty = (party) => {
 		setPartyName(party.name);
 		setActiveDropdownRow(null);
@@ -1062,12 +1112,75 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 		setSavedCount((c) => c + 1);
 		resetEntryFields();
 	};
+	const moneyPartyList = (0, import_react.useMemo)(() => {
+		return (mode === "partner_in" || mode === "partner_out" ? partners : employees).filter((x) => x.isActive);
+	}, [
+		mode,
+		partners,
+		employees
+	]);
+	const selectedMoneyPartyData = moneyPartyList.find((x) => x.id === selectedMoneyParty);
+	const handleSaveMoneyMovement = () => {
+		const amount = Number(paid);
+		if (!(amount > 0)) {
+			setError("اكتب مبلغًا أكبر من صفر");
+			return;
+		}
+		const date = moneyDate || getTodayStr();
+		if (mode === "treasury_transfer") {
+			const result = onAddTreasuryTransfer?.(transferFrom, transferTo, amount, date, moneyNote.trim());
+			if (!result?.success) {
+				setError(result?.message || "تعذر تسجيل التحويل");
+				return;
+			}
+			setFlash(`✅ تم تحويل ${formatCurrency(amount)} من ${transferFrom === "cash" ? "الكاش" : "البنك"} إلى ${transferTo === "cash" ? "الكاش" : "البنك"}`);
+		} else if (mode === "expense") {
+			if (!onAddExpense) return;
+			onAddExpense({
+				id: generateId(),
+				description: moneyNote.trim() || "مصروف",
+				amount,
+				paymentMethod: moneyTreasury === "cash" ? "cash" : "bank",
+				date,
+				notes: moneyNote.trim(),
+				createdAt: (/* @__PURE__ */ new Date()).toISOString()
+			});
+			setFlash(`✅ تم تسجيل مصروف ${formatCurrency(amount)}`);
+		} else if (mode === "profit_in") {
+			const result = onAddTreasuryAdjustment?.("in", amount, moneyTreasury, date, `طيارة${moneyNote.trim() ? ` — ${moneyNote.trim()}` : ""}`);
+			if (!result?.success) {
+				setError(result?.message || "تعذر تسجيل الطيارة");
+				return;
+			}
+			setFlash(`✅ تم تسجيل طيارة ${formatCurrency(amount)}`);
+		} else {
+			if (!selectedMoneyPartyData || !onAddPartyMoneyMovement) {
+				setError("اختار الاسم أولًا");
+				return;
+			}
+			const partyType = mode === "partner_in" || mode === "partner_out" ? "partner" : "employee";
+			const direction = mode === "partner_in" || mode === "employee_in" ? "in" : "out";
+			const result = onAddPartyMoneyMovement(partyType, selectedMoneyPartyData.id, selectedMoneyPartyData.name, moneyTreasury, direction, amount, moneyNote.trim(), date);
+			if (!result.success) {
+				setError(result.message || "تعذر تسجيل الحركة");
+				return;
+			}
+			setFlash(`✅ تم تسجيل ${direction === "in" ? "دخول" : "خروج"} ${formatCurrency(amount)} — ${selectedMoneyPartyData.name}`);
+		}
+		setSavedCount((c) => c + 1);
+		setPaid("");
+		setMoneyNote("");
+		setSelectedMoneyParty("");
+		setMoneyDate(getTodayStr());
+		setError(null);
+	};
 	const handleSave = () => {
 		setError(null);
 		if (mode === "sale") handleSaveSale();
 		else if (mode === "purchase") handleSavePurchase();
 		else if (mode === "noon") handleSaveNoon();
 		else if (mode === "payment_in" || mode === "payment_out") handleSavePayment();
+		else handleSaveMoneyMovement();
 	};
 	(0, import_react.useEffect)(() => {
 		if (!flash) return;
@@ -1097,6 +1210,41 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 		},
 		payment_out: {
 			label: "دفعة خارجة",
+			icon: CircleArrowUp,
+			color: "red"
+		},
+		treasury_transfer: {
+			label: "تحويل كاش ↔ بنك",
+			icon: CircleArrowUp,
+			color: "blue"
+		},
+		expense: {
+			label: "مصروف",
+			icon: CircleArrowUp,
+			color: "red"
+		},
+		profit_in: {
+			label: "طيارة — ربح صافي",
+			icon: CircleArrowDown,
+			color: "green"
+		},
+		partner_in: {
+			label: "دخول من شريك",
+			icon: CircleArrowDown,
+			color: "violet"
+		},
+		partner_out: {
+			label: "خروج لشريك",
+			icon: CircleArrowUp,
+			color: "red"
+		},
+		employee_in: {
+			label: "دخول من عامل",
+			icon: CircleArrowDown,
+			color: "violet"
+		},
+		employee_out: {
+			label: "خروج لعامل",
 			icon: CircleArrowUp,
 			color: "red"
 		}
@@ -1149,7 +1297,7 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "overflow-y-auto px-5 py-4 flex-1",
 					children: [!mode && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3",
+						className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3",
 						children: Object.keys(modeConfig).map((m) => {
 							const cfg = modeConfig[m];
 							const Icon = cfg.icon;
@@ -1212,6 +1360,17 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 											}, p.id))
 										})]
 									})] }),
+									selectedPaymentPartyBalance && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: `rounded-xl border px-3 py-2 text-sm ${selectedPaymentPartyBalance.amount > 0 ? "border-amber-500/30 bg-amber-500/10 text-amber-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`,
+										children: [
+											"رصيد ",
+											selectedPaymentPartyBalance.name,
+											": ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: formatCurrency(Math.abs(selectedPaymentPartyBalance.amount)) }),
+											" ",
+											selectedPaymentPartyBalance.amount > 0 ? "مستحق لنا" : selectedPaymentPartyBalance.amount < 0 ? "مستحق له" : "متطابق"
+										]
+									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 										className: "text-xs text-gray-400 mb-1 block",
 										children: "المبلغ"
@@ -1258,6 +1417,141 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 									})
 								]
 							}),
+							![
+								"sale",
+								"purchase",
+								"noon",
+								"payment_in",
+								"payment_out"
+							].includes(mode) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-4",
+								children: [
+									(mode === "partner_in" || mode === "partner_out" || mode === "employee_in" || mode === "employee_out") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+										className: "text-xs text-gray-400 mb-1 block",
+										children: mode.startsWith("partner") ? "الشريك" : "العامل"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+										value: selectedMoneyParty,
+										onChange: (e) => setSelectedMoneyParty(e.target.value),
+										className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "",
+											children: "اختار الاسم"
+										}), moneyPartyList.map((x) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: x.id,
+											children: x.name
+										}, x.id))]
+									})] }),
+									mode === "treasury_transfer" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-2 gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+											className: "text-xs text-gray-400",
+											children: "من"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+											value: transferFrom,
+											onChange: (e) => setTransferFrom(e.target.value),
+											className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "cash",
+												children: "💵 الكاش"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "bank",
+												children: "🏦 البنك"
+											})]
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+											className: "text-xs text-gray-400",
+											children: "إلى"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+											value: transferTo,
+											onChange: (e) => setTransferTo(e.target.value),
+											className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "bank",
+												children: "🏦 البنك"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+												value: "cash",
+												children: "💵 الكاش"
+											})]
+										})] })]
+									}),
+									mode !== "treasury_transfer" && mode !== "partner_in" && mode !== "partner_out" && mode !== "employee_in" && mode !== "employee_out" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex flex-wrap gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => setMoneyTreasury("cash"),
+											className: `px-4 py-2 rounded-lg border ${moneyTreasury === "cash" ? "bg-green-700/30 border-green-500 text-green-200" : "border-white/10 text-gray-400"}`,
+											children: ["💵 كاش ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-xs opacity-70",
+												children: formatCurrency(cashBalance)
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => setMoneyTreasury("bank"),
+											className: `px-4 py-2 rounded-lg border ${moneyTreasury === "bank" ? "bg-blue-700/30 border-blue-500 text-blue-200" : "border-white/10 text-gray-400"}`,
+											children: ["🏦 بنك ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-xs opacity-70",
+												children: formatCurrency(bankBalance)
+											})]
+										})]
+									}),
+									(mode === "partner_in" || mode === "partner_out" || mode === "employee_in" || mode === "employee_out") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => setMoneyTreasury("cash"),
+											className: `flex-1 py-2 rounded-lg border ${moneyTreasury === "cash" ? "bg-green-700/30 border-green-500 text-green-200" : "border-white/10 text-gray-400"}`,
+											children: ["💵 كاش ", formatCurrency(cashBalance)]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => setMoneyTreasury("bank"),
+											className: `flex-1 py-2 rounded-lg border ${moneyTreasury === "bank" ? "bg-blue-700/30 border-blue-500 text-blue-200" : "border-white/10 text-gray-400"}`,
+											children: ["🏦 بنك ", formatCurrency(bankBalance)]
+										})]
+									}),
+									mode === "treasury_transfer" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "text-xs text-gray-400",
+										children: [
+											"الرصيد: كاش ",
+											formatCurrency(cashBalance),
+											" — بنك ",
+											formatCurrency(bankBalance)
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+										className: "text-xs text-gray-400 mb-1 block",
+										children: "المبلغ"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										ref: firstFieldRef,
+										type: "number",
+										min: "0",
+										value: paid,
+										onChange: (e) => setPaid(e.target.value),
+										onKeyDown: (e) => {
+											if (e.key === "Enter") handleSaveMoneyMovement();
+										},
+										placeholder: "0",
+										className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"
+									})] }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "date",
+										value: moneyDate,
+										onChange: (e) => setMoneyDate(e.target.value),
+										className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										value: moneyNote,
+										onChange: (e) => setMoneyNote(e.target.value),
+										placeholder: mode === "expense" ? "بيان المصروف" : mode === "profit_in" ? "مصدر الطيارة (اختياري)" : "ملاحظات (اختياري)",
+										className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: handleSaveMoneyMovement,
+										disabled: !(Number(paid) > 0),
+										className: "w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold disabled:opacity-40",
+										children: "✅ تسجيل الحركة"
+									})
+								]
+							}),
 							mode !== "noon" && mode !== "payment_in" && mode !== "payment_out" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 									className: "text-xs text-gray-400 mb-1 block",
@@ -1292,7 +1586,7 @@ function QuickEntry({ products, customers, suppliers, serials, saleInvoices, pur
 								placeholder: "رقم أوردر نون",
 								className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500"
 							})] }),
-							mode !== "payment_in" && mode !== "payment_out" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							(mode === "sale" || mode === "purchase" || mode === "noon") && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "space-y-2",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
@@ -11149,7 +11443,7 @@ function Customers({ customers, saleInvoices, purchaseInvoices, payments, onAddC
 		]
 	});
 }
-function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }) {
+function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }) {
 	const [search, setSearch] = (0, import_react.useState)("");
 	const [filter, setFilter] = (0, import_react.useState)("all");
 	const [showForm, setShowForm] = (0, import_react.useState)(false);
@@ -11300,7 +11594,7 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 		if (!view) return [];
 		return [
 			...saleInvoices.filter((i) => i.customerId === view.id).map((i) => ({
-				date: i.date,
+				date: normalizeDateValue(i.date),
 				createdAt: i.createdAt,
 				text: `فاتورة بيع ${i.invoiceNumber}`,
 				debit: i.total,
@@ -11308,7 +11602,7 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 				reference: i.id
 			})),
 			...purchaseInvoices.filter((i) => i.supplierId === view.id).map((i) => ({
-				date: i.date,
+				date: normalizeDateValue(i.date),
 				createdAt: i.createdAt,
 				text: `فاتورة شراء ${i.invoiceNumber}`,
 				debit: 0,
@@ -11316,7 +11610,7 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 				reference: i.id
 			})),
 			...payments.filter((p) => p.referenceId === view.id).map((p) => ({
-				date: p.date,
+				date: normalizeDateValue(p.date),
 				createdAt: p.createdAt,
 				text: p.direction === "in" ? "دفعة واردة" : "دفعة خارجة",
 				debit: p.direction === "out" ? p.amount : 0,
@@ -11346,6 +11640,13 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 	const currentBalance = view ? balance(view) : 0;
 	const periodDebit = periodRows.reduce((s, r) => s + r.debit, 0);
 	const periodCredit = periodRows.reduce((s, r) => s + r.credit, 0);
+	const changeRowDate = (r, date) => {
+		const normalized = normalizeDateValue(date);
+		if (!normalized || !r.reference) return;
+		if (saleInvoices.some((i) => i.id === r.reference)) onUpdateSaleInvoiceDate?.(r.reference, normalized);
+		else if (purchaseInvoices.some((i) => i.id === r.reference)) onUpdatePurchaseInvoiceDate?.(r.reference, normalized);
+		else onUpdatePaymentDate?.(r.reference, normalized);
+	};
 	const openStatement = (p) => {
 		setView(p);
 		setDateFrom("");
@@ -11932,7 +12233,13 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
 												className: "p-2",
-												children: r.date
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "date",
+													value: normalizeDateValue(r.date),
+													onChange: (e) => changeRowDate(r, e.target.value),
+													className: "bg-transparent border border-transparent hover:border-border rounded px-1 text-gray-200 text-xs",
+													title: "تعديل التاريخ"
+												})
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
 												className: "p-2",
@@ -27059,7 +27366,10 @@ function useStore() {
 				});
 				migratedPayments.forEach((payment) => {
 					const old = payments.find((x) => x.id === payment.id);
-					if (old && (old.referenceId !== payment.referenceId || old.referenceName !== payment.referenceName)) saveToFirebase("payments", payment.id, payment);
+					if (old && (old.referenceId !== payment.referenceId || old.referenceName !== payment.referenceName)) saveToFirebase("payments", payment.id, {
+						...payment,
+						date: normalizeDateValue(payment.date)
+					});
 				});
 				const purchaseInvoiceIds = new Set(purchaseInvoices.map((invoice) => invoice.id));
 				const orphanAvailableSerials = serials.filter((serial) => (serial.status === "available" || serial.purchasePricePending) && (!serial.purchaseInvoiceId || !purchaseInvoiceIds.has(serial.purchaseInvoiceId)));
@@ -28225,7 +28535,8 @@ function useStore() {
 				treasury,
 				direction: payment.direction,
 				referenceId: payment.referenceId,
-				date: payment.date,
+				sourceId: payment.id,
+				date: normalizeDateValue(payment.date),
 				createdAt: (/* @__PURE__ */ new Date()).toISOString()
 			};
 			newState.treasuryTransactions = [...newState.treasuryTransactions, treasuryTransaction];
@@ -28242,6 +28553,190 @@ function useStore() {
 			changedSaleInvoices.forEach((inv) => saveToFirebase("saleInvoices", inv.id, inv));
 			changedPurchaseInvoices.forEach((inv) => saveToFirebase("purchaseInvoices", inv.id, inv));
 			return newState;
+		});
+	}, []);
+	const addTreasuryTransfer = (0, import_react.useCallback)((from, to, amount, date, note) => {
+		if (from === to) return {
+			success: false,
+			message: "اختار خزانتين مختلفتين للتحويل"
+		};
+		if (!Number.isFinite(amount) || amount <= 0) return {
+			success: false,
+			message: "المبلغ يجب أن يكون أكبر من صفر"
+		};
+		let result = { success: true };
+		setState((prev) => {
+			if (amount > (from === "cash" ? prev.cashBalance : prev.bankBalance)) {
+				result = {
+					success: false,
+					message: `الرصيد المتاح في ${from === "cash" ? "الكاش" : "البنك"} غير كافٍ`
+				};
+				return prev;
+			}
+			const now = (/* @__PURE__ */ new Date()).toISOString();
+			const txOut = {
+				id: makeTransactionId(),
+				type: "transfer",
+				description: note || `تحويل من ${from === "cash" ? "الكاش" : "البنك"} إلى ${to === "cash" ? "الكاش" : "البنك"}`,
+				amount,
+				treasury: from,
+				direction: "out",
+				date: normalizeDateValue(date),
+				createdAt: now
+			};
+			const txIn = {
+				id: makeTransactionId(),
+				type: "transfer",
+				description: note || `تحويل من ${from === "cash" ? "الكاش" : "البنك"} إلى ${to === "cash" ? "الكاش" : "البنك"}`,
+				amount,
+				treasury: to,
+				direction: "in",
+				date: normalizeDateValue(date),
+				createdAt: now
+			};
+			const next = {
+				...prev,
+				cashBalance: prev.cashBalance + (to === "cash" ? amount : 0) - (from === "cash" ? amount : 0),
+				bankBalance: prev.bankBalance + (to === "bank" ? amount : 0) - (from === "bank" ? amount : 0),
+				treasuryTransactions: [
+					...prev.treasuryTransactions,
+					txOut,
+					txIn
+				]
+			};
+			saveToFirebase("treasuryTransactions", txOut.id, txOut);
+			saveToFirebase("treasuryTransactions", txIn.id, txIn);
+			saveToFirebase("treasury", "main", {
+				cashBalance: next.cashBalance,
+				bankBalance: next.bankBalance
+			});
+			return next;
+		});
+		return result;
+	}, []);
+	const addTreasuryAdjustment = (0, import_react.useCallback)((direction, amount, treasury, date, description) => {
+		if (!Number.isFinite(amount) || amount <= 0) return {
+			success: false,
+			message: "المبلغ يجب أن يكون أكبر من صفر"
+		};
+		let result = { success: true };
+		setState((prev) => {
+			const balance = treasury === "cash" ? prev.cashBalance : prev.bankBalance;
+			if (direction === "out" && amount > balance) {
+				result = {
+					success: false,
+					message: `الرصيد المتاح في ${treasury === "cash" ? "الكاش" : "البنك"} غير كافٍ`
+				};
+				return prev;
+			}
+			const tx = {
+				id: makeTransactionId(),
+				type: "adjustment",
+				description,
+				amount,
+				treasury,
+				direction,
+				date: normalizeDateValue(date),
+				createdAt: (/* @__PURE__ */ new Date()).toISOString()
+			};
+			const next = {
+				...prev,
+				cashBalance: treasury === "cash" ? direction === "in" ? prev.cashBalance + amount : prev.cashBalance - amount : prev.cashBalance,
+				bankBalance: treasury === "bank" ? direction === "in" ? prev.bankBalance + amount : prev.bankBalance - amount : prev.bankBalance,
+				treasuryTransactions: [...prev.treasuryTransactions, tx]
+			};
+			saveToFirebase("treasuryTransactions", tx.id, tx);
+			saveToFirebase("treasury", "main", {
+				cashBalance: next.cashBalance,
+				bankBalance: next.bankBalance
+			});
+			return next;
+		});
+		return result;
+	}, []);
+	const updatePaymentDate = (0, import_react.useCallback)((paymentId, date) => {
+		const normalizedDate = normalizeDateValue(date);
+		if (!normalizedDate) return;
+		setState((prev) => {
+			const payment = prev.payments.find((p) => p.id === paymentId);
+			if (!payment) return prev;
+			const payments = prev.payments.map((p) => p.id === paymentId ? {
+				...p,
+				date: normalizedDate
+			} : p);
+			const matchingType = payment.direction === "in" ? "payment_in" : "payment_out";
+			const matching = prev.treasuryTransactions.find((t) => t.sourceId === paymentId) || prev.treasuryTransactions.find((t) => !t.sourceId && t.referenceId === payment.referenceId && t.type === matchingType && t.amount === payment.amount && t.createdAt >= payment.createdAt);
+			const treasuryTransactions = prev.treasuryTransactions.map((t) => t.id === matching?.id ? {
+				...t,
+				date: normalizedDate,
+				sourceId: paymentId
+			} : t);
+			const next = {
+				...prev,
+				payments,
+				treasuryTransactions
+			};
+			saveToFirebase("payments", paymentId, payments.find((p) => p.id === paymentId));
+			if (matching) saveToFirebase("treasuryTransactions", matching.id, treasuryTransactions.find((t) => t.id === matching.id));
+			return next;
+		});
+	}, []);
+	const updateSaleInvoiceDate = (0, import_react.useCallback)((invoiceId, date) => {
+		const normalizedDate = normalizeDateValue(date);
+		setState((prev) => {
+			if (!prev.saleInvoices.find((i) => i.id === invoiceId)) return prev;
+			const saleInvoices = prev.saleInvoices.map((i) => i.id === invoiceId ? {
+				...i,
+				date: normalizedDate
+			} : i);
+			const payments = prev.payments.map((p) => p.id === `paid_${invoiceId}` ? {
+				...p,
+				date: normalizedDate
+			} : p);
+			const treasuryTransactions = prev.treasuryTransactions.map((t) => t.referenceId === invoiceId ? {
+				...t,
+				date: normalizedDate
+			} : t);
+			const next = {
+				...prev,
+				saleInvoices,
+				payments,
+				treasuryTransactions
+			};
+			saveToFirebase("saleInvoices", invoiceId, saleInvoices.find((i) => i.id === invoiceId));
+			const linkedPayment = payments.find((p) => p.id === `paid_${invoiceId}`);
+			if (linkedPayment) saveToFirebase("payments", linkedPayment.id, linkedPayment);
+			treasuryTransactions.filter((t) => t.referenceId === invoiceId).forEach((t) => saveToFirebase("treasuryTransactions", t.id, t));
+			return next;
+		});
+	}, []);
+	const updatePurchaseInvoiceDate = (0, import_react.useCallback)((invoiceId, date) => {
+		const normalizedDate = normalizeDateValue(date);
+		setState((prev) => {
+			if (!prev.purchaseInvoices.find((i) => i.id === invoiceId)) return prev;
+			const purchaseInvoices = prev.purchaseInvoices.map((i) => i.id === invoiceId ? {
+				...i,
+				date: normalizedDate
+			} : i);
+			const payments = prev.payments.map((p) => p.id === `paid_${invoiceId}` ? {
+				...p,
+				date: normalizedDate
+			} : p);
+			const treasuryTransactions = prev.treasuryTransactions.map((t) => t.referenceId === invoiceId ? {
+				...t,
+				date: normalizedDate
+			} : t);
+			const next = {
+				...prev,
+				purchaseInvoices,
+				payments,
+				treasuryTransactions
+			};
+			saveToFirebase("purchaseInvoices", invoiceId, purchaseInvoices.find((i) => i.id === invoiceId));
+			const linkedPayment = payments.find((p) => p.id === `paid_${invoiceId}`);
+			if (linkedPayment) saveToFirebase("payments", linkedPayment.id, linkedPayment);
+			treasuryTransactions.filter((t) => t.referenceId === invoiceId).forEach((t) => saveToFirebase("treasuryTransactions", t.id, t));
+			return next;
 		});
 	}, []);
 	const addExpense = (0, import_react.useCallback)((expense) => {
@@ -28261,12 +28756,15 @@ function useStore() {
 				treasury,
 				direction: "out",
 				referenceId: expense.id,
-				date: expense.date,
+				date: normalizeDateValue(expense.date),
 				createdAt: (/* @__PURE__ */ new Date()).toISOString()
 			}];
 			return newState;
 		});
-		saveToFirebase("expenses", expense.id, expense);
+		saveToFirebase("expenses", expense.id, {
+			...expense,
+			date: normalizeDateValue(expense.date)
+		});
 	}, []);
 	const addNoonOrder = (0, import_react.useCallback)((order) => {
 		let result = { success: true };
@@ -28625,7 +29123,7 @@ function useStore() {
 		}));
 		deleteFromFirebase("employees", id);
 	}, []);
-	const addPartyMoneyMovement = (0, import_react.useCallback)((partyType, partyId, partyName, treasury, direction, amount, note) => {
+	const addPartyMoneyMovement = (0, import_react.useCallback)((partyType, partyId, partyName, treasury, direction, amount, note, date) => {
 		if (!Number.isFinite(amount) || amount <= 0) return {
 			success: false,
 			message: "المبلغ يجب أن يكون أكبر من صفر"
@@ -28651,7 +29149,7 @@ function useStore() {
 				referenceId: partyId,
 				partyType,
 				partyName,
-				date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+				date: normalizeDateValue(date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)),
 				createdAt: (/* @__PURE__ */ new Date()).toISOString()
 			};
 			const next = {
@@ -29059,7 +29557,12 @@ function useStore() {
 		deletePurchaseInvoice,
 		completePendingPurchase,
 		addPayment,
+		updatePaymentDate,
+		updateSaleInvoiceDate,
+		updatePurchaseInvoiceDate,
 		addExpense,
+		addTreasuryTransfer,
+		addTreasuryAdjustment,
 		addNoonOrder,
 		updateNoonOrder,
 		addNoonOrders,
@@ -29310,6 +29813,9 @@ function ErpApp() {
 				onUpdateParty: store.updateParty,
 				onDeleteParty: store.deleteParty,
 				onAddPayment: store.addPayment,
+				onUpdatePaymentDate: store.updatePaymentDate,
+				onUpdateSaleInvoiceDate: store.updateSaleInvoiceDate,
+				onUpdatePurchaseInvoiceDate: store.updatePurchaseInvoiceDate,
 				onNavigateToSales: (id) => {
 					setPendingCustomerId(id);
 					setCurrentPage("sales");
@@ -29539,6 +30045,8 @@ function ErpApp() {
 				products: state.products,
 				customers: state.customers,
 				suppliers: state.suppliers,
+				parties: state.parties,
+				payments: state.payments,
 				serials: state.serials,
 				saleInvoices: state.saleInvoices,
 				purchaseInvoices: state.purchaseInvoices,
@@ -29550,6 +30058,15 @@ function ErpApp() {
 				onAddSupplier: store.addSupplier,
 				onAddSerials: store.addSerials,
 				onAddPayment: store.addPayment,
+				expenses: state.expenses,
+				partners: state.partners,
+				employees: state.employees,
+				cashBalance: state.cashBalance,
+				bankBalance: state.bankBalance,
+				onAddExpense: store.addExpense,
+				onAddTreasuryTransfer: store.addTreasuryTransfer,
+				onAddTreasuryAdjustment: store.addTreasuryAdjustment,
+				onAddPartyMoneyMovement: store.addPartyMoneyMovement,
 				onClose: () => setShowQuickEntry(false)
 			})
 		]

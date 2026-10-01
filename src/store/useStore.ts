@@ -5,7 +5,7 @@ import {
   DailyJournal, SerialItem, Brand, AppSettings, Partner, ProfitDistribution,
   WeeklyInventoryCount, StockTransfer, DailyOperationEntry, DailyInventoryScan, Employee
 } from '../types';
-import { normalizeForCompare, generateId } from '../utils/helpers';
+import { normalizeForCompare, generateId, normalizeDateValue } from '../utils/helpers';
 import { makeTransactionId } from './domains/id.store';
 import { applyTreasuryChange } from './domains/treasury.store';
 import { completePendingPurchaseState } from './domains/purchases.store';
@@ -242,7 +242,7 @@ export function useStore() {
         suppliers.forEach(s => { const canonicalId = canonicalSupplierMap.get(s.id); if (canonicalId && canonicalId !== s.id) void deleteFromFirebase('suppliers', s.id); });
         migratedSaleInvoices.forEach(inv => { if (inv.customerId !== saleInvoices.find(x => x.id === inv.id)?.customerId || inv.customerName !== saleInvoices.find(x => x.id === inv.id)?.customerName) void saveToFirebase('saleInvoices', inv.id, inv); });
         migratedPurchaseInvoices.forEach(inv => { if (inv.supplierId !== purchaseInvoices.find(x => x.id === inv.id)?.supplierId || inv.supplierName !== purchaseInvoices.find(x => x.id === inv.id)?.supplierName) void saveToFirebase('purchaseInvoices', inv.id, inv); });
-        migratedPayments.forEach(payment => { const old = payments.find(x => x.id === payment.id); if (old && (old.referenceId !== payment.referenceId || old.referenceName !== payment.referenceName)) void saveToFirebase('payments', payment.id, payment); });
+        migratedPayments.forEach(payment => { const old = payments.find(x => x.id === payment.id); if (old && (old.referenceId !== payment.referenceId || old.referenceName !== payment.referenceName)) void saveToFirebase('payments', payment.id, { ...payment, date: normalizeDateValue(payment.date) }); });
 
         // تنظيف السيريالات اليتيمة: السيريال المتاح لا يُعتبر مخزوناً إلا إذا كانت
         // فاتورة الشراء الأصلية ما زالت موجودة. هذا يعالج السيريالات القديمة التي
@@ -1394,7 +1394,8 @@ export function useStore() {
         treasury,
         direction: payment.direction,
         referenceId: payment.referenceId,
-        date: payment.date,
+        sourceId: payment.id,
+        date: normalizeDateValue(payment.date),
         createdAt: new Date().toISOString(),
       };
       newState.treasuryTransactions = [...newState.treasuryTransactions, treasuryTransaction];
@@ -1413,6 +1414,100 @@ export function useStore() {
     });
   }, []);
 
+
+  // ==================== QUICK TREASURY MOVEMENTS ====================
+  const addTreasuryTransfer = useCallback((from: 'cash' | 'bank', to: 'cash' | 'bank', amount: number, date: string, note: string): { success: boolean; message?: string } => {
+    if (from === to) return { success: false, message: 'اختار خزانتين مختلفتين للتحويل' };
+    if (!Number.isFinite(amount) || amount <= 0) return { success: false, message: 'المبلغ يجب أن يكون أكبر من صفر' };
+    let result: { success: boolean; message?: string } = { success: true };
+    setState(prev => {
+      const sourceBalance = from === 'cash' ? prev.cashBalance : prev.bankBalance;
+      if (amount > sourceBalance) {
+        result = { success: false, message: `الرصيد المتاح في ${from === 'cash' ? 'الكاش' : 'البنك'} غير كافٍ` };
+        return prev;
+      }
+      const now = new Date().toISOString();
+      const txOut: TreasuryTransaction = { id: makeTransactionId(), type: 'transfer', description: note || `تحويل من ${from === 'cash' ? 'الكاش' : 'البنك'} إلى ${to === 'cash' ? 'الكاش' : 'البنك'}`, amount, treasury: from, direction: 'out', date: normalizeDateValue(date), createdAt: now };
+      const txIn: TreasuryTransaction = { id: makeTransactionId(), type: 'transfer', description: note || `تحويل من ${from === 'cash' ? 'الكاش' : 'البنك'} إلى ${to === 'cash' ? 'الكاش' : 'البنك'}`, amount, treasury: to, direction: 'in', date: normalizeDateValue(date), createdAt: now };
+      const next = {
+        ...prev,
+        cashBalance: prev.cashBalance + (to === 'cash' ? amount : 0) - (from === 'cash' ? amount : 0),
+        bankBalance: prev.bankBalance + (to === 'bank' ? amount : 0) - (from === 'bank' ? amount : 0),
+        treasuryTransactions: [...prev.treasuryTransactions, txOut, txIn],
+      };
+      saveToFirebase('treasuryTransactions', txOut.id, txOut);
+      saveToFirebase('treasuryTransactions', txIn.id, txIn);
+      saveToFirebase('treasury', 'main', { cashBalance: next.cashBalance, bankBalance: next.bankBalance });
+      return next;
+    });
+    return result;
+  }, []);
+
+  const addTreasuryAdjustment = useCallback((direction: 'in' | 'out', amount: number, treasury: 'cash' | 'bank', date: string, description: string): { success: boolean; message?: string } => {
+    if (!Number.isFinite(amount) || amount <= 0) return { success: false, message: 'المبلغ يجب أن يكون أكبر من صفر' };
+    let result: { success: boolean; message?: string } = { success: true };
+    setState(prev => {
+      const balance = treasury === 'cash' ? prev.cashBalance : prev.bankBalance;
+      if (direction === 'out' && amount > balance) { result = { success: false, message: `الرصيد المتاح في ${treasury === 'cash' ? 'الكاش' : 'البنك'} غير كافٍ` }; return prev; }
+      const tx: TreasuryTransaction = { id: makeTransactionId(), type: 'adjustment', description, amount, treasury, direction, date: normalizeDateValue(date), createdAt: new Date().toISOString() };
+      const next = { ...prev, cashBalance: treasury === 'cash' ? (direction === 'in' ? prev.cashBalance + amount : prev.cashBalance - amount) : prev.cashBalance, bankBalance: treasury === 'bank' ? (direction === 'in' ? prev.bankBalance + amount : prev.bankBalance - amount) : prev.bankBalance, treasuryTransactions: [...prev.treasuryTransactions, tx] };
+      saveToFirebase('treasuryTransactions', tx.id, tx);
+      saveToFirebase('treasury', 'main', { cashBalance: next.cashBalance, bankBalance: next.bankBalance });
+      return next;
+    });
+    return result;
+  }, []);
+
+  const updatePaymentDate = useCallback((paymentId: string, date: string) => {
+    const normalizedDate = normalizeDateValue(date);
+    if (!normalizedDate) return;
+    setState(prev => {
+      const payment = prev.payments.find(p => p.id === paymentId);
+      if (!payment) return prev;
+      const payments = prev.payments.map(p => p.id === paymentId ? { ...p, date: normalizedDate } : p);
+      const matchingType = payment.direction === 'in' ? 'payment_in' : 'payment_out';
+      const matching = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
+        || prev.treasuryTransactions.find(t => !t.sourceId && t.referenceId === payment.referenceId && t.type === matchingType && t.amount === payment.amount && t.createdAt >= payment.createdAt);
+      const treasuryTransactions = prev.treasuryTransactions.map(t => t.id === matching?.id ? { ...t, date: normalizedDate, sourceId: paymentId } : t);
+      const next = { ...prev, payments, treasuryTransactions };
+      saveToFirebase('payments', paymentId, payments.find(p => p.id === paymentId)!);
+      if (matching) saveToFirebase('treasuryTransactions', matching.id, treasuryTransactions.find(t => t.id === matching.id)!);
+      return next;
+    });
+  }, []);
+
+  const updateSaleInvoiceDate = useCallback((invoiceId: string, date: string) => {
+    const normalizedDate = normalizeDateValue(date);
+    setState(prev => {
+      const invoice = prev.saleInvoices.find(i => i.id === invoiceId);
+      if (!invoice) return prev;
+      const saleInvoices = prev.saleInvoices.map(i => i.id === invoiceId ? { ...i, date: normalizedDate } : i);
+      const payments = prev.payments.map(p => p.id === `paid_${invoiceId}` ? { ...p, date: normalizedDate } : p);
+      const treasuryTransactions = prev.treasuryTransactions.map(t => t.referenceId === invoiceId ? { ...t, date: normalizedDate } : t);
+      const next = { ...prev, saleInvoices, payments, treasuryTransactions };
+      saveToFirebase('saleInvoices', invoiceId, saleInvoices.find(i => i.id === invoiceId)!);
+      const linkedPayment = payments.find(p => p.id === `paid_${invoiceId}`); if (linkedPayment) saveToFirebase('payments', linkedPayment.id, linkedPayment);
+      treasuryTransactions.filter(t => t.referenceId === invoiceId).forEach(t => saveToFirebase('treasuryTransactions', t.id, t));
+      return next;
+    });
+  }, []);
+
+  const updatePurchaseInvoiceDate = useCallback((invoiceId: string, date: string) => {
+    const normalizedDate = normalizeDateValue(date);
+    setState(prev => {
+      const invoice = prev.purchaseInvoices.find(i => i.id === invoiceId);
+      if (!invoice) return prev;
+      const purchaseInvoices = prev.purchaseInvoices.map(i => i.id === invoiceId ? { ...i, date: normalizedDate } : i);
+      const payments = prev.payments.map(p => p.id === `paid_${invoiceId}` ? { ...p, date: normalizedDate } : p);
+      const treasuryTransactions = prev.treasuryTransactions.map(t => t.referenceId === invoiceId ? { ...t, date: normalizedDate } : t);
+      const next = { ...prev, purchaseInvoices, payments, treasuryTransactions };
+      saveToFirebase('purchaseInvoices', invoiceId, purchaseInvoices.find(i => i.id === invoiceId)!);
+      const linkedPayment = payments.find(p => p.id === `paid_${invoiceId}`); if (linkedPayment) saveToFirebase('payments', linkedPayment.id, linkedPayment);
+      treasuryTransactions.filter(t => t.referenceId === invoiceId).forEach(t => saveToFirebase('treasuryTransactions', t.id, t));
+      return next;
+    });
+  }, []);
+
   // ==================== EXPENSES ====================
   const addExpense = useCallback((expense: Expense) => {
     setState(prev => {
@@ -1428,12 +1523,12 @@ export function useStore() {
         treasury,
         direction: 'out',
         referenceId: expense.id,
-        date: expense.date,
+        date: normalizeDateValue(expense.date),
         createdAt: new Date().toISOString(),
       }];
       return newState;
     });
-    saveToFirebase('expenses', expense.id, expense);
+    saveToFirebase('expenses', expense.id, { ...expense, date: normalizeDateValue(expense.date) });
   }, []);
 
   // ==================== NOON ORDERS ====================
@@ -1780,6 +1875,7 @@ export function useStore() {
     direction: 'in' | 'out',
     amount: number,
     note: string,
+    date?: string,
   ): { success: boolean; message?: string } => {
     if (!Number.isFinite(amount) || amount <= 0) return { success: false, message: 'المبلغ يجب أن يكون أكبر من صفر' };
     let result: { success: boolean; message?: string } = { success: true };
@@ -1797,7 +1893,7 @@ export function useStore() {
         type,
         description: `${direction === 'in' ? 'استلام من' : 'سحب إلى'} ${partyType === 'partner' ? 'الشريك' : 'العامل'}: ${partyName}${note ? ` — ${note}` : ''}`,
         amount, treasury, direction, referenceId: partyId, partyType, partyName,
-        date: new Date().toISOString().slice(0, 10),
+        date: normalizeDateValue(date || new Date().toISOString().slice(0, 10)),
         createdAt: new Date().toISOString(),
       };
       const next = {
@@ -2207,7 +2303,9 @@ export function useStore() {
     addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice,
     completePendingPurchase,
     addPayment,
+    updatePaymentDate, updateSaleInvoiceDate, updatePurchaseInvoiceDate,
     addExpense,
+    addTreasuryTransfer, addTreasuryAdjustment,
     addNoonOrder, updateNoonOrder, addNoonOrders, settleNoonOrders,
     addBrand,
     addDailyClosing,

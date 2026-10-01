@@ -22,6 +22,25 @@ export const formatDateTime = (dateStr: string): string => {
   }
 };
 
+
+
+/** يحول تاريخ Excel الرقمي مثل 46285 إلى YYYY-MM-DD. */
+export const normalizeDateValue = (value: unknown): string => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    const serial = Number(raw);
+    if (serial >= 1 && serial <= 100000) {
+      const d = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
+      return d.toISOString().slice(0, 10);
+    }
+  }
+  const m = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? raw : d.toISOString().slice(0, 10);
+};
+
 export const normalizeForCompare = (text: string): string => {
   return (text || '').trim().replace(/\s+/g, ' ').toLowerCase();
 };

@@ -111,6 +111,9 @@ export default function ErpApp() {
             onUpdateParty={store.updateParty}
             onDeleteParty={store.deleteParty}
             onAddPayment={store.addPayment}
+            onUpdatePaymentDate={store.updatePaymentDate}
+            onUpdateSaleInvoiceDate={store.updateSaleInvoiceDate}
+            onUpdatePurchaseInvoiceDate={store.updatePurchaseInvoiceDate}
             onNavigateToSales={(id) => { setPendingCustomerId(id); setCurrentPage("sales"); }}
             onNavigateToPurchases={(id) => { setPendingSupplierId(id); setCurrentPage("purchases"); }}
             onOpenInvoice={(type, id) => {
@@ -372,6 +375,8 @@ export default function ErpApp() {
           products={state.products}
           customers={state.customers}
           suppliers={state.suppliers}
+          parties={state.parties}
+          payments={state.payments}
           serials={state.serials}
           saleInvoices={state.saleInvoices}
           purchaseInvoices={state.purchaseInvoices}
@@ -383,6 +388,15 @@ export default function ErpApp() {
           onAddSupplier={store.addSupplier}
           onAddSerials={store.addSerials}
           onAddPayment={store.addPayment}
+          expenses={state.expenses}
+          partners={state.partners}
+          employees={state.employees}
+          cashBalance={state.cashBalance}
+          bankBalance={state.bankBalance}
+          onAddExpense={store.addExpense}
+          onAddTreasuryTransfer={store.addTreasuryTransfer}
+          onAddTreasuryAdjustment={store.addTreasuryAdjustment}
+          onAddPartyMoneyMovement={store.addPartyMoneyMovement}
           onClose={() => setShowQuickEntry(false)}
         />
       )}

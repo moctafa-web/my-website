@@ -222,6 +222,7 @@ export interface TreasuryTransaction {
   partyType?: 'partner' | 'employee';
   partyName?: string;
   date: string;
+  sourceId?: string;
   createdAt: string;
 }
 
