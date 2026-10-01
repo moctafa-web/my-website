@@ -36,7 +36,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Mode = 'sale' | 'purchase' | 'noon' | 'payment_in' | 'payment_out' | 'treasury_transfer' | 'expense' | 'profit_in' | 'partner_in' | 'partner_out' | 'employee_in' | 'employee_out';
+type Mode = 'sale' | 'purchase' | 'noon' | 'payment_in' | 'payment_out' | 'treasury_transfer' | 'expense' | 'profit_in' | 'party_money';
 
 interface QuickLine {
   rowId: string;
@@ -77,6 +77,7 @@ export default function QuickEntry({
   const [transferTo, setTransferTo] = useState<'cash' | 'bank'>('bank');
   const [moneyNote, setMoneyNote] = useState('');
   const [selectedMoneyParty, setSelectedMoneyParty] = useState('');
+  const [moneyDirection, setMoneyDirection] = useState<'in' | 'out'>('in');
 
   useGlobalDropdownDismiss(() => {
     setActiveDropdownRow(null);
@@ -108,6 +109,7 @@ export default function QuickEntry({
     setTransferTo('bank');
     setMoneyNote('');
     setSelectedMoneyParty('');
+    setMoneyDirection('in');
     setOrderNumber('');
     setError(null);
     setTimeout(() => firstFieldRef.current?.focus(), 50);
@@ -382,11 +384,13 @@ export default function QuickEntry({
 
 
   const moneyPartyList = useMemo(() => {
-    const isPartner = mode === 'partner_in' || mode === 'partner_out';
-    return (isPartner ? partners : employees).filter(x => x.isActive);
-  }, [mode, partners, employees]);
+    return [
+      ...partners.filter(x => x.isActive).map(x => ({ id: x.id, name: x.name, type: 'partner' as const })),
+      ...employees.filter(x => x.isActive).map(x => ({ id: x.id, name: x.name, type: 'employee' as const })),
+    ];
+  }, [partners, employees]);
 
-  const selectedMoneyPartyData = moneyPartyList.find(x => x.id === selectedMoneyParty);
+  const selectedMoneyPartyData = moneyPartyList.find(x => `${x.type}:${x.id}` === selectedMoneyParty);
 
   const handleSaveMoneyMovement = () => {
     const amount = Number(paid);
@@ -404,15 +408,22 @@ export default function QuickEntry({
       const result = onAddTreasuryAdjustment?.('in', amount, moneyTreasury, date, `طيارة${moneyNote.trim() ? ` — ${moneyNote.trim()}` : ''}`);
       if (!result?.success) { setError(result?.message || 'تعذر تسجيل الطيارة'); return; }
       setFlash(`✅ تم تسجيل طيارة ${formatCurrency(amount)}`);
-    } else {
-      if (!selectedMoneyPartyData || !onAddPartyMoneyMovement) { setError('اختار الاسم أولًا'); return; }
-      const partyType = (mode === 'partner_in' || mode === 'partner_out') ? 'partner' : 'employee';
-      const direction = (mode === 'partner_in' || mode === 'employee_in') ? 'in' : 'out';
-      const result = onAddPartyMoneyMovement(partyType, selectedMoneyPartyData.id, selectedMoneyPartyData.name, moneyTreasury, direction, amount, moneyNote.trim(), date);
+    } else if (mode === 'party_money') {
+      if (!selectedMoneyPartyData || !onAddPartyMoneyMovement) { setError('اختار العامل أو الشريك أولًا'); return; }
+      const result = onAddPartyMoneyMovement(
+        selectedMoneyPartyData.type,
+        selectedMoneyPartyData.id,
+        selectedMoneyPartyData.name,
+        moneyTreasury,
+        moneyDirection,
+        amount,
+        moneyNote.trim(),
+        date
+      );
       if (!result.success) { setError(result.message || 'تعذر تسجيل الحركة'); return; }
-      setFlash(`✅ تم تسجيل ${direction === 'in' ? 'دخول' : 'خروج'} ${formatCurrency(amount)} — ${selectedMoneyPartyData.name}`);
+      setFlash(`✅ تم تسجيل ${moneyDirection === 'in' ? 'دخول للمحل' : 'خروج من المحل'} ${formatCurrency(amount)} — ${selectedMoneyPartyData.name}`);
     }
-    setSavedCount(c => c + 1); setPaid(''); setMoneyNote(''); setSelectedMoneyParty(''); setMoneyDate(getTodayStr()); setError(null);
+    setSavedCount(c => c + 1); setPaid(''); setMoneyNote(''); setSelectedMoneyParty(''); setMoneyDirection('in'); setMoneyDate(getTodayStr()); setError(null);
   };
 
   const handleSave = () => {
@@ -439,10 +450,7 @@ export default function QuickEntry({
     treasury_transfer: { label: 'تحويل كاش ↔ بنك', icon: ArrowUpCircle, color: 'blue' },
     expense: { label: 'مصروف', icon: ArrowUpCircle, color: 'red' },
     profit_in: { label: 'طيارة — ربح صافي', icon: ArrowDownCircle, color: 'green' },
-    partner_in: { label: 'دخول من شريك', icon: ArrowDownCircle, color: 'violet' },
-    partner_out: { label: 'خروج لشريك', icon: ArrowUpCircle, color: 'red' },
-    employee_in: { label: 'دخول من عامل', icon: ArrowDownCircle, color: 'violet' },
-    employee_out: { label: 'خروج لعامل', icon: ArrowUpCircle, color: 'red' },
+    party_money: { label: 'العمال والشركاء', icon: ArrowDownCircle, color: 'violet' },
   } as const;
 
   return (
@@ -563,18 +571,35 @@ export default function QuickEntry({
 
               {!['sale','purchase','noon','payment_in','payment_out'].includes(mode) && (
                 <div className="space-y-4">
-                  {(mode === 'partner_in' || mode === 'partner_out' || mode === 'employee_in' || mode === 'employee_out') && (
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">{mode.startsWith('partner') ? 'الشريك' : 'العامل'}</label>
-                      <select value={selectedMoneyParty} onChange={e => setSelectedMoneyParty(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm">
-                        <option value="">اختار الاسم</option>
-                        {moneyPartyList.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                      </select>
-                    </div>
+                  {mode === 'party_money' && (
+                    <>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">الشخص</label>
+                        <select value={selectedMoneyParty} onChange={e => setSelectedMoneyParty(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm">
+                          <option value="">اختار العامل أو الشريك</option>
+                          {moneyPartyList.map(x => (
+                            <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`}>
+                              {x.name} — {x.type === 'partner' ? 'شريك' : 'عامل'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">الحركة</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => setMoneyDirection('in')} className={`py-2 rounded-lg border ${moneyDirection === 'in' ? 'bg-green-700/30 border-green-500 text-green-200' : 'border-white/10 text-gray-400'}`}>
+                            🟢 دخول للمحل من الشخص
+                          </button>
+                          <button type="button" onClick={() => setMoneyDirection('out')} className={`py-2 rounded-lg border ${moneyDirection === 'out' ? 'bg-red-700/30 border-red-500 text-red-200' : 'border-white/10 text-gray-400'}`}>
+                            🔴 خروج من المحل للشخص
+                          </button>
+                        </div>
+                      </div>
+                    </>
                   )}
                   {mode === 'treasury_transfer' && <div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-400">من</label><select value={transferFrom} onChange={e=>setTransferFrom(e.target.value as 'cash'|'bank')} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"><option value="cash">💵 الكاش</option><option value="bank">🏦 البنك</option></select></div><div><label className="text-xs text-gray-400">إلى</label><select value={transferTo} onChange={e=>setTransferTo(e.target.value as 'cash'|'bank')} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"><option value="bank">🏦 البنك</option><option value="cash">💵 الكاش</option></select></div></div>}
-                  {mode !== 'treasury_transfer' && mode !== 'partner_in' && mode !== 'partner_out' && mode !== 'employee_in' && mode !== 'employee_out' && <div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setMoneyTreasury('cash')} className={`px-4 py-2 rounded-lg border ${moneyTreasury==='cash'?'bg-green-700/30 border-green-500 text-green-200':'border-white/10 text-gray-400'}`}>💵 كاش <span className="text-xs opacity-70">{formatCurrency(cashBalance)}</span></button><button type="button" onClick={()=>setMoneyTreasury('bank')} className={`px-4 py-2 rounded-lg border ${moneyTreasury==='bank'?'bg-blue-700/30 border-blue-500 text-blue-200':'border-white/10 text-gray-400'}`}>🏦 بنك <span className="text-xs opacity-70">{formatCurrency(bankBalance)}</span></button></div>}
-                  {(mode === 'partner_in' || mode === 'partner_out' || mode === 'employee_in' || mode === 'employee_out') && <div className="flex gap-2"><button type="button" onClick={()=>setMoneyTreasury('cash')} className={`flex-1 py-2 rounded-lg border ${moneyTreasury==='cash'?'bg-green-700/30 border-green-500 text-green-200':'border-white/10 text-gray-400'}`}>💵 كاش {formatCurrency(cashBalance)}</button><button type="button" onClick={()=>setMoneyTreasury('bank')} className={`flex-1 py-2 rounded-lg border ${moneyTreasury==='bank'?'bg-blue-700/30 border-blue-500 text-blue-200':'border-white/10 text-gray-400'}`}>🏦 بنك {formatCurrency(bankBalance)}</button></div>}
+                  {mode !== 'treasury_transfer' && <div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setMoneyTreasury('cash')} className={`px-4 py-2 rounded-lg border ${moneyTreasury==='cash'?'bg-green-700/30 border-green-500 text-green-200':'border-white/10 text-gray-400'}`}>💵 كاش <span className="text-xs opacity-70">{formatCurrency(cashBalance)}</span></button><button type="button" onClick={()=>setMoneyTreasury('bank')} className={`px-4 py-2 rounded-lg border ${moneyTreasury==='bank'?'bg-blue-700/30 border-blue-500 text-blue-200':'border-white/10 text-gray-400'}`}>🏦 بنك <span className="text-xs opacity-70">{formatCurrency(bankBalance)}</span></button></div>}
+                  {mode === 'party_money' && <div className="flex gap-2"><button type="button" onClick={()=>setMoneyTreasury('cash')} className={`flex-1 py-2 rounded-lg border ${moneyTreasury==='cash'?'bg-green-700/30 border-green-500 text-green-200':'border-white/10 text-gray-400'}`}>💵 كاش {formatCurrency(cashBalance)}</button><button type="button" onClick={()=>setMoneyTreasury('bank')} className={`flex-1 py-2 rounded-lg border ${moneyTreasury==='bank'?'bg-blue-700/30 border-blue-500 text-blue-200':'border-white/10 text-gray-400'}`}>🏦 بنك {formatCurrency(bankBalance)}</button></div>}
                   {mode === 'treasury_transfer' && <div className="text-xs text-gray-400">الرصيد: كاش {formatCurrency(cashBalance)} — بنك {formatCurrency(bankBalance)}</div>}
                   <div><label className="text-xs text-gray-400 mb-1 block">المبلغ</label><input ref={firstFieldRef} type="number" min="0" value={paid} onChange={e=>setPaid(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') handleSaveMoneyMovement();}} placeholder="0" className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"/></div>
                   <input type="date" value={moneyDate} onChange={e=>setMoneyDate(e.target.value)} className="w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm"/>

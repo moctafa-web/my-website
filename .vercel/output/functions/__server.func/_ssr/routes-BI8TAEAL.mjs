@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CpSDEaf-.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BI8TAEAL.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -729,6 +729,7 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 	const [transferTo, setTransferTo] = (0, import_react.useState)("bank");
 	const [moneyNote, setMoneyNote] = (0, import_react.useState)("");
 	const [selectedMoneyParty, setSelectedMoneyParty] = (0, import_react.useState)("");
+	const [moneyDirection, setMoneyDirection] = (0, import_react.useState)("in");
 	useGlobalDropdownDismiss(() => {
 		setActiveDropdownRow(null);
 	});
@@ -758,6 +759,7 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 		setTransferTo("bank");
 		setMoneyNote("");
 		setSelectedMoneyParty("");
+		setMoneyDirection("in");
 		setOrderNumber("");
 		setError(null);
 		setTimeout(() => firstFieldRef.current?.focus(), 50);
@@ -1113,13 +1115,17 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 		resetEntryFields();
 	};
 	const moneyPartyList = (0, import_react.useMemo)(() => {
-		return (mode === "partner_in" || mode === "partner_out" ? partners : employees).filter((x) => x.isActive);
-	}, [
-		mode,
-		partners,
-		employees
-	]);
-	const selectedMoneyPartyData = moneyPartyList.find((x) => x.id === selectedMoneyParty);
+		return [...partners.filter((x) => x.isActive).map((x) => ({
+			id: x.id,
+			name: x.name,
+			type: "partner"
+		})), ...employees.filter((x) => x.isActive).map((x) => ({
+			id: x.id,
+			name: x.name,
+			type: "employee"
+		}))];
+	}, [partners, employees]);
+	const selectedMoneyPartyData = moneyPartyList.find((x) => `${x.type}:${x.id}` === selectedMoneyParty);
 	const handleSaveMoneyMovement = () => {
 		const amount = Number(paid);
 		if (!(amount > 0)) {
@@ -1153,24 +1159,23 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 				return;
 			}
 			setFlash(`✅ تم تسجيل طيارة ${formatCurrency(amount)}`);
-		} else {
+		} else if (mode === "party_money") {
 			if (!selectedMoneyPartyData || !onAddPartyMoneyMovement) {
-				setError("اختار الاسم أولًا");
+				setError("اختار العامل أو الشريك أولًا");
 				return;
 			}
-			const partyType = mode === "partner_in" || mode === "partner_out" ? "partner" : "employee";
-			const direction = mode === "partner_in" || mode === "employee_in" ? "in" : "out";
-			const result = onAddPartyMoneyMovement(partyType, selectedMoneyPartyData.id, selectedMoneyPartyData.name, moneyTreasury, direction, amount, moneyNote.trim(), date);
+			const result = onAddPartyMoneyMovement(selectedMoneyPartyData.type, selectedMoneyPartyData.id, selectedMoneyPartyData.name, moneyTreasury, moneyDirection, amount, moneyNote.trim(), date);
 			if (!result.success) {
 				setError(result.message || "تعذر تسجيل الحركة");
 				return;
 			}
-			setFlash(`✅ تم تسجيل ${direction === "in" ? "دخول" : "خروج"} ${formatCurrency(amount)} — ${selectedMoneyPartyData.name}`);
+			setFlash(`✅ تم تسجيل ${moneyDirection === "in" ? "دخول للمحل" : "خروج من المحل"} ${formatCurrency(amount)} — ${selectedMoneyPartyData.name}`);
 		}
 		setSavedCount((c) => c + 1);
 		setPaid("");
 		setMoneyNote("");
 		setSelectedMoneyParty("");
+		setMoneyDirection("in");
 		setMoneyDate(getTodayStr());
 		setError(null);
 	};
@@ -1228,25 +1233,10 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 			icon: CircleArrowDown,
 			color: "green"
 		},
-		partner_in: {
-			label: "دخول من شريك",
+		party_money: {
+			label: "العمال والشركاء",
 			icon: CircleArrowDown,
 			color: "violet"
-		},
-		partner_out: {
-			label: "خروج لشريك",
-			icon: CircleArrowUp,
-			color: "red"
-		},
-		employee_in: {
-			label: "دخول من عامل",
-			icon: CircleArrowDown,
-			color: "violet"
-		},
-		employee_out: {
-			label: "خروج لعامل",
-			icon: CircleArrowUp,
-			color: "red"
 		}
 	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -1426,21 +1416,41 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 							].includes(mode) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "space-y-4",
 								children: [
-									(mode === "partner_in" || mode === "partner_out" || mode === "employee_in" || mode === "employee_out") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									mode === "party_money" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 										className: "text-xs text-gray-400 mb-1 block",
-										children: mode.startsWith("partner") ? "الشريك" : "العامل"
+										children: "الشخص"
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
 										value: selectedMoneyParty,
 										onChange: (e) => setSelectedMoneyParty(e.target.value),
 										className: "w-full bg-muted-bg border border-violet-900/30 rounded-lg px-3 py-2 text-white text-sm",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
 											value: "",
-											children: "اختار الاسم"
-										}), moneyPartyList.map((x) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: x.id,
-											children: x.name
-										}, x.id))]
-									})] }),
+											children: "اختار العامل أو الشريك"
+										}), moneyPartyList.map((x) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+											value: `${x.type}:${x.id}`,
+											children: [
+												x.name,
+												" — ",
+												x.type === "partner" ? "شريك" : "عامل"
+											]
+										}, `${x.type}:${x.id}`))]
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+										className: "text-xs text-gray-400 mb-1 block",
+										children: "الحركة"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-2 gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => setMoneyDirection("in"),
+											className: `py-2 rounded-lg border ${moneyDirection === "in" ? "bg-green-700/30 border-green-500 text-green-200" : "border-white/10 text-gray-400"}`,
+											children: "🟢 دخول للمحل من الشخص"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => setMoneyDirection("out"),
+											className: `py-2 rounded-lg border ${moneyDirection === "out" ? "bg-red-700/30 border-red-500 text-red-200" : "border-white/10 text-gray-400"}`,
+											children: "🔴 خروج من المحل للشخص"
+										})]
+									})] })] }),
 									mode === "treasury_transfer" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "grid grid-cols-2 gap-2",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
@@ -1473,7 +1483,7 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 											})]
 										})] })]
 									}),
-									mode !== "treasury_transfer" && mode !== "partner_in" && mode !== "partner_out" && mode !== "employee_in" && mode !== "employee_out" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									mode !== "treasury_transfer" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "flex flex-wrap gap-2",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 											type: "button",
@@ -1493,7 +1503,7 @@ function QuickEntry({ products, customers, suppliers, parties = [], payments = [
 											})]
 										})]
 									}),
-									(mode === "partner_in" || mode === "partner_out" || mode === "employee_in" || mode === "employee_out") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									mode === "party_money" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "flex gap-2",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 											type: "button",
