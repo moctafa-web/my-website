@@ -209,3 +209,23 @@
 @media print {
   .print-skip { display: none !important; }
 }
+
+
+/* Date pickers in account statements: keep the calendar control clearly visible on the dark UI. */
+.statement-date-picker {
+  color-scheme: dark;
+  color: #ffffff !important;
+  background: var(--color-elevated) !important;
+}
+.statement-date-picker::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 1;
+  cursor: pointer;
+}
+.statement-date-picker::-webkit-datetime-edit,
+.statement-date-picker::-webkit-datetime-edit-text,
+.statement-date-picker::-webkit-datetime-edit-month-field,
+.statement-date-picker::-webkit-datetime-edit-day-field,
+.statement-date-picker::-webkit-datetime-edit-year-field {
+  color: #ffffff;
+}

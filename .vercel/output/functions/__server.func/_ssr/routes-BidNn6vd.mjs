@@ -9,7 +9,7 @@ import { a as getApp, o as getApps, s as initializeApp } from "../_libs/@firebas
 import { a as doc, i as collection, n as getDocs, o as getFirestore, r as setDoc, t as deleteDoc } from "../_libs/@firebase/firestore+[...].mjs";
 import "../_libs/firebase.mjs";
 import { i as signOut, n as onAuthStateChanged, r as signInWithEmailAndPassword, t as getAuth } from "../_libs/firebase__auth.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-0z57z77v.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BidNn6vd.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var import_lib = /* @__PURE__ */ __toESM(require_lib());
@@ -11453,7 +11453,7 @@ function Customers({ customers, saleInvoices, purchaseInvoices, payments, onAddC
 		]
 	});
 }
-function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }) {
+function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onDeletePayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }) {
 	const [search, setSearch] = (0, import_react.useState)("");
 	const [filter, setFilter] = (0, import_react.useState)("all");
 	const [showForm, setShowForm] = (0, import_react.useState)(false);
@@ -12234,6 +12234,10 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
 											className: "p-2",
 											children: "الرصيد الجاري"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+											className: "p-2",
+											children: "إجراء"
 										})
 									]
 								}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: periodRows.map((r, i) => {
@@ -12247,7 +12251,7 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 													type: "date",
 													value: normalizeDateValue(r.date),
 													onChange: (e) => changeRowDate(r, e.target.value),
-													className: "bg-transparent border border-transparent hover:border-border rounded px-1 text-gray-200 text-xs",
+													className: "statement-date-picker bg-elevated border border-border hover:border-border-strong rounded px-2 py-1 text-white text-xs",
 													title: "تعديل التاريخ"
 												})
 											}),
@@ -12286,6 +12290,19 @@ function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty
 													" ",
 													prior >= 0 ? "لنا" : "له"
 												]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+												className: "p-2 text-center",
+												children: r.reference && payments.some((p) => p.id === r.reference) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													onClick: () => {
+														if (!window.confirm("هل تريد حذف هذه الدفعة نهائيًا؟ سيتم عكسها من الكاش/البنك وتحديث رصيد الحساب.")) return;
+														const result = onDeletePayment?.(r.reference);
+														if (result && result.success === false) setError(result.message || "تعذر حذف الدفعة.");
+													},
+													className: "p-1.5 rounded text-red-300 hover:bg-red-900/20 hover:text-red-200",
+													title: "إلغاء / حذف الدفعة",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 15 })
+												}) : null
 											})
 										]
 									}, `${r.reference || r.text}-${i}`);
@@ -28664,6 +28681,57 @@ function useStore() {
 		});
 		return result;
 	}, []);
+	const deletePayment = (0, import_react.useCallback)((paymentId) => {
+		let result = { success: true };
+		setState((prev) => {
+			const payment = prev.payments.find((p) => p.id === paymentId);
+			if (!payment) {
+				result = {
+					success: false,
+					message: "الدفعة غير موجودة."
+				};
+				return prev;
+			}
+			const treasury = payment.paymentMethod === "cash" ? "cash" : "bank";
+			const matchingType = payment.direction === "in" ? "payment_in" : "payment_out";
+			const matchingTreasury = prev.treasuryTransactions.find((t) => t.sourceId === paymentId) || prev.treasuryTransactions.find((t) => !t.sourceId && t.referenceId === payment.referenceId && t.type === matchingType && t.amount === payment.amount && t.createdAt >= payment.createdAt);
+			const payments = prev.payments.filter((p) => p.id !== paymentId);
+			let saleInvoices = prev.saleInvoices;
+			let purchaseInvoices = prev.purchaseInvoices;
+			if (payment.direction === "in" && (payment.type === "sale" || payment.type === "opening")) saleInvoices = reconcilePartyInvoicePayments(saleInvoices, purchaseInvoices, payments, payment.referenceId, "sale").sales;
+			else if (payment.direction === "out" && (payment.type === "purchase" || payment.type === "opening")) purchaseInvoices = reconcilePartyInvoicePayments(saleInvoices, purchaseInvoices, payments, payment.referenceId, "purchase").purchases;
+			const treasuryTransactions = matchingTreasury ? prev.treasuryTransactions.filter((t) => t.id !== matchingTreasury.id) : prev.treasuryTransactions;
+			const next = {
+				...prev,
+				payments,
+				saleInvoices,
+				purchaseInvoices,
+				treasuryTransactions,
+				cashBalance: treasury === "cash" ? payment.direction === "in" ? prev.cashBalance - payment.amount : prev.cashBalance + payment.amount : prev.cashBalance,
+				bankBalance: treasury === "bank" ? payment.direction === "in" ? prev.bankBalance - payment.amount : prev.bankBalance + payment.amount : prev.bankBalance,
+				customers: prev.customers.map((c) => c.id === payment.referenceId ? {
+					...c,
+					totalPaid: Math.max(0, (c.totalPaid || 0) - payment.amount)
+				} : c),
+				suppliers: prev.suppliers.map((s) => s.id === payment.referenceId ? {
+					...s,
+					totalPaid: Math.max(0, (s.totalPaid || 0) - payment.amount)
+				} : s)
+			};
+			deleteFromFirebase("payments", paymentId);
+			if (matchingTreasury) deleteFromFirebase("treasuryTransactions", matchingTreasury.id);
+			saveToFirebase("treasury", "main", {
+				cashBalance: next.cashBalance,
+				bankBalance: next.bankBalance
+			});
+			next.customers.filter((c) => c.id === payment.referenceId).forEach((c) => saveToFirebase("customers", c.id, c));
+			next.suppliers.filter((s) => s.id === payment.referenceId).forEach((s) => saveToFirebase("suppliers", s.id, s));
+			saleInvoices.filter((i) => i.customerId === payment.referenceId).forEach((i) => saveToFirebase("saleInvoices", i.id, i));
+			purchaseInvoices.filter((i) => i.supplierId === payment.referenceId).forEach((i) => saveToFirebase("purchaseInvoices", i.id, i));
+			return next;
+		});
+		return result;
+	}, []);
 	const updatePaymentDate = (0, import_react.useCallback)((paymentId, date) => {
 		const normalizedDate = normalizeDateValue(date);
 		if (!normalizedDate) return;
@@ -29567,6 +29635,7 @@ function useStore() {
 		deletePurchaseInvoice,
 		completePendingPurchase,
 		addPayment,
+		deletePayment,
 		updatePaymentDate,
 		updateSaleInvoiceDate,
 		updatePurchaseInvoiceDate,

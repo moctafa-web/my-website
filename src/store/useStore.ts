@@ -1458,6 +1458,100 @@ export function useStore() {
     return result;
   }, []);
 
+  const deletePayment = useCallback((paymentId: string): { success: boolean; message?: string } => {
+    let result: { success: boolean; message?: string } = { success: true };
+    setState(prev => {
+      const payment = prev.payments.find(p => p.id === paymentId);
+      if (!payment) {
+        result = { success: false, message: 'الدفعة غير موجودة.' };
+        return prev;
+      }
+
+      const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
+      const matchingType = payment.direction === 'in' ? 'payment_in' : 'payment_out';
+
+      // نربط حركة الخزينة بالدفعة نفسها أولًا، مع fallback للسجلات القديمة.
+      const matchingTreasury = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
+        || prev.treasuryTransactions.find(t =>
+          !t.sourceId &&
+          t.referenceId === payment.referenceId &&
+          t.type === matchingType &&
+          t.amount === payment.amount &&
+          t.createdAt >= payment.createdAt
+        );
+
+      const payments = prev.payments.filter(p => p.id !== paymentId);
+      let saleInvoices = prev.saleInvoices;
+      let purchaseInvoices = prev.purchaseInvoices;
+
+      // إعادة توزيع الدفعات يدويًا بعد حذف الحركة حتى تتحدث حالة الفواتير
+      // والمدفوع والمتبقي تلقائيًا.
+      if (payment.direction === 'in' && (payment.type === 'sale' || payment.type === 'opening')) {
+        const reconciled = reconcilePartyInvoicePayments(
+          saleInvoices,
+          purchaseInvoices,
+          payments,
+          payment.referenceId,
+          'sale',
+        );
+        saleInvoices = reconciled.sales;
+      } else if (payment.direction === 'out' && (payment.type === 'purchase' || payment.type === 'opening')) {
+        const reconciled = reconcilePartyInvoicePayments(
+          saleInvoices,
+          purchaseInvoices,
+          payments,
+          payment.referenceId,
+          'purchase',
+        );
+        purchaseInvoices = reconciled.purchases;
+      }
+
+      const treasuryTransactions = matchingTreasury
+        ? prev.treasuryTransactions.filter(t => t.id !== matchingTreasury.id)
+        : prev.treasuryTransactions;
+
+      const next = {
+        ...prev,
+        payments,
+        saleInvoices,
+        purchaseInvoices,
+        treasuryTransactions,
+        cashBalance: treasury === 'cash'
+          ? payment.direction === 'in'
+            ? prev.cashBalance - payment.amount
+            : prev.cashBalance + payment.amount
+          : prev.cashBalance,
+        bankBalance: treasury === 'bank'
+          ? payment.direction === 'in'
+            ? prev.bankBalance - payment.amount
+            : prev.bankBalance + payment.amount
+          : prev.bankBalance,
+        customers: prev.customers.map(c =>
+          c.id === payment.referenceId
+            ? { ...c, totalPaid: Math.max(0, (c.totalPaid || 0) - payment.amount) }
+            : c
+        ),
+        suppliers: prev.suppliers.map(s =>
+          s.id === payment.referenceId
+            ? { ...s, totalPaid: Math.max(0, (s.totalPaid || 0) - payment.amount) }
+            : s
+        ),
+      };
+
+      deleteFromFirebase('payments', paymentId);
+      if (matchingTreasury) deleteFromFirebase('treasuryTransactions', matchingTreasury.id);
+      saveToFirebase('treasury', 'main', { cashBalance: next.cashBalance, bankBalance: next.bankBalance });
+
+      next.customers.filter(c => c.id === payment.referenceId).forEach(c => saveToFirebase('customers', c.id, c));
+      next.suppliers.filter(s => s.id === payment.referenceId).forEach(s => saveToFirebase('suppliers', s.id, s));
+      saleInvoices.filter(i => i.customerId === payment.referenceId).forEach(i => saveToFirebase('saleInvoices', i.id, i));
+      purchaseInvoices.filter(i => i.supplierId === payment.referenceId).forEach(i => saveToFirebase('purchaseInvoices', i.id, i));
+
+      return next;
+    });
+    return result;
+  }, []);
+
   const updatePaymentDate = useCallback((paymentId: string, date: string) => {
     const normalizedDate = normalizeDateValue(date);
     if (!normalizedDate) return;
@@ -2302,7 +2396,7 @@ export function useStore() {
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,
     addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice,
     completePendingPurchase,
-    addPayment,
+    addPayment, deletePayment,
     updatePaymentDate, updateSaleInvoiceDate, updatePurchaseInvoiceDate,
     addExpense,
     addTreasuryTransfer, addTreasuryAdjustment,
