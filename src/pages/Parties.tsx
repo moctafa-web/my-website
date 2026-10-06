@@ -39,6 +39,7 @@ type StatementRow = {
   method?: string;
   notes?: string;
   person?: string;
+  details?: string[];
 };
 
 export default function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onDeletePayment, onUpdatePayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }: Props) {
@@ -60,6 +61,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   const [editDate, setEditDate] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editPerson, setEditPerson] = useState('');
+  const [detailLevel, setDetailLevel] = useState<'brief'|'detailed'>('brief');
   const [rowFilter, setRowFilter] = useState<'all'|'invoices'|'payments'>('all');
   const [paymentDate, setPaymentDate] = useState(getTodayStr());
   const [paymentNotes, setPaymentNotes] = useState('');
@@ -139,8 +141,8 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   const statementRows = useMemo(() => {
     if (!view) return [] as StatementRow[];
     const rows: StatementRow[] = [
-      ...saleInvoices.filter(i=>i.customerId===view.id).map(i=>({date:normalizeDateValue(i.date), createdAt:i.createdAt, text:`فاتورة بيع ${i.invoiceNumber}`, debit:i.total, credit:0, reference:i.id, kind:'invoice' as const})),
-      ...purchaseInvoices.filter(i=>i.supplierId===view.id).map(i=>({date:normalizeDateValue(i.date), createdAt:i.createdAt, text:`فاتورة شراء ${i.invoiceNumber}`, debit:0, credit:i.total, reference:i.id, kind:'invoice' as const})),
+      ...saleInvoices.filter(i=>i.customerId===view.id).map(i=>({date:normalizeDateValue(i.date), createdAt:i.createdAt, text:`فاتورة بيع ${i.invoiceNumber}`, debit:i.total, credit:0, reference:i.id, kind:'invoice' as const, details:(i.items||[]).map(it=>`${it.quantity} x ${it.productName}`)})),
+      ...purchaseInvoices.filter(i=>i.supplierId===view.id).map(i=>({date:normalizeDateValue(i.date), createdAt:i.createdAt, text:`فاتورة شراء ${i.invoiceNumber}`, debit:0, credit:i.total, reference:i.id, kind:'invoice' as const, details:(i.items||[]).map(it=>`${it.quantity} x ${it.productName}`)})),
       ...payments.filter(p=>p.referenceId===view.id).map(p=>({date:normalizeDateValue(p.date), createdAt:p.createdAt, text:`${p.direction==='in'?'دفعة واردة':'دفعة خارجة'} — ${paymentMethodLabel(p.paymentMethod)}`, debit:p.direction==='out'?p.amount:0, credit:p.direction==='in'?p.amount:0, reference:p.id, kind:'payment' as const, method:p.paymentMethod, notes:p.notes, person:p.instapayPerson})),
     ];
     return rows.sort((a,b)=>a.date.localeCompare(b.date) || (a.createdAt || '').localeCompare(b.createdAt || '') || (a.reference || '').localeCompare(b.reference || ''));
@@ -204,6 +206,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
     if (!view) return null;
     return {
       name: view.name, phone: view.phone, dateFrom, dateTo,
+      detailed: detailLevel === 'detailed',
       filterLabel: rowFilter === 'all' ? 'كل الحركات' : rowFilter === 'invoices' ? 'الفواتير فقط' : 'الدفعات فقط',
       opening: openingForPeriod,
       rows: visibleRows,
@@ -227,7 +230,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
     if (!view) return;
     let running = openingForPeriod;
     const lines = [`📋 كشف حساب — ${view.name}`, `الرصيد الافتتاحي: ${formatCurrency(openingForPeriod)} ج.م`, `الفترة: ${dateFrom||'من البداية'} → ${dateTo||'اليوم'}`, ''];
-    periodRows.forEach(r => { running += r.debit-r.credit; lines.push(`${r.date} — ${r.text}${r.notes?' ('+r.notes+')':''}: مدين ${r.debit?formatCurrency(r.debit):'-'} | دائن ${r.credit?formatCurrency(r.credit):'-'} | الرصيد ${formatCurrency(Math.abs(running))} ${running>=0?'لنا':'له'}`); });
+    periodRows.forEach(r => { running += r.debit-r.credit; lines.push(`${r.date} — ${r.text}${r.notes?' ('+r.notes+')':''}: مدين ${r.debit?formatCurrency(r.debit):'-'} | دائن ${r.credit?formatCurrency(r.credit):'-'} | الرصيد ${formatCurrency(Math.abs(running))} ${running>=0?'لنا':'له'}`); if (detailLevel === 'detailed') (r.details||[]).forEach(l => lines.push(`      • ${l}`)); });
     lines.push('', `الرصيد الجاري: ${formatCurrency(Math.abs(currentBalance))} ${currentBalance>=0?'مستحق لنا':'مستحق له'}`);
     try { await navigator.clipboard.writeText(lines.join('\n')); setCopied(true); setTimeout(()=>setCopied(false),1800); } catch { setError('تعذر نسخ الكشف.'); }
   };
@@ -275,13 +278,13 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 my-5"><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">الرصيد الافتتاحي</div><div className="font-black text-white">{formatCurrency(openingForPeriod)}</div></div><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">حركة مدين</div><div className="font-bold text-white">{formatCurrency(periodDebit)}</div></div><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">حركة دائن</div><div className="font-bold text-white">{formatCurrency(periodCredit)}</div></div><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">الرصيد الجاري</div><div className={`font-black ${currentBalance>=0?'text-red-300':'text-green-300'}`}>{formatCurrency(Math.abs(currentBalance))} {currentBalance>=0?'لنا':'له'}</div></div></div>
       <div className="flex flex-wrap gap-2 items-center mb-4"><span className="text-xs text-muted">الفترة:</span><input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="input-dark"/><span className="text-gray-500">إلى</span><input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="input-dark"/><button onClick={()=>{setDateFrom('');setDateTo('')}} className="btn-secondary text-xs">كل الفترة</button><button onClick={()=>openPayment(view)} className="btn-primary text-xs">💰 تسجيل دفعة</button></div>
       <div className="overflow-auto">
-        <div className="flex flex-wrap gap-2 mb-3">{([['all','كل الحركات'],['invoices','الفواتير فقط'],['payments','الدفعات فقط']] as ['all'|'invoices'|'payments',string][]).map(([k,l])=><button key={k} onClick={()=>setRowFilter(k)} className={`px-3 py-1.5 rounded-lg text-xs border ${rowFilter===k?'bg-violet-700/30 border-violet-500/50 text-violet-200':'border-border text-gray-400 hover:bg-white/5'}`}>{l}</button>)}</div>
+        <div className="flex flex-wrap gap-2 mb-3">{([['all','كل الحركات'],['invoices','الفواتير فقط'],['payments','الدفعات فقط']] as ['all'|'invoices'|'payments',string][]).map(([k,l])=><button key={k} onClick={()=>setRowFilter(k)} className={`px-3 py-1.5 rounded-lg text-xs border ${rowFilter===k?'bg-violet-700/30 border-violet-500/50 text-violet-200':'border-border text-gray-400 hover:bg-white/5'}`}>{l}</button>)}<span className="mx-1 text-border">|</span><span className="text-xs text-muted self-center">البيان:</span>{([['brief','مختصر'],['detailed','مفصل (أصناف الفاتورة)']] as ['brief'|'detailed',string][]).map(([k,l])=><button key={k} onClick={()=>setDetailLevel(k)} className={`px-3 py-1.5 rounded-lg text-xs border ${detailLevel===k?'bg-blue-700/30 border-blue-500/50 text-blue-200':'border-border text-gray-400 hover:bg-white/5'}`}>{l}</button>)}</div>
         <table className="w-full text-sm"><thead><tr className="border-b border-border text-muted"><th className="p-2">التاريخ</th><th className="p-2 text-right">البيان</th><th className="p-2">مدين</th><th className="p-2">دائن</th><th className="p-2">الرصيد الجاري</th><th className="p-2">إجراءات</th></tr></thead>
         <tbody>
           <tr className="border-b border-border/40 bg-white/[.03]"><td className="p-2 text-center text-xs text-muted">{dateFrom||'—'}</td><td className="p-2 font-bold text-gray-300">الرصيد الافتتاحي</td><td className="p-2 text-center">-</td><td className="p-2 text-center">-</td><td className={`p-2 text-center font-bold ${balClass(openingForPeriod)}`}>{balText(openingForPeriod)}</td><td className="p-2"></td></tr>
           {visibleRows.map((r,i)=>{ const isManual = r.kind==='payment' && payments.some(x=>x.id===r.reference && !x.id.startsWith('paid_')); return <tr key={`${r.reference||r.text}-${i}`} className="border-b border-border/40">
             <td className="p-2"><input type="date" value={normalizeDateValue(r.date)} onChange={e=>changeRowDate(r,e.target.value)} className="bg-transparent border border-border/60 hover:border-violet-400 rounded px-1 text-white text-xs" title="تعديل التاريخ" /></td>
-            <td className="p-2">{(() => { const sale = saleInvoices.find(inv => inv.id === r.reference); const purchase = purchaseInvoices.find(inv => inv.id === r.reference); if (sale) return <button onClick={() => onOpenInvoice?.('sale', sale.id)} className="text-violet-300 hover:text-violet-200 hover:underline font-medium" title="فتح الفاتورة">{r.text}</button>; if (purchase) return <button onClick={() => onOpenInvoice?.('purchase', purchase.id)} className="text-violet-300 hover:text-violet-200 hover:underline font-medium" title="فتح الفاتورة">{r.text}</button>; return <div className="flex flex-wrap items-center gap-2"><span>{r.debit>0?'دفعة خارجة':'دفعة واردة'}</span><span className={`text-xs px-2 py-0.5 rounded-full border ${methodBadge(r.method)}`}>{methodIcon(r.method)} {paymentMethodLabel(r.method||'')}</span>{r.person&&<span className="text-xs text-gray-400">({r.person})</span>}</div>; })()}{r.notes&&<div className="text-xs text-gray-500 mt-0.5">{r.notes}</div>}</td>
+            <td className="p-2">{(() => { const sale = saleInvoices.find(inv => inv.id === r.reference); const purchase = purchaseInvoices.find(inv => inv.id === r.reference); if (sale) return <button onClick={() => onOpenInvoice?.('sale', sale.id)} className="text-violet-300 hover:text-violet-200 hover:underline font-medium" title="فتح الفاتورة">{r.text}</button>; if (purchase) return <button onClick={() => onOpenInvoice?.('purchase', purchase.id)} className="text-violet-300 hover:text-violet-200 hover:underline font-medium" title="فتح الفاتورة">{r.text}</button>; return <div className="flex flex-wrap items-center gap-2"><span>{r.debit>0?'دفعة خارجة':'دفعة واردة'}</span><span className={`text-xs px-2 py-0.5 rounded-full border ${methodBadge(r.method)}`}>{methodIcon(r.method)} {paymentMethodLabel(r.method||'')}</span>{r.person&&<span className="text-xs text-gray-400">({r.person})</span>}</div>; })()}{detailLevel==='detailed'&&r.details&&r.details.length>0&&<ul className="mt-1.5 space-y-0.5 text-xs text-gray-300 border-r-2 border-violet-500/40 pr-2">{r.details.map((l,idx)=><li key={idx} dir="auto" style={{unicodeBidi:'plaintext'}}>{l}</li>)}</ul>}{r.notes&&<div className="text-xs text-gray-500 mt-0.5">{r.notes}</div>}</td>
             <td className="p-2 text-center">{r.debit?formatCurrency(r.debit):'-'}</td><td className="p-2 text-center">{r.credit?formatCurrency(r.credit):'-'}</td>
             <td className={`p-2 text-center font-bold ${balClass(r.balanceAfter)}`}>{balText(r.balanceAfter)}</td>
             <td className="p-2 text-center whitespace-nowrap">{isManual && <>{onUpdatePayment&&<button onClick={()=>openEditPayment(r)} className="p-1.5 rounded-lg text-blue-300 hover:bg-blue-900/30" title="تعديل الدفعة"><Pencil size={14}/></button>}{onDeletePayment&&<button onClick={()=>cancelPayment(r)} className="p-1.5 rounded-lg text-red-300 hover:bg-red-900/30" title="حذف الدفعة"><Trash2 size={14}/></button>}</>}{r.kind==='payment'&&!isManual&&<span className="text-[10px] text-gray-500">من الفاتورة</span>}</td>

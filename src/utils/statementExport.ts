@@ -8,6 +8,7 @@ export interface ExportRow {
   method?: string;
   person?: string;
   notes?: string;
+  details?: string[];
   debit: number;
   credit: number;
   balanceAfter: number;
@@ -18,6 +19,7 @@ export interface ExportInput {
   phone?: string;
   dateFrom: string;
   dateTo: string;
+  detailed?: boolean; // إظهار أصناف الفواتير تحت البيان
   filterLabel: string; // "كل الحركات" / "الفواتير فقط" / "الدفعات فقط"
   opening: number;
   rows: ExportRow[];
@@ -44,7 +46,7 @@ export const buildStatementHtml = (d: ExportInput): string => {
   const rows = d.rows.map(r => `
     <tr>
       <td>${esc(r.date)}</td>
-      <td>${esc(baseText(r))}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ''}</td>
+      <td>${esc(baseText(r))}${d.detailed && r.details?.length ? `<ul class="items">${r.details.map(l => `<li dir="auto">${esc(l)}</li>`).join('')}</ul>` : ''}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ''}</td>
       <td>${esc(methodText(r)) || '-'}</td>
       <td class="num">${r.debit ? formatCurrency(r.debit) : '-'}</td>
       <td class="num">${r.credit ? formatCurrency(r.credit) : '-'}</td>
@@ -63,6 +65,7 @@ export const buildStatementHtml = (d: ExportInput): string => {
     .st td, .st th { border: 1px solid #ccc; padding: 6px 8px; font-size: 12px; text-align: right; }
     .st .num { text-align: center; white-space: nowrap; }
     .st .bal { font-weight: 700; }
+    .st .items { margin: 4px 0 0; padding-right: 14px; font-size: 11px; color: #333; }
     .st .note { font-size: 10px; color: #777; margin-top: 2px; }
     .st .open td, .st .total td { background: #f6f7fb; font-weight: 700; }
     .st .sum { margin-top: 14px; font-size: 14px; }
@@ -96,21 +99,25 @@ export const exportStatementExcel = (d: ExportInput) => {
     [],
   ];
   const headerRow = aoa.length; // index of header row (0-based)
-  aoa.push(['التاريخ', 'البيان', 'طريقة الدفع', 'ملاحظات', 'مدين', 'دائن', 'الرصيد الجاري', 'لنا / له']);
-  aoa.push([d.dateFrom || '', 'الرصيد الافتتاحي', '', '', '', '', Math.abs(d.opening), side(d.opening)]);
-  d.rows.forEach(r => aoa.push([
-    r.date, baseText(r), methodText(r), r.notes || '',
-    r.debit || '', r.credit || '', Math.abs(r.balanceAfter), side(r.balanceAfter),
-  ]));
-  aoa.push(['', 'الإجمالي / الرصيد الختامي', '', '', d.totalDebit, d.totalCredit, Math.abs(d.closing), side(d.closing)]);
+  const det = !!d.detailed;
+  const detCell = (r: ExportRow) => (r.details || []).join(' | ');
+  const header = ['التاريخ', 'البيان', ...(det ? ['تفاصيل الأصناف'] : []), 'طريقة الدفع', 'ملاحظات', 'مدين', 'دائن', 'الرصيد الجاري', 'لنا / له'];
+  const mk = (date: string, text: string, detail: string, method: string, notes: string, debit: number | string, credit: number | string, bal: number, sd: string) =>
+    [date, text, ...(det ? [detail] : []), method, notes, debit, credit, bal, sd];
+  aoa.push(header);
+  aoa.push(mk(d.dateFrom || '', 'الرصيد الافتتاحي', '', '', '', '', '', Math.abs(d.opening), side(d.opening)));
+  d.rows.forEach(r => aoa.push(mk(r.date, baseText(r), detCell(r), methodText(r), r.notes || '', r.debit || '', r.credit || '', Math.abs(r.balanceAfter), side(r.balanceAfter))));
+  aoa.push(mk('', 'الإجمالي / الرصيد الختامي', '', '', '', d.totalDebit, d.totalCredit, Math.abs(d.closing), side(d.closing)));
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 9 }];
-  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
-  // تنسيق الأرقام (آلاف + خانتين عشريتين)
+  const nCols = header.length;
+  ws['!cols'] = [{ wch: 12 }, { wch: 28 }, ...(det ? [{ wch: 48 }] : []), { wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 9 }];
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nCols - 1 } }];
+  // تنسيق الأرقام (آلاف + خانتين عشريتين): مدين / دائن / الرصيد
+  const numCols = [nCols - 4, nCols - 3, nCols - 2];
   const lastRow = aoa.length - 1;
   for (let r = headerRow + 1; r <= lastRow; r++) {
-    [4, 5, 6].forEach(c => {
+    numCols.forEach(c => {
       const cell = ws[XLSX.utils.encode_cell({ r, c })];
       if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
     });
