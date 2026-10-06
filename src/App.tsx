@@ -117,6 +117,7 @@ export default function App() {
             onDeleteParty={store.deleteParty}
             onAddPayment={store.addPayment}
             onDeletePayment={store.deletePayment}
+            onUpdatePayment={store.updatePayment}
             onUpdatePaymentDate={store.updatePaymentDate}
             onUpdateSaleInvoiceDate={store.updateSaleInvoiceDate}
             onUpdatePurchaseInvoiceDate={store.updatePurchaseInvoiceDate}

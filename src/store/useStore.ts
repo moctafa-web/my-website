@@ -1338,6 +1338,20 @@ export function useStore() {
   // ==================== PAYMENTS (FIFO) ====================
   const addPayment = useCallback((payment: Payment) => {
     setState(prev => {
+      // حماية من التكرار: نفس الدفعة (نفس الطرف/المبلغ/الاتجاه/الطريقة/التاريخ/الملاحظة)
+      // اتسجلت قبل أقل من 10 ثواني، أو نفس الـ id، يبقى ضغطة مزدوجة وبنتجاهلها.
+      const nowMs = Date.parse(payment.createdAt) || Date.now();
+      const isDuplicate = prev.payments.some(p =>
+        p.id === payment.id ||
+        (p.referenceId === payment.referenceId &&
+          p.amount === payment.amount &&
+          p.direction === payment.direction &&
+          p.paymentMethod === payment.paymentMethod &&
+          normalizeDateValue(p.date) === normalizeDateValue(payment.date) &&
+          (p.notes || '') === (payment.notes || '') &&
+          !p.id.startsWith('paid_') &&
+          Math.abs(nowMs - (Date.parse(p.createdAt) || 0)) < 10000));
+      if (isDuplicate) return prev;
       const newState = { ...prev, payments: [...prev.payments, payment] };
       const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
       let changedCustomer: Customer | null = null;
@@ -1505,6 +1519,77 @@ export function useStore() {
       return newState;
     });
     return result;
+  }, []);
+
+  // تعديل دفعة يدوية (المبلغ / الطريقة / التاريخ / الملاحظات) مع تصحيح الخزنة والفواتير
+  const updatePayment = useCallback((paymentId: string, patch: Partial<Pick<Payment, 'amount' | 'paymentMethod' | 'date' | 'notes' | 'instapayPerson'>>) => {
+    setState(prev => {
+      const old = prev.payments.find(p => p.id === paymentId);
+      if (!old || paymentId.startsWith('paid_')) return prev;
+      const amount = patch.amount !== undefined ? Number(patch.amount) : old.amount;
+      if (!(amount > 0)) return prev;
+
+      const updated: Payment = { ...old, ...patch, amount, date: patch.date ? normalizeDateValue(patch.date) : old.date };
+      if (updated.instapayPerson === undefined || updated.instapayPerson === '') delete updated.instapayPerson;
+
+      const oldT = old.paymentMethod === 'cash' ? 'cash' : 'bank';
+      const newT = updated.paymentMethod === 'cash' ? 'cash' : 'bank';
+      const sign = old.direction === 'in' ? 1 : -1; // أثر الدفعة على رصيد الخزنة
+      let cash = prev.cashBalance;
+      let bank = prev.bankBalance;
+      if (oldT === 'cash') cash -= sign * old.amount; else bank -= sign * old.amount;
+      if (newT === 'cash') cash += sign * amount; else bank += sign * amount;
+
+      const diff = amount - old.amount;
+      const newState = {
+        ...prev,
+        cashBalance: cash,
+        bankBalance: bank,
+        payments: prev.payments.map(p => p.id === paymentId ? updated : p),
+        customers: prev.customers.map(c => c.id === old.referenceId ? { ...c, totalPaid: Math.max(0, (c.totalPaid || 0) + diff) } : c),
+        suppliers: prev.suppliers.map(s2 => s2.id === old.referenceId ? { ...s2, totalPaid: Math.max(0, (s2.totalPaid || 0) + diff) } : s2),
+      };
+
+      // حركة الخزنة المرتبطة
+      const matchingType = old.direction === 'in' ? 'payment_in' : 'payment_out';
+      const matching = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
+        || prev.treasuryTransactions.find(t => !t.sourceId && t.referenceId === old.referenceId && t.type === matchingType && t.amount === old.amount && t.createdAt >= old.createdAt);
+      let tx: TreasuryTransaction;
+      if (matching) {
+        tx = { ...matching, amount, treasury: newT, date: normalizeDateValue(updated.date), description: updated.notes || `دفعة - ${old.referenceName}`, sourceId: paymentId };
+        newState.treasuryTransactions = prev.treasuryTransactions.map(t => t.id === matching.id ? tx : t);
+      } else {
+        tx = {
+          id: makeTransactionId(),
+          type: matchingType,
+          description: updated.notes || `دفعة - ${old.referenceName}`,
+          amount,
+          treasury: newT,
+          direction: old.direction,
+          referenceId: old.referenceId,
+          sourceId: paymentId,
+          date: normalizeDateValue(updated.date),
+          createdAt: new Date().toISOString(),
+        };
+        newState.treasuryTransactions = [...prev.treasuryTransactions, tx];
+      }
+
+      // إعادة توزيع الدفعات على الفواتير
+      const side: 'sale' | 'purchase' = old.direction === 'in' ? 'sale' : 'purchase';
+      const reconciled = reconcilePartyInvoicePayments(newState.saleInvoices, newState.purchaseInvoices, newState.payments, old.referenceId, side);
+      newState.saleInvoices = reconciled.sales;
+      newState.purchaseInvoices = reconciled.purchases;
+
+      saveToFirebase('payments', paymentId, updated);
+      saveToFirebase('treasuryTransactions', tx.id, tx);
+      saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
+      const c = newState.customers.find(x => x.id === old.referenceId); if (c) saveToFirebase('customers', c.id, c);
+      const sp = newState.suppliers.find(x => x.id === old.referenceId); if (sp) saveToFirebase('suppliers', sp.id, sp);
+      if (side === 'sale') newState.saleInvoices.filter(inv => inv.customerId === old.referenceId).forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
+      else newState.purchaseInvoices.filter(inv => inv.supplierId === old.referenceId).forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
+
+      return newState;
+    });
   }, []);
 
   const updatePaymentDate = useCallback((paymentId: string, date: string) => {
@@ -2351,7 +2436,7 @@ export function useStore() {
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,
     addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice,
     completePendingPurchase,
-    addPayment, deletePayment,
+    addPayment, deletePayment, updatePayment,
     updatePaymentDate, updateSaleInvoiceDate, updatePurchaseInvoiceDate,
     addExpense,
     addTreasuryTransfer, addTreasuryAdjustment,

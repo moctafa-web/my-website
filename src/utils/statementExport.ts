@@ -1,0 +1,123 @@
+import * as XLSX from 'xlsx';
+import { formatCurrency, paymentMethodLabel } from './helpers';
+
+export interface ExportRow {
+  date: string;
+  kind?: 'invoice' | 'payment';
+  text: string;
+  method?: string;
+  person?: string;
+  notes?: string;
+  debit: number;
+  credit: number;
+  balanceAfter: number;
+}
+
+export interface ExportInput {
+  name: string;
+  phone?: string;
+  dateFrom: string;
+  dateTo: string;
+  filterLabel: string; // "كل الحركات" / "الفواتير فقط" / "الدفعات فقط"
+  opening: number;
+  rows: ExportRow[];
+  totalDebit: number;
+  totalCredit: number;
+  closing: number;
+}
+
+const side = (b: number) => (Math.abs(b) < 0.005 ? '' : b > 0 ? 'لنا' : 'له');
+const balText = (b: number) => `${formatCurrency(Math.abs(b))} ${side(b)}`.trim();
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// البيان بدون طريقة الدفع (لأنها بتتعرض في عمود مستقل)
+const baseText = (r: ExportRow) =>
+  r.kind === 'payment' ? (r.debit > 0 ? 'دفعة خارجة' : 'دفعة واردة') : r.text;
+const methodText = (r: ExportRow) =>
+  r.kind === 'payment' ? `${paymentMethodLabel(r.method || '')}${r.person ? ` (${r.person})` : ''}` : '';
+
+const periodText = (d: ExportInput) => `${d.dateFrom || 'من البداية'} إلى ${d.dateTo || 'اليوم'}`;
+
+// ========== PDF / طباعة ==========
+export const buildStatementHtml = (d: ExportInput): string => {
+  const color = (b: number) => (Math.abs(b) < 0.005 ? '#555' : b > 0 ? '#b91c1c' : '#15803d');
+  const rows = d.rows.map(r => `
+    <tr>
+      <td>${esc(r.date)}</td>
+      <td>${esc(baseText(r))}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ''}</td>
+      <td>${esc(methodText(r)) || '-'}</td>
+      <td class="num">${r.debit ? formatCurrency(r.debit) : '-'}</td>
+      <td class="num">${r.credit ? formatCurrency(r.credit) : '-'}</td>
+      <td class="num bal" style="color:${color(r.balanceAfter)}">${balText(r.balanceAfter)}</td>
+    </tr>`).join('');
+
+  return `
+  <style>
+    @page { size: A4; margin: 12mm; }
+    .st h2 { font-size: 20px; margin-bottom: 4px; }
+    .st .meta { font-size: 12px; color: #444; margin-bottom: 2px; }
+    .st table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    .st thead { display: table-header-group; }
+    .st tr { page-break-inside: avoid; }
+    .st th { background: #eef0f6; font-size: 12px; }
+    .st td, .st th { border: 1px solid #ccc; padding: 6px 8px; font-size: 12px; text-align: right; }
+    .st .num { text-align: center; white-space: nowrap; }
+    .st .bal { font-weight: 700; }
+    .st .note { font-size: 10px; color: #777; margin-top: 2px; }
+    .st .open td, .st .total td { background: #f6f7fb; font-weight: 700; }
+    .st .sum { margin-top: 14px; font-size: 14px; }
+  </style>
+  <div class="st" dir="rtl">
+    <h2>كشف حساب — ${esc(d.name)}</h2>
+    ${d.phone ? `<div class="meta">الهاتف: ${esc(d.phone)}</div>` : ''}
+    <div class="meta">الفترة: ${esc(periodText(d))}${d.filterLabel !== 'كل الحركات' ? ` — العرض: ${esc(d.filterLabel)}` : ''}</div>
+    <div class="meta">تاريخ الإصدار: ${new Date().toISOString().slice(0, 10)}</div>
+    <table>
+      <thead><tr><th>التاريخ</th><th>البيان</th><th>طريقة الدفع</th><th>مدين</th><th>دائن</th><th>الرصيد الجاري</th></tr></thead>
+      <tbody>
+        <tr class="open"><td>${esc(d.dateFrom || '—')}</td><td colspan="4">الرصيد الافتتاحي</td><td class="num bal" style="color:${color(d.opening)}">${balText(d.opening)}</td></tr>
+        ${rows}
+        <tr class="total"><td colspan="3">الإجمالي</td><td class="num">${formatCurrency(d.totalDebit)}</td><td class="num">${formatCurrency(d.totalCredit)}</td><td class="num" style="color:${color(d.closing)}">${balText(d.closing)}</td></tr>
+      </tbody>
+    </table>
+    <div class="sum">الرصيد الختامي: <b style="color:${color(d.closing)}">${balText(d.closing)}${d.closing > 0.005 ? ' (مستحق لنا)' : d.closing < -0.005 ? ' (مستحق له)' : ''}</b></div>
+  </div>`;
+};
+
+// ========== Excel ==========
+const safeName = (s: string) => s.replace(/[\\/:*?"<>|]/g, '').trim() || 'حساب';
+
+export const exportStatementExcel = (d: ExportInput) => {
+  const aoa: (string | number)[][] = [
+    [`كشف حساب — ${d.name}`],
+    ['الهاتف', d.phone || ''],
+    ['الفترة', periodText(d)],
+    ['العرض', d.filterLabel],
+    [],
+  ];
+  const headerRow = aoa.length; // index of header row (0-based)
+  aoa.push(['التاريخ', 'البيان', 'طريقة الدفع', 'ملاحظات', 'مدين', 'دائن', 'الرصيد الجاري', 'لنا / له']);
+  aoa.push([d.dateFrom || '', 'الرصيد الافتتاحي', '', '', '', '', Math.abs(d.opening), side(d.opening)]);
+  d.rows.forEach(r => aoa.push([
+    r.date, baseText(r), methodText(r), r.notes || '',
+    r.debit || '', r.credit || '', Math.abs(r.balanceAfter), side(r.balanceAfter),
+  ]));
+  aoa.push(['', 'الإجمالي / الرصيد الختامي', '', '', d.totalDebit, d.totalCredit, Math.abs(d.closing), side(d.closing)]);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 9 }];
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+  // تنسيق الأرقام (آلاف + خانتين عشريتين)
+  const lastRow = aoa.length - 1;
+  for (let r = headerRow + 1; r <= lastRow; r++) {
+    [4, 5, 6].forEach(c => {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
+    });
+  }
+  const wb = XLSX.utils.book_new();
+  (wb as any).Workbook = { Views: [{ RTL: true }] };
+  XLSX.utils.book_append_sheet(wb, ws, 'كشف الحساب');
+  const range = d.dateFrom || d.dateTo ? `-${d.dateFrom || 'start'}_${d.dateTo || 'today'}` : '';
+  XLSX.writeFile(wb, `كشف-حساب-${safeName(d.name)}${range}.xlsx`);
+};
