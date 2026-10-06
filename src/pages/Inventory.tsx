@@ -10,6 +10,7 @@ import LocationReport from './LocationReport';
 import InventoryLedger from './InventoryLedger';
 import SerialTimeline from './SerialTimeline';
 import DailyInventoryScanner from './DailyInventoryScanner';
+import SerialBarcodeLabels from './SerialBarcodeLabels';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
@@ -52,7 +53,7 @@ export default function Inventory({
 }: Props) {
   // ✅ Tab navigation for inventory sub-sections
   const [inventoryTab, setInventoryTab] = useState<'products' | 'counts' | 'reports' | 'transfers'>('products');
-  const [countTab, setCountTab] = useState<'daily' | 'weekly'>('daily');
+  const [countTab, setCountTab] = useState<'daily' | 'weekly' | 'labels'>('daily');
   const [reportTab, setReportTab] = useState<'reports' | 'ledger' | 'locations'>('reports');
 
   const [search, setSearch] = useState('');
@@ -1473,8 +1474,11 @@ export default function Inventory({
           <div className="card p-2 flex gap-2 w-fit">
             <button onClick={() => setCountTab('daily')} className={`px-4 py-2 rounded-lg text-sm ${countTab === 'daily' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>📷 جرد يومي بالسكانر</button>
             <button onClick={() => setCountTab('weekly')} className={`px-4 py-2 rounded-lg text-sm ${countTab === 'weekly' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>✓ الجرد الأسبوعي</button>
+            <button onClick={() => setCountTab('labels')} className={`px-4 py-2 rounded-lg text-sm ${countTab === 'labels' ? 'bg-violet-900/30 text-violet-300' : 'text-muted hover:text-white'}`}>🏷️ طباعة باركود السيريال</button>
           </div>
-          {countTab === 'daily' ? (
+          {countTab === 'labels' ? (
+            <SerialBarcodeLabels products={products} serials={serials} />
+          ) : countTab === 'daily' ? (
             <DailyInventoryScanner
               products={products}
               serials={serials}
