@@ -1458,96 +1458,51 @@ export function useStore() {
     return result;
   }, []);
 
+  // إلغاء دفعة يدوية: يرجّع الرصيد (كاش/بنك) وحركة الخزنة وحالة الفواتير وإجماليات الطرف
   const deletePayment = useCallback((paymentId: string): { success: boolean; message?: string } => {
     let result: { success: boolean; message?: string } = { success: true };
     setState(prev => {
       const payment = prev.payments.find(p => p.id === paymentId);
-      if (!payment) {
-        result = { success: false, message: 'الدفعة غير موجودة.' };
+      if (!payment) return prev;
+      if (paymentId.startsWith('paid_')) {
+        result = { success: false, message: 'دي دفعة مرتبطة بفاتورة. عدّل الفاتورة نفسها أو احذفها.' };
         return prev;
       }
+      result = { success: true };
 
       const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
+      const newState = { ...prev, payments: prev.payments.filter(p => p.id !== paymentId) };
+
+      // عكس أثر الدفعة على الخزنة
+      const sign = payment.direction === 'in' ? -1 : 1;
+      if (treasury === 'cash') newState.cashBalance = prev.cashBalance + sign * payment.amount;
+      else newState.bankBalance = prev.bankBalance + sign * payment.amount;
+
+      // حذف حركة الخزنة المرتبطة بالدفعة
       const matchingType = payment.direction === 'in' ? 'payment_in' : 'payment_out';
+      const matching = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
+        || prev.treasuryTransactions.find(t => !t.sourceId && t.referenceId === payment.referenceId && t.type === matchingType && t.amount === payment.amount && t.createdAt >= payment.createdAt);
+      if (matching) newState.treasuryTransactions = prev.treasuryTransactions.filter(t => t.id !== matching.id);
 
-      // نربط حركة الخزينة بالدفعة نفسها أولًا، مع fallback للسجلات القديمة.
-      const matchingTreasury = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
-        || prev.treasuryTransactions.find(t =>
-          !t.sourceId &&
-          t.referenceId === payment.referenceId &&
-          t.type === matchingType &&
-          t.amount === payment.amount &&
-          t.createdAt >= payment.createdAt
-        );
+      // إجماليات الطرف
+      newState.customers = prev.customers.map(c => c.id === payment.referenceId ? { ...c, totalPaid: Math.max(0, (c.totalPaid || 0) - payment.amount) } : c);
+      newState.suppliers = prev.suppliers.map(s => s.id === payment.referenceId ? { ...s, totalPaid: Math.max(0, (s.totalPaid || 0) - payment.amount) } : s);
 
-      const payments = prev.payments.filter(p => p.id !== paymentId);
-      let saleInvoices = prev.saleInvoices;
-      let purchaseInvoices = prev.purchaseInvoices;
-
-      // إعادة توزيع الدفعات يدويًا بعد حذف الحركة حتى تتحدث حالة الفواتير
-      // والمدفوع والمتبقي تلقائيًا.
-      if (payment.direction === 'in' && (payment.type === 'sale' || payment.type === 'opening')) {
-        const reconciled = reconcilePartyInvoicePayments(
-          saleInvoices,
-          purchaseInvoices,
-          payments,
-          payment.referenceId,
-          'sale',
-        );
-        saleInvoices = reconciled.sales;
-      } else if (payment.direction === 'out' && (payment.type === 'purchase' || payment.type === 'opening')) {
-        const reconciled = reconcilePartyInvoicePayments(
-          saleInvoices,
-          purchaseInvoices,
-          payments,
-          payment.referenceId,
-          'purchase',
-        );
-        purchaseInvoices = reconciled.purchases;
-      }
-
-      const treasuryTransactions = matchingTreasury
-        ? prev.treasuryTransactions.filter(t => t.id !== matchingTreasury.id)
-        : prev.treasuryTransactions;
-
-      const next = {
-        ...prev,
-        payments,
-        saleInvoices,
-        purchaseInvoices,
-        treasuryTransactions,
-        cashBalance: treasury === 'cash'
-          ? payment.direction === 'in'
-            ? prev.cashBalance - payment.amount
-            : prev.cashBalance + payment.amount
-          : prev.cashBalance,
-        bankBalance: treasury === 'bank'
-          ? payment.direction === 'in'
-            ? prev.bankBalance - payment.amount
-            : prev.bankBalance + payment.amount
-          : prev.bankBalance,
-        customers: prev.customers.map(c =>
-          c.id === payment.referenceId
-            ? { ...c, totalPaid: Math.max(0, (c.totalPaid || 0) - payment.amount) }
-            : c
-        ),
-        suppliers: prev.suppliers.map(s =>
-          s.id === payment.referenceId
-            ? { ...s, totalPaid: Math.max(0, (s.totalPaid || 0) - payment.amount) }
-            : s
-        ),
-      };
+      // إعادة توزيع الدفعات على الفواتير بعد الإلغاء
+      const side: 'sale' | 'purchase' = payment.direction === 'in' ? 'sale' : 'purchase';
+      const reconciled = reconcilePartyInvoicePayments(newState.saleInvoices, newState.purchaseInvoices, newState.payments, payment.referenceId, side);
+      newState.saleInvoices = reconciled.sales;
+      newState.purchaseInvoices = reconciled.purchases;
 
       deleteFromFirebase('payments', paymentId);
-      if (matchingTreasury) deleteFromFirebase('treasuryTransactions', matchingTreasury.id);
-      saveToFirebase('treasury', 'main', { cashBalance: next.cashBalance, bankBalance: next.bankBalance });
+      if (matching) deleteFromFirebase('treasuryTransactions', matching.id);
+      saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
+      const c = newState.customers.find(x => x.id === payment.referenceId); if (c) saveToFirebase('customers', c.id, c);
+      const sp = newState.suppliers.find(x => x.id === payment.referenceId); if (sp) saveToFirebase('suppliers', sp.id, sp);
+      if (side === 'sale') newState.saleInvoices.filter(inv => inv.customerId === payment.referenceId).forEach(inv => saveToFirebase('saleInvoices', inv.id, inv));
+      else newState.purchaseInvoices.filter(inv => inv.supplierId === payment.referenceId).forEach(inv => saveToFirebase('purchaseInvoices', inv.id, inv));
 
-      next.customers.filter(c => c.id === payment.referenceId).forEach(c => saveToFirebase('customers', c.id, c));
-      next.suppliers.filter(s => s.id === payment.referenceId).forEach(s => saveToFirebase('suppliers', s.id, s));
-      saleInvoices.filter(i => i.customerId === payment.referenceId).forEach(i => saveToFirebase('saleInvoices', i.id, i));
-      purchaseInvoices.filter(i => i.supplierId === payment.referenceId).forEach(i => saveToFirebase('purchaseInvoices', i.id, i));
-
-      return next;
+      return newState;
     });
     return result;
   }, []);

@@ -116,6 +116,10 @@ export default function App() {
             onUpdateParty={store.updateParty}
             onDeleteParty={store.deleteParty}
             onAddPayment={store.addPayment}
+            onDeletePayment={store.deletePayment}
+            onUpdatePaymentDate={store.updatePaymentDate}
+            onUpdateSaleInvoiceDate={store.updateSaleInvoiceDate}
+            onUpdatePurchaseInvoiceDate={store.updatePurchaseInvoiceDate}
             onNavigateToSales={(id) => { setPendingCustomerId(id); setCurrentPage('sales'); }}
             onNavigateToPurchases={(id) => { setPendingSupplierId(id); setCurrentPage('purchases'); }}
             preselectedStatementId={pendingCustomerId}

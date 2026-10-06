@@ -111,6 +111,7 @@ export default function ErpApp() {
             onUpdateParty={store.updateParty}
             onDeleteParty={store.deleteParty}
             onAddPayment={store.addPayment}
+            onDeletePayment={store.deletePayment}
             onUpdatePaymentDate={store.updatePaymentDate}
             onUpdateSaleInvoiceDate={store.updateSaleInvoiceDate}
             onUpdatePurchaseInvoiceDate={store.updatePurchaseInvoiceDate}

@@ -136,3 +136,11 @@ select.input-dark {
 @media print {
   .print-skip { display: none !important; }
 }
+
+/* date picker: أيقونة التقويم بيضاء وواضحة على الخلفية الداكنة */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 1;
+  cursor: pointer;
+}
+input[type="date"] { color: #fff; }
