@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
+import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
@@ -108,6 +109,26 @@ export default function Purchases({
   });
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<{ savedAt: string; data: any } | null>(null);
+
+  // حفظ تلقائي لمسودة فاتورة الشراء الجديدة
+  useEffect(() => {
+    if (!showForm || editingInvoice || pendingDraft) return;
+    const meaningful = !!supplierId || purchItems.some(i => i.productId) || Number(paid) > 0 || notes.trim() !== '';
+    if (!meaningful) return;
+    const t = setTimeout(() => saveDraft('purchase', { formDate, supplierId, supplierSearch, purchItems, paymentMethod, paid, notes }), 600);
+    return () => clearTimeout(t);
+  }, [showForm, editingInvoice, pendingDraft, formDate, supplierId, supplierSearch, purchItems, paymentMethod, paid, notes]);
+
+  const restoreDraft = () => {
+    const d = pendingDraft?.data; if (!d) return;
+    setFormDate(d.formDate || getTodayStr()); setSupplierId(d.supplierId || ''); setSupplierSearch(d.supplierSearch || '');
+    const its = Array.isArray(d.purchItems) ? d.purchItems : [];
+    setPurchItems(its); setItemSearch(Object.fromEntries(its.map((i: any) => [i.id, i.productName || ''])));
+    setPaymentMethod(d.paymentMethod || 'cash'); setPaid(d.paid || ''); setNotes(d.notes || '');
+    setPendingDraft(null);
+  };
+  const discardDraft = () => { clearDraft('purchase'); setPendingDraft(null); };
   useEffect(() => {
     if (!preselectedInvoiceId) return;
     const inv = purchaseInvoices.find(i => i.id === preselectedInvoiceId);
@@ -276,6 +297,7 @@ export default function Purchases({
     setPurchItems([firstItem]);
     setItemSearch({ [firstItem.id]: '' });
     setShowForm(true);
+    setPendingDraft(loadDraft('purchase'));
   };
 
   const openEditForm = (inv: PurchaseInvoice) => {
@@ -795,6 +817,7 @@ export default function Purchases({
     onAddPurchaseInvoice(invoice);
     if (newSerials.length > 0) onAddSerials(newSerials);
 
+    clearDraft('purchase');
     resetForm();
     setShowForm(false);
   };
@@ -1008,6 +1031,15 @@ export default function Purchases({
                 <X size={18} />
               </button>
             </div>
+            {pendingDraft && !editingInvoice && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 bg-amber-900/20 border border-amber-700/40 rounded-xl px-4 py-3 text-sm">
+                <span className="text-amber-200">📝 فيه مسودة فاتورة غير مكتملة اتحفظت {new Date(pendingDraft.savedAt).toLocaleString('ar-EG')}</span>
+                <div className="flex gap-2">
+                  <button onClick={restoreDraft} className="btn-primary px-3 py-1 text-xs">استرجاع المسودة</button>
+                  <button onClick={discardDraft} className="btn-secondary px-3 py-1 text-xs">تجاهل ومسح</button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
               <div className="relative">

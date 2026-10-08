@@ -1,6 +1,7 @@
 // src/pages/Sales.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
+import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
@@ -97,6 +98,27 @@ export default function Sales({
   const [showItemDrop, setShowItemDrop] = useState<Record<string, boolean>>({});
   const [duplicateSerialWarning, setDuplicateSerialWarning] = useState<string | null>(null);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<{ savedAt: string; data: any } | null>(null);
+
+  // حفظ تلقائي لمسودة فاتورة البيع الجديدة
+  useEffect(() => {
+    if (!showForm || editingInvoice || pendingDraft) return;
+    const meaningful = !!customerId || saleItems.some(i => i.productId) || Number(paid) > 0 || notes.trim() !== '';
+    if (!meaningful) return;
+    const t = setTimeout(() => saveDraft('sale', { formDate, customerId, customerSearch, saleItems, paymentMethod, instapayPerson, paid, discount, notes }), 600);
+    return () => clearTimeout(t);
+  }, [showForm, editingInvoice, pendingDraft, formDate, customerId, customerSearch, saleItems, paymentMethod, instapayPerson, paid, discount, notes]);
+
+  const restoreDraft = () => {
+    const d = pendingDraft?.data; if (!d) return;
+    setFormDate(d.formDate || getTodayStr()); setCustomerId(d.customerId || ''); setCustomerSearch(d.customerSearch || '');
+    const its = Array.isArray(d.saleItems) ? d.saleItems : [];
+    setSaleItems(its); setItemSearch(Object.fromEntries(its.map((i: any) => [i.id, i.productName || ''])));
+    setPaymentMethod(d.paymentMethod || 'cash'); setInstapayPerson(d.instapayPerson || ''); setPaid(d.paid || '');
+    setDiscount(d.discount || 0); setNotes(d.notes || '');
+    setPendingDraft(null);
+  };
+  const discardDraft = () => { clearDraft('sale'); setPendingDraft(null); };
   const serialInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   useEffect(() => {
     if (!preselectedInvoiceId) return;
@@ -176,6 +198,7 @@ export default function Sales({
     setSaleItems([firstItem]);
     setItemSearch({ [firstItem.id]: '' });
     setShowForm(true);
+    setPendingDraft(loadDraft('sale'));
   };
 
   const openEditForm = (inv: SaleInvoice) => {
@@ -593,6 +616,7 @@ const validateStock = (): string | null => {
     };
 
     onAddSaleInvoice(invoice);
+    clearDraft('sale');
     resetForm();
     setShowForm(false);
   };
@@ -1170,6 +1194,15 @@ const validateStock = (): string | null => {
                 <X size={18} />
               </button>
             </div>
+            {pendingDraft && !editingInvoice && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 bg-amber-900/20 border border-amber-700/40 rounded-xl px-4 py-3 text-sm">
+                <span className="text-amber-200">📝 فيه مسودة فاتورة غير مكتملة اتحفظت {new Date(pendingDraft.savedAt).toLocaleString('ar-EG')}</span>
+                <div className="flex gap-2">
+                  <button onClick={restoreDraft} className="btn-primary px-3 py-1 text-xs">استرجاع المسودة</button>
+                  <button onClick={discardDraft} className="btn-secondary px-3 py-1 text-xs">تجاهل ومسح</button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
               <div className="relative">

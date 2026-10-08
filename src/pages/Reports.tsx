@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AppState } from '../types';
 import { formatCurrency, getTodayStr } from '../utils/helpers';
+import ProfitDetailReport from '../components/ProfitDetailReport';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface Props {
@@ -399,6 +400,7 @@ export default function Reports({ state }: Props) {
           </div>
         )}
       </div>
+      <ProfitDetailReport state={state} />
     </div>
   );
 }

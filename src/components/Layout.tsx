@@ -45,6 +45,8 @@ const navItems: NavItem[] = [
 interface LayoutProps {
   currentPage: string;
   onNavigate: (page: string) => void;
+  backPage?: string | null;
+  onBack?: () => void;
   children: React.ReactNode;
   cashBalance: number;
   bankBalance: number;
@@ -55,6 +57,8 @@ interface LayoutProps {
 export default function Layout({
   currentPage,
   onNavigate,
+  backPage,
+  onBack,
   children,
   cashBalance,
   bankBalance,
@@ -197,6 +201,16 @@ export default function Layout({
             >
               <Menu size={20} />
             </button>
+            {backPage && onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-elevated hover:bg-muted-bg border border-border text-sm text-fg min-h-11 shrink-0"
+                title="الرجوع للصفحة السابقة"
+              >
+                <span aria-hidden>↩</span>
+                <span>رجوع{navItems.find((n) => n.id === backPage) ? ` إلى ${navItems.find((n) => n.id === backPage)!.label}` : ""}</span>
+              </button>
+            )}
             <div className="min-w-0">
               <h1 className="font-semibold text-fg text-base truncate">
                 {currentNav?.label || companyName}

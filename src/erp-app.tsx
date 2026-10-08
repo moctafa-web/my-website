@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Zap } from "lucide-react";
 import Layout from "./components/Layout";
 import GlobalSearch from "./components/GlobalSearch";
@@ -26,12 +26,63 @@ import Login from "./pages/Login";
 
 export default function ErpApp() {
   const { user, loading: authLoading } = useAuth();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [currentPage, setCurrentPageRaw] = useState("dashboard");
+  // ===== سجل التنقل: زرار رجوع + زرار الرجوع في المتصفح/الموبايل =====
+  // backStack[k] = الصفحة اللي كنا فيها قبل الانتقال رقم k+1 (ومعاها كشف الحساب لو كان مفتوح)
+  const pageRef = useRef("dashboard");
+  const idxRef = useRef(0);
+  const backStack = useRef<{ page: string; stmtId?: string }[]>([]);
+  const returnStmtRef = useRef<string | undefined>(undefined);
+  const [backPage, setBackPage] = useState<string | null>(null);
+  const [pendingCustomerStatementId, setPendingCustomerStatementId] = useState<string | null>(null);
+  const [pendingSupplierStatementId, setPendingSupplierStatementId] = useState<string | null>(null);
+
+  const syncBack = () => {
+    const st = backStack.current;
+    setBackPage(st.length ? st[st.length - 1].page : null);
+  };
+
+  const setCurrentPage = useCallback((page: string) => {
+    if (page === pageRef.current) return;
+    backStack.current.push({ page: pageRef.current, stmtId: returnStmtRef.current });
+    if (backStack.current.length > 40) backStack.current.shift();
+    returnStmtRef.current = undefined;
+    pageRef.current = page;
+    idxRef.current = backStack.current.length;
+    try { window.history.pushState({ ...(window.history.state || {}), one: true, idx: idxRef.current, page }, ""); } catch { /* ignore */ }
+    setCurrentPageRaw(page);
+    syncBack();
+  }, []);
+
+  useEffect(() => {
+    try { window.history.replaceState({ ...(window.history.state || {}), one: true, idx: 0, page: "dashboard" }, ""); } catch { /* ignore */ }
+    const onPop = (e: PopStateEvent) => {
+      const st = e.state;
+      if (!st || !st.one) return;
+      const newIdx: number = typeof st.idx === "number" ? st.idx : 0;
+      if (newIdx < idxRef.current) {
+        const entry = backStack.current[newIdx];
+        backStack.current.length = newIdx;
+        const target = entry?.page ?? st.page ?? "dashboard";
+        if (entry?.stmtId) setPendingCustomerStatementId(entry.stmtId);
+        pageRef.current = target;
+        setCurrentPageRaw(target);
+      } else if (newIdx > idxRef.current) {
+        backStack.current.push({ page: pageRef.current });
+        pageRef.current = st.page ?? pageRef.current;
+        setCurrentPageRaw(pageRef.current);
+      }
+      idxRef.current = newIdx;
+      syncBack();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const goBack = () => { if (backStack.current.length) window.history.back(); };
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
   const [pendingSerialId, setPendingSerialId] = useState<string | null>(null);
-  const [pendingCustomerStatementId, setPendingCustomerStatementId] = useState<string | null>(null);
-  const [pendingSupplierStatementId, setPendingSupplierStatementId] = useState<string | null>(null);
   const [pendingSalesDateFilter, setPendingSalesDateFilter] = useState<string | null>(null);
   const [pendingPurchasesDateFilter, setPendingPurchasesDateFilter] = useState<string | null>(null);
   const [pendingSaleInvoiceId, setPendingSaleInvoiceId] = useState<string | null>(null);
@@ -118,7 +169,8 @@ export default function ErpApp() {
             onUpdatePurchaseInvoiceDate={store.updatePurchaseInvoiceDate}
             onNavigateToSales={(id) => { setPendingCustomerId(id); setCurrentPage("sales"); }}
             onNavigateToPurchases={(id) => { setPendingSupplierId(id); setCurrentPage("purchases"); }}
-            onOpenInvoice={(type, id) => {
+            onOpenInvoice={(type, id, partyId) => {
+              returnStmtRef.current = partyId; // عشان نرجع لنفس كشف الحساب
               if (type === "sale") {
                 setPendingSaleInvoiceId(id);
                 setCurrentPage("sales");
@@ -350,6 +402,8 @@ export default function ErpApp() {
     <Layout
       currentPage={currentPage}
       onNavigate={setCurrentPage}
+      backPage={backPage}
+      onBack={goBack}
       cashBalance={state.cashBalance}
       bankBalance={state.bankBalance}
       onOpenSearch={() => setShowGlobalSearch(true)}
