@@ -1,7 +1,7 @@
 // src/pages/Sales.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
-import { formatCurrency, generateId, getTodayStr, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
@@ -239,7 +239,7 @@ export default function Sales({
 
   const searchQuery = search.toLowerCase();
   const filtered = saleInvoices.filter(inv => {
-    if (dateFilter && inv.date !== dateFilter) return false;
+    if (dateFilter && normalizeDateValue(inv.date) !== dateFilter) return false;
     return (
       inv.invoiceNumber.toLowerCase().includes(searchQuery) ||
       inv.customerName.toLowerCase().includes(searchQuery) ||
@@ -1071,12 +1071,14 @@ const validateStock = (): string | null => {
           className="input-dark w-full pr-9" />
       </div>
 
-      {dateFilter && (
-        <div className="flex items-center justify-between bg-blue-900/20 border border-blue-700/30 rounded-xl px-4 py-2 text-sm">
-          <span className="text-blue-300">📅 بيتم عرض فواتير يوم {dateFilter} فقط ({filtered.length} فاتورة)</span>
-          <button onClick={() => setDateFilter(null)} className="text-xs text-red-400 hover:underline">إلغاء الفلتر (عرض الكل)</button>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-400">📅 فلتر اليوم:</span>
+        <input type="date" value={dateFilter || ''} onChange={e => setDateFilter(e.target.value || null)} className="input-dark text-sm" />
+        <button onClick={() => setDateFilter(getTodayStr())} className={`px-3 py-1.5 rounded-lg text-xs border ${dateFilter === getTodayStr() ? 'bg-blue-700/30 border-blue-500/50 text-blue-200' : 'border-border text-gray-400 hover:bg-white/5'}`}>اليوم</button>
+        <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); setDateFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }} className="px-3 py-1.5 rounded-lg text-xs border border-border text-gray-400 hover:bg-white/5">أمس</button>
+        {dateFilter && <button onClick={() => setDateFilter(null)} className="px-3 py-1.5 rounded-lg text-xs border border-red-700/40 text-red-300 hover:bg-red-900/20">كل التواريخ</button>}
+        {dateFilter && <span className="text-xs text-blue-300">يتم عرض فواتير يوم {dateFilter} فقط ({filtered.length} فاتورة) — البحث بالأعلى بيشتغل داخلها</span>}
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">

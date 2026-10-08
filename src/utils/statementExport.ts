@@ -1,6 +1,19 @@
 import * as XLSX from 'xlsx';
 import { formatCurrency, paymentMethodLabel } from './helpers';
 
+export type DetailLevel = 'brief' | 'items' | 'items_price' | 'full';
+
+export interface DetailLine {
+  qty: number;
+  name: string;
+  price: number;
+  serials: string[];
+}
+
+// سطر الصنف حسب مستوى التفاصيل: "5 x Airpods" أو "5 x Airpods @ 3,200"
+export const detailLineText = (l: DetailLine, level: DetailLevel): string =>
+  `${l.qty} x ${l.name}${level === 'items_price' || level === 'full' ? ` @ ${formatCurrency(l.price)}` : ''}`;
+
 export interface ExportRow {
   date: string;
   kind?: 'invoice' | 'payment';
@@ -8,7 +21,7 @@ export interface ExportRow {
   method?: string;
   person?: string;
   notes?: string;
-  details?: string[];
+  lines?: DetailLine[];
   debit: number;
   credit: number;
   balanceAfter: number;
@@ -19,7 +32,7 @@ export interface ExportInput {
   phone?: string;
   dateFrom: string;
   dateTo: string;
-  detailed?: boolean; // إظهار أصناف الفواتير تحت البيان
+  detailLevel?: DetailLevel; // مستوى تفاصيل البيان
   filterLabel: string; // "كل الحركات" / "الفواتير فقط" / "الدفعات فقط"
   opening: number;
   rows: ExportRow[];
@@ -42,11 +55,12 @@ const periodText = (d: ExportInput) => `${d.dateFrom || 'من البداية'} �
 
 // ========== PDF / طباعة ==========
 export const buildStatementHtml = (d: ExportInput): string => {
+  const lvl: DetailLevel = d.detailLevel || 'brief';
   const color = (b: number) => (Math.abs(b) < 0.005 ? '#555' : b > 0 ? '#b91c1c' : '#15803d');
   const rows = d.rows.map(r => `
     <tr>
       <td>${esc(r.date)}</td>
-      <td>${esc(baseText(r))}${d.detailed && r.details?.length ? `<ul class="items">${r.details.map(l => `<li dir="auto">${esc(l)}</li>`).join('')}</ul>` : ''}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ''}</td>
+      <td>${esc(baseText(r))}${lvl !== 'brief' && r.lines?.length ? `<ul class="items">${r.lines.map(l => `<li dir="auto">${esc(detailLineText(l, lvl))}${lvl === 'full' && l.serials.length ? `<div class="sn" dir="ltr">${l.serials.map(esc).join('<br/>')}</div>` : ''}</li>`).join('')}</ul>` : ''}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ''}</td>
       <td>${esc(methodText(r)) || '-'}</td>
       <td class="num">${r.debit ? formatCurrency(r.debit) : '-'}</td>
       <td class="num">${r.credit ? formatCurrency(r.credit) : '-'}</td>
@@ -66,6 +80,7 @@ export const buildStatementHtml = (d: ExportInput): string => {
     .st .num { text-align: center; white-space: nowrap; }
     .st .bal { font-weight: 700; }
     .st .items { margin: 4px 0 0; padding-right: 14px; font-size: 11px; color: #333; }
+    .st .sn { font-family: 'Courier New', monospace; font-size: 10px; color: #555; margin: 1px 0 3px; text-align: right; }
     .st .note { font-size: 10px; color: #777; margin-top: 2px; }
     .st .open td, .st .total td { background: #f6f7fb; font-weight: 700; }
     .st .sum { margin-top: 14px; font-size: 14px; }
@@ -99,8 +114,9 @@ export const exportStatementExcel = (d: ExportInput) => {
     [],
   ];
   const headerRow = aoa.length; // index of header row (0-based)
-  const det = !!d.detailed;
-  const detCell = (r: ExportRow) => (r.details || []).join(' | ');
+  const lvl: DetailLevel = d.detailLevel || 'brief';
+  const det = lvl !== 'brief';
+  const detCell = (r: ExportRow) => (r.lines || []).map(l => detailLineText(l, lvl) + (lvl === 'full' && l.serials.length ? ` [${l.serials.join(', ')}]` : '')).join(' | ');
   const header = ['التاريخ', 'البيان', ...(det ? ['تفاصيل الأصناف'] : []), 'طريقة الدفع', 'ملاحظات', 'مدين', 'دائن', 'الرصيد الجاري', 'لنا / له'];
   const mk = (date: string, text: string, detail: string, method: string, notes: string, debit: number | string, credit: number | string, bal: number, sd: string) =>
     [date, text, ...(det ? [detail] : []), method, notes, debit, credit, bal, sd];
