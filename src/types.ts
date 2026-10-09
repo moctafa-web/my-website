@@ -304,6 +304,8 @@ export interface NoonOrder {
   settledAmount?: number;
   settledDate?: string;
   settlementProfit?: number;
+  /** حصة الأوردر من مصاريف الدفعة (شحن/عمولات أخرى) = فرق مجموع الأوردرات عن التحويل الفعلي */
+  settlementExtraFee?: number;
   createdAt: string;
 }
 

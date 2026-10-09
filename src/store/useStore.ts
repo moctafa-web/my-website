@@ -1886,42 +1886,47 @@ export function useStore() {
     return { addedCount, mergedCount };
   }, []);
 
-  const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => {
+  const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[], opts?: { actualTotal?: number }) => {
     setState(prev => {
       const newState = { ...prev };
-      let totalSettled = 0;
       const today = new Date().toISOString().split('T')[0];
+      const valid = settlements.filter(s => prev.noonOrders.some(o => o.id === s.orderId) && s.settledAmount > 0);
+      const ordersTotal = valid.reduce((sum, s) => sum + s.settledAmount, 0);
+      // الفلوس اللي دخلت البنك فعلاً (لو اتحدد) والفرق = مصاريف الدفعة (شحن/عمولات أخرى)
+      const actual = opts?.actualTotal !== undefined && opts.actualTotal >= 0 ? opts.actualTotal : ordersTotal;
+      const extraTotal = Math.max(0, Math.round((ordersTotal - actual) * 100) / 100);
       const updatedOrders: NoonOrder[] = [];
       newState.noonOrders = newState.noonOrders.map(order => {
-        const settlement = settlements.find(s => s.orderId === order.id);
+        const settlement = valid.find(s => s.orderId === order.id);
         if (!settlement) return order;
         const totalCost = order.items.reduce((sum, it) => sum + (it.costPrice || 0), 0);
-        const profit = settlement.settledAmount - totalCost;
-        totalSettled += settlement.settledAmount;
+        const extraShare = ordersTotal > 0 ? Math.round(extraTotal * (settlement.settledAmount / ordersTotal) * 100) / 100 : 0;
         const updated = {
           ...order,
           status: 'settled' as const,
           settledAmount: settlement.settledAmount,
           settledDate: settlement.settledDate || today,
-          settlementProfit: profit,
+          settlementExtraFee: extraShare,
+          settlementProfit: settlement.settledAmount - totalCost - extraShare,
         };
         updatedOrders.push(updated);
         return updated;
       });
-      if (totalSettled > 0) {
-        newState.bankBalance = newState.bankBalance + totalSettled;
+      if (actual > 0) {
+        newState.bankBalance = newState.bankBalance + actual;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
           id: makeTransactionId(),
           type: 'sale' as const,
-          description: `تسوية تحويل بنكي جماعي - ${settlements.length} أوردر`,
-          amount: totalSettled,
+          description: `تسوية تحويل بنكي جماعي - ${valid.length} أوردر${extraTotal > 0 ? ` (بعد مصاريف ${extraTotal})` : ''}`,
+          amount: actual,
           treasury: 'bank' as const,
           direction: 'in' as const,
-          date: today,
+          date: valid[0]?.settledDate || today,
           createdAt: new Date().toISOString(),
         }];
       }
       updatedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
+      if (actual > 0) saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
       return newState;
     });
   }, []);

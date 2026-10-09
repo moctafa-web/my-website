@@ -87,7 +87,7 @@ export const buildProfitRows = (state: AppState, f: ProfitFilter): ProfitResult 
     if (o.status === 'canceled' || o.status === 'returned') { excludedCount++; return; }
 
     const revenueTotal = o.items.reduce((s, it) => s + (it.price || 0), 0);
-    const commissionTotal = settled ? Math.max(0, revenueTotal - (o.settledAmount || 0)) : null;
+    const commissionTotal = settled ? Math.max(0, revenueTotal - (o.settledAmount || 0)) + (o.settlementExtraFee || 0) : null;
     o.items.forEach((it, idx) => {
       const share = revenueTotal > 0 ? (it.price || 0) / revenueTotal : 1 / Math.max(o.items.length, 1);
       const commission = commissionTotal === null ? null : commissionTotal * share;

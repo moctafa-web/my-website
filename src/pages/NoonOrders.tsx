@@ -1,8 +1,11 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NoonOrder, NoonOrderItem, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
-import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, normalizeDateValue } from '../utils/helpers';
+import { parseImportDate } from '../utils/importDate';
+import NoonPasteImport from '../components/NoonPasteImport';
 import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote, Edit } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import NoonSyncModal from '../components/NoonSyncModal';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
@@ -12,7 +15,7 @@ interface Props {
   onAddNoonOrder: (o: NoonOrder) => { success: boolean; message?: string; merged?: boolean } | void;
   onUpdateNoonOrder: (o: NoonOrder) => void;
   onAddNoonOrders: (os: NoonOrder[]) => { addedCount: number; mergedCount: number } | void;
-  onSettleNoonOrders: (settlements: { orderId: string; settledAmount: number; settledDate?: string }[]) => void;
+  onSettleNoonOrders: (settlements: { orderId: string; settledAmount: number; settledDate?: string }[], opts?: { actualTotal?: number }) => void;
 }
 
 const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: string }[] = [
@@ -23,6 +26,10 @@ const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: strin
 
 export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders }: Props) {
   const [showForm, setShowForm] = useState(false);
+  const [showSync, setShowSync] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [infoToast, setInfoToast] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<NoonOrder | null>(null);
   const [search, setSearch] = useState('');
@@ -55,13 +62,18 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   // Bulk settlement state
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [settleAmounts, setSettleAmounts] = useState<Record<string, string>>({});
+  const [settleIds, setSettleIds] = useState<string[]>([]);
+  const [actualTotal, setActualTotal] = useState('');
+  const [importNote, setImportNote] = useState('');
   const [settleDate, setSettleDate] = useState(getTodayStr());
 
   const filtered = noonOrders.filter(o => {
     const matchSearch = o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
       (o.customerName || '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || o.status === statusFilter;
-    return matchSearch && matchStatus;
+    const od = normalizeDateValue(o.date);
+    const matchDate = (!dateFrom || od >= dateFrom) && (!dateTo || od <= dateTo);
+    return (matchSearch || (o.shipmentNumber || '').toLowerCase().includes(search.toLowerCase())) && matchStatus && matchDate;
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   // تقرير الشهر
@@ -327,7 +339,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           shipmentNumber: String(first.shipmentNumber || ''),
           platform: (first.platform as OrderPlatform) || 'noon',
           customerName: String(first.customerName || ''),
-          date: String(first.date || getTodayStr()),
+          date: parseImportDate(first.date, getTodayStr()),
           items,
           status: 'pending',
           notes: '',
@@ -355,20 +367,26 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     const initial: Record<string, string> = {};
     selectedEligible.forEach(id => { initial[id] = ''; });
     setSettleAmounts(initial);
+    setSettleIds(selectedEligible);
+    setActualTotal('');
+    setImportNote('');
     setShowSettleModal(true);
   };
 
   const handleConfirmSettlement = () => {
-    const settlements = selectedEligible
+    const settlements = settleIds
       .filter(id => settleAmounts[id] && parseFloat(settleAmounts[id]) > 0)
       .map(id => ({ orderId: id, settledAmount: parseFloat(settleAmounts[id]), settledDate: settleDate }));
     if (settlements.length === 0) return;
-    onSettleNoonOrders(settlements);
+    const actual = actualTotal.trim() !== '' ? parseFloat(actualTotal) : undefined;
+    onSettleNoonOrders(settlements, actual !== undefined && !Number.isNaN(actual) ? { actualTotal: actual } : undefined);
     setShowSettleModal(false);
     setSelected([]);
     setSettleAmounts({});
+    setSettleIds([]);
   };
 
+  // استيراد ملف التسوية: بيفتح نافذة التسوية معبّأة عشان تراجع الأرقام قبل التأكيد
   const handleImportSettlement = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -378,27 +396,55 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       const wb = XLSX.read(data, { type: 'binary' });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
-      const settlements: { orderId: string; settledAmount: number; settledDate?: string }[] = [];
+      const num = (v: any) => parseFloat(String(v ?? '').replace(/,/g, '').trim());
+      const amounts: Record<string, string> = {};
+      const ids: string[] = [];
+      const skipped: string[] = [];
+      let fileTotal: number | undefined;
+      let fileDate = '';
       rows.forEach(row => {
-        const orderNum = String(row.orderNumber || '').trim();
-        const amount = parseFloat(row.settledAmount);
-        if (!orderNum || !amount) return;
-        const order = noonOrders.find(o => o.orderNumber === orderNum);
-        if (order) settlements.push({ orderId: order.id, settledAmount: amount, settledDate: getTodayStr() });
+        const t = num(row.totalTransfer);
+        if (fileTotal === undefined && t > 0) fileTotal = t;
+        if (!fileDate && String(row.transferDate || '').trim()) fileDate = parseImportDate(row.transferDate, '');
+        const key = String(row.orderNumber || '').trim().toLowerCase();
+        const amount = num(row.settledAmount);
+        if (!key || !(amount > 0)) return;
+        const order = noonOrders.find(o => o.orderNumber.trim().toLowerCase() === key || (o.shipmentNumber || '').trim().toLowerCase() === key);
+        if (!order) { skipped.push(`${row.orderNumber} (مش موجود)`); return; }
+        if (order.status !== 'delivered' && order.status !== 'shipped') { skipped.push(`${row.orderNumber} (حالته ${statusLabel(order.status)})`); return; }
+        if (!ids.includes(order.id)) ids.push(order.id);
+        amounts[order.id] = String(amount);
       });
-      if (settlements.length > 0) onSettleNoonOrders(settlements);
       if (settleFileRef.current) settleFileRef.current.value = '';
+      if (ids.length === 0) {
+        setInfoToast(`⚠️ مفيش أوردرات صالحة للتسوية في الملف${skipped.length ? `: ${skipped.slice(0, 5).join('، ')}` : ''}`);
+        setTimeout(() => setInfoToast(null), 8000);
+        return;
+      }
+      setSettleAmounts(amounts);
+      setSettleIds(ids);
+      setActualTotal(fileTotal !== undefined ? String(fileTotal) : '');
+      if (fileDate) setSettleDate(fileDate);
+      setImportNote(skipped.length ? `⚠️ اتخطى ${skipped.length}: ${skipped.slice(0, 8).join('، ')}${skipped.length > 8 ? '...' : ''}` : '');
+      setShowSettleModal(true);
     };
     reader.readAsBinaryString(file);
   };
 
   const downloadSettlementTemplate = () => {
-    const data = eligibleForSettlement.length > 0
-      ? eligibleForSettlement.map(o => ({ orderNumber: o.orderNumber, settledAmount: '' }))
-      : [{ orderNumber: 'NNN-001', settledAmount: '' }];
-    const ws = XLSX.utils.json_to_sheet(data);
+    const base = eligibleForSettlement.length > 0
+      ? eligibleForSettlement.map(o => ({ orderNumber: o.orderNumber, settledAmount: '' as string | number, totalTransfer: '' as string | number, transferDate: '' as string }))
+      : [{ orderNumber: 'NNN-001', settledAmount: '', totalTransfer: '', transferDate: '' }];
+    const ws = XLSX.utils.json_to_sheet(base);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Settlement');
+    const info = XLSX.utils.aoa_to_sheet([
+      ['orderNumber', 'رقم الأوردر (أو رقم الشحنة)'],
+      ['settledAmount', 'صافي سعر الأوردر بعد عمولة نون والضريبة'],
+      ['totalTransfer', 'اختياري: اكتبه في أي صف واحد. إجمالي التحويل الفعلي للدفعة. الفرق بينه وبين مجموع الأوردرات = مصاريف الدفعة (شحن/عمولات أخرى) وبتتوزع على الأوردرات'],
+      ['transferDate', 'اختياري: تاريخ التحويل (يكتب في صف واحد)'],
+    ]);
+    XLSX.utils.book_append_sheet(wb, info, 'Instructions');
     XLSX.writeFile(wb, 'noon_settlement_template.xlsx');
   };
 
@@ -417,19 +463,21 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   };
 
   const totalSettlementAmount = useMemo(
-    () => selectedEligible.reduce((sum, id) => sum + (parseFloat(settleAmounts[id]) || 0), 0),
-    [selectedEligible, settleAmounts]
+    () => settleIds.reduce((sum, id) => sum + (parseFloat(settleAmounts[id]) || 0), 0),
+    [settleIds, settleAmounts]
   );
+  const actualNum = actualTotal.trim() !== '' && !Number.isNaN(parseFloat(actualTotal)) ? parseFloat(actualTotal) : null;
+  const extraFees = actualNum !== null ? Math.max(0, totalSettlementAmount - actualNum) : 0;
 
   const totalSettlementProfit = useMemo(() => {
-    return selectedEligible.reduce((sum, id) => {
+    return settleIds.reduce((sum, id) => {
       const order = noonOrders.find(o => o.id === id);
       if (!order) return sum;
       const cost = order.items.reduce((s, it) => s + (it.costPrice || 0), 0);
       const amount = parseFloat(settleAmounts[id]) || 0;
       return sum + (amount - cost);
     }, 0);
-  }, [selectedEligible, settleAmounts, noonOrders]);
+  }, [settleIds, settleAmounts, noonOrders]);
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
@@ -466,6 +514,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
         </div>
         {viewMode === 'orders' && (
           <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setShowSync(true)} className="btn-secondary text-sm flex items-center gap-1 border-yellow-600/50 text-yellow-300">🔄 مزامنة من شيت نون</button>
             <button onClick={downloadTemplate} className="btn-secondary text-sm flex items-center gap-1">
               <Download size={14} /> نموذج Excel
             </button>
@@ -473,6 +522,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
               <Upload size={14} /> استيراد Excel
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
             </label>
+            <button onClick={() => setShowPaste(true)} className="btn-secondary text-sm flex items-center gap-1 border-green-600/50 text-green-300">📋 لصق من Google Sheet</button>
             <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary flex items-center gap-2">
               <Plus size={16} /> أوردر جديد
             </button>
@@ -543,6 +593,22 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       {/* ==================== ORDERS VIEW ==================== */}
       {viewMode === 'orders' && (
         <div className="space-y-4">
+          {/* فلتر التاريخ */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-400">📅 من</span>
+            <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setSelected([]); }} className="input-dark text-sm" />
+            <span className="text-xs text-gray-400">إلى</span>
+            <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setSelected([]); }} className="input-dark text-sm" />
+            {([
+              ['اليوم', 0, 0], ['أمس', 1, 1], ['آخر 7 أيام', 6, 0], ['آخر 30 يوم', 29, 0],
+            ] as [string, number, number][]).map(([l, a, b]) => {
+              const f = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+              return <button key={l} onClick={() => { setDateFrom(f(a)); setDateTo(f(b)); setSelected([]); }} className="px-3 py-1.5 rounded-lg text-xs border border-border text-gray-400 hover:bg-white/5">{l}</button>;
+            })}
+            <button onClick={() => { const t = getTodayStr(); setDateFrom(t.slice(0, 8) + '01'); setDateTo(t); setSelected([]); }} className="px-3 py-1.5 rounded-lg text-xs border border-border text-gray-400 hover:bg-white/5">هذا الشهر</button>
+            {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); setSelected([]); }} className="px-3 py-1.5 rounded-lg text-xs border border-red-700/40 text-red-300">كل التواريخ</button>}
+            <span className="text-xs text-blue-300">{filtered.length} أوردر ظاهر</span>
+          </div>
           {/* Status Filter - ✅ 6 حالات جديدة */}
             <div className="flex items-center gap-2 flex-wrap">
               {(['all', 'pending', 'shipped', 'delivered', 'returned', 'paid', 'canceled'] as const).map(s => (
@@ -1008,7 +1074,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             </div>
 
             <p className="text-gray-400 text-sm mb-4">
-              أدخل المبلغ الصافي المحول فعليًا لكل أوردر. النظام سيحسب الربح = المبلغ المحول − تكلفة المنتجات.
+              أدخل صافي سعر كل أوردر (بعد عمولة نون والضريبة). النظام سيحسب الربح = الصافي − تكلفة المنتجات. لو في مصاريف على الدفعة كلها (شحن/عمولات أخرى) اكتب إجمالي التحويل الفعلي تحت وهتتوزع على الأوردرات.
             </p>
 
             <div className="mb-4">
@@ -1018,7 +1084,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             </div>
 
             <div className="space-y-2 mb-4 max-h-80 overflow-y-auto">
-              {selectedEligible.map(id => {
+              {settleIds.map(id => {
                 const order = noonOrders.find(o => o.id === id);
                 if (!order) return null;
                 const cost = order.items.reduce((s, it) => s + (it.costPrice || 0), 0);
@@ -1049,18 +1115,35 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
               })}
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
+            {importNote && <div className="mb-3 text-xs text-orange-300">{importNote}</div>}
+            <div className="mb-4">
+              <label className="form-label">إجمالي التحويل الفعلي للدفعة (اختياري)</label>
+              <input type="number" value={actualTotal} onChange={e => setActualTotal(e.target.value)} className="input-dark w-full md:w-64" placeholder={`مجموع الأوردرات: ${totalSettlementAmount}`} />
+              <div className="text-[11px] text-gray-500 mt-1">اللي دخل البنك فعلاً. لو أقل من مجموع الأوردرات، الفرق يتحسب مصاريف (شحن/عمولات أخرى).</div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-gray-500">إجمالي المبالغ</div>
+                <div className="text-xs text-gray-500">مجموع الأوردرات ({settleIds.length})</div>
                 <div className="font-bold text-blue-300 text-lg">{formatCurrency(totalSettlementAmount)}</div>
+              </div>
+              <div className="bg-cyan-900/20 border border-cyan-700/30 rounded-xl p-3 text-center">
+                <div className="text-xs text-gray-500">هيدخل البنك</div>
+                <div className="font-bold text-cyan-300 text-lg">{formatCurrency(actualNum ?? totalSettlementAmount)}</div>
+              </div>
+              <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-3 text-center">
+                <div className="text-xs text-gray-500">مصاريف الدفعة</div>
+                <div className="font-bold text-orange-300 text-lg">{formatCurrency(extraFees)}</div>
               </div>
               <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">إجمالي الربح</div>
-                <div className={`font-bold text-lg ${totalSettlementProfit >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                  {formatCurrency(totalSettlementProfit)}
+                <div className={`font-bold text-lg ${totalSettlementProfit - extraFees >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                  {formatCurrency(totalSettlementProfit - extraFees)}
                 </div>
               </div>
             </div>
+            {actualNum !== null && actualNum > totalSettlementAmount && (
+              <div className="mb-3 text-xs text-orange-300">⚠️ التحويل الفعلي أكبر من مجموع الأوردرات بـ {formatCurrency(actualNum - totalSettlementAmount)}. هيدخل البنك المبلغ الفعلي، راجع الأرقام.</div>
+            )}
 
             <div className="flex gap-3">
               <button onClick={handleConfirmSettlement} className="btn-primary flex-1">
@@ -1073,6 +1156,8 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       )}
         </div>
       )}
+      {showPaste && <NoonPasteImport noonOrders={noonOrders} products={products} serials={serials} onAdd={onAddNoonOrders} onClose={() => setShowPaste(false)} />}
+      {showSync && <NoonSyncModal orders={noonOrders} onUpdateOrder={onUpdateNoonOrder} onClose={() => setShowSync(false)} />}
     </div>
   );
 }
