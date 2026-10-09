@@ -241,7 +241,7 @@ export const getDailyClosingChecklist = (state: AppState, date: string) => {
 };
 
 export const formatDailySummaryForWhatsApp = (summary: DailySummary, companyName = 'ONE') => {
-  const money = (value: number) => `${value.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م`;
+  const money = (value: number) => `${value.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م`;
   return [
     `📋 *ملخص نهاية اليوم — ${companyName}*`,
     `📅 ${summary.date}`,

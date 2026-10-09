@@ -201,27 +201,27 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
 
   const handlePrint = () => {
     const inRows = inEntries.filter(e => e.amount > 0).map(e =>
-      '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#16a34a">+' + e.amount.toLocaleString('ar-EG') + '</td></tr>'
+      '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#16a34a">+' + e.amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</td></tr>'
     ).join('');
     const outRows = outEntries.filter(e => e.amount > 0).map(e =>
-      '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#ef4444">-' + e.amount.toLocaleString('ar-EG') + '</td></tr>'
+      '<tr><td>' + (e.label || '—') + '</td><td style="text-align:left;color:#ef4444">-' + e.amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</td></tr>'
     ).join('');
     const autoCashRows = Object.entries(autoCalc.cash.byType).map(([type, v]) =>
       '<tr><td>' + (TYPE_LABELS[type] || type) + '</td><td style="text-align:left">' +
-      (v.in > 0 ? '<span style="color:#16a34a">+' + v.in.toLocaleString('ar-EG') + '</span> ' : '') +
-      (v.out > 0 ? '<span style="color:#ef4444">-' + v.out.toLocaleString('ar-EG') + '</span>' : '') +
+      (v.in > 0 ? '<span style="color:#16a34a">+' + v.in.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span> ' : '') +
+      (v.out > 0 ? '<span style="color:#ef4444">-' + v.out.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span>' : '') +
       '</td></tr>'
     ).join('');
     const autoBankRows = Object.entries(autoCalc.bank.byType).map(([type, v]) =>
       '<tr><td>' + (TYPE_LABELS[type] || type) + '</td><td style="text-align:left">' +
-      (v.in > 0 ? '<span style="color:#16a34a">+' + v.in.toLocaleString('ar-EG') + '</span> ' : '') +
-      (v.out > 0 ? '<span style="color:#ef4444">-' + v.out.toLocaleString('ar-EG') + '</span>' : '') +
+      (v.in > 0 ? '<span style="color:#16a34a">+' + v.in.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span> ' : '') +
+      (v.out > 0 ? '<span style="color:#ef4444">-' + v.out.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span>' : '') +
       '</td></tr>'
     ).join('');
 
     const diffText = diff === 0 ? '✅ مظبوط'
-      : diff > 0 ? ('📈 أوفر +' + diff.toLocaleString('ar-EG'))
-      : ('🔴 عجز ' + diff.toLocaleString('ar-EG'));
+      : diff > 0 ? ('📈 أوفر +' + diff.toLocaleString('ar-EG', { maximumFractionDigits: 0 }))
+      : ('🔴 عجز ' + diff.toLocaleString('ar-EG', { maximumFractionDigits: 0 }));
 
     const win = window.open('', '_blank');
     if (!win) return;
@@ -244,18 +244,18 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
       '<div><h3 style="color:#16a34a">📥 بند إضافي داخل</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
       (inRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
-      '</tbody></table><div style="text-align:left;font-weight:bold;color:#16a34a">الإجمالي: ' + totalIn.toLocaleString('ar-EG') + '</div></div>' +
+      '</tbody></table><div style="text-align:left;font-weight:bold;color:#16a34a">الإجمالي: ' + totalIn.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</div></div>' +
       '<div><h3 style="color:#dc2626">📤 بند إضافي خارج</h3><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>' +
       (outRows || '<tr><td colspan="2" style="text-align:center;color:#999">لا يوجد</td></tr>') +
-      '</tbody></table><div style="text-align:left;font-weight:bold;color:#dc2626">الإجمالي: ' + totalOut.toLocaleString('ar-EG') + '</div></div>' +
+      '</tbody></table><div style="text-align:left;font-weight:bold;color:#dc2626">الإجمالي: ' + totalOut.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</div></div>' +
       '</div>' +
-      '<div class="summary"><div><span>رصيد أول اليوم (كاش)</span><span>' + autoCalc.cash.openingAuto.toLocaleString('ar-EG') + '</span></div>' +
-      '<div style="font-weight:bold;border-top:1px solid #ddd;margin-top:8px;padding-top:8px"><span>المفروض يتبقى (كاش)</span><span>' + expected.toLocaleString('ar-EG') + '</span></div>' +
-      '<div><span>رصيد الدرج الفعلي (كاش)</span><span>' + actual.toLocaleString('ar-EG') + '</span></div></div>' +
+      '<div class="summary"><div><span>رصيد أول اليوم (كاش)</span><span>' + autoCalc.cash.openingAuto.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span></div>' +
+      '<div style="font-weight:bold;border-top:1px solid #ddd;margin-top:8px;padding-top:8px"><span>المفروض يتبقى (كاش)</span><span>' + expected.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span></div>' +
+      '<div><span>رصيد الدرج الفعلي (كاش)</span><span>' + actual.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span></div></div>' +
       '<div class="diff">' + diffText + '</div>' +
       (actualBalanceBank !== '' ?
-        '<div class="summary" style="margin-top:16px"><div style="font-weight:bold"><span>المفروض يتبقى (بنك)</span><span>' + autoCalc.bank.expectedClosing.toLocaleString('ar-EG') + '</span></div>' +
-        '<div><span>رصيد البنك الفعلي</span><span>' + bankActualNum.toLocaleString('ar-EG') + '</span></div></div>' : '') +
+        '<div class="summary" style="margin-top:16px"><div style="font-weight:bold"><span>المفروض يتبقى (بنك)</span><span>' + autoCalc.bank.expectedClosing.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span></div>' +
+        '<div><span>رصيد البنك الفعلي</span><span>' + bankActualNum.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) + '</span></div></div>' : '') +
       '<script>window.print();window.close();</script></body></html>'
     );
     win.document.close();
@@ -323,8 +323,8 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
                       )}
                     </div>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-green-400">+{jIn.toLocaleString('ar-EG')}</span>
-                      <span className="text-red-400">-{jOut.toLocaleString('ar-EG')}</span>
+                      <span className="text-green-400">+{jIn.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</span>
+                      <span className="text-red-400">-{jOut.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</span>
                       <span className={
                         j.actualBalance === 0 ? 'text-gray-500' :
                         Math.abs(jDiff) < 1 ? 'text-green-400 font-bold' :
@@ -332,8 +332,8 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
                       }>
                         {j.actualBalance === 0 ? '—' :
                          Math.abs(jDiff) < 1 ? '✓ مظبوط' :
-                         jDiff > 0 ? ('+' + Math.abs(jDiff).toLocaleString('ar-EG')) :
-                         ('-' + Math.abs(jDiff).toLocaleString('ar-EG'))}
+                         jDiff > 0 ? ('+' + Math.abs(jDiff).toLocaleString('ar-EG', { maximumFractionDigits: 0 })) :
+                         ('-' + Math.abs(jDiff).toLocaleString('ar-EG', { maximumFractionDigits: 0 }))}
                       </span>
                     </div>
                   </button>
@@ -386,9 +386,9 @@ export default function DailyJournal({ journals, treasuryTransactions, onSaveJou
                 <div key={type} className="flex justify-between text-sm py-1 border-b border-white/5">
                   <span className="text-gray-400">{TYPE_LABELS[type] || type}</span>
                   <span>
-                    {v.in > 0 && <span className="text-green-400">+{v.in.toLocaleString('ar-EG')}</span>}
+                    {v.in > 0 && <span className="text-green-400">+{v.in.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</span>}
                     {v.in > 0 && v.out > 0 && <span className="text-gray-600"> / </span>}
-                    {v.out > 0 && <span className="text-red-400">-{v.out.toLocaleString('ar-EG')}</span>}
+                    {v.out > 0 && <span className="text-red-400">-{v.out.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</span>}
                   </span>
                 </div>
               ))}

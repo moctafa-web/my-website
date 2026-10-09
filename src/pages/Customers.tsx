@@ -143,12 +143,12 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
     const finalBalance = rowsToPrint.length ? rowsToPrint[rowsToPrint.length-1].runningBalance : getBalance(c);
     const finalLabel = (dateFrom || dateTo) ? 'الرصيد في نهاية الفترة' : finalBalance > 0 ? 'الرصيد النهائي (مستحق منه)' : finalBalance < 0 ? 'الرصيد النهائي (متبقي له - فرق حساب)' : 'الرصيد النهائي (متطابق)';
     const finalDisplayAmount = (dateFrom || dateTo) ? finalBalance : Math.abs(finalBalance);
-    const rows = rowsToPrint.map(t => `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`).join('');
+    const rows = rowsToPrint.map(t => `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td></tr>`).join('');
     printElement(`
       <div class="header"><div><div class="company-name">ONE</div></div><div class="invoice-info"><div><strong>كشف حساب عميل</strong></div><div>${c.name}</div><div>${c.phone || ''}</div><div>${periodLabel}</div></div></div>
-      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>` : (c.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${c.openingBalance.toLocaleString('ar-EG')} ج.م</p>` : '')}
+      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</p>` : (c.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${c.openingBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</p>` : '')}
       <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="totals"><table><tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG')} ج.م</td></tr><tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG')} ج.م</td></tr><tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG')} ج.م</td></tr></table></div>
+      <div class="totals"><table><tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr><tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr><tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr></table></div>
     `);
   };
 
@@ -277,8 +277,8 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
       <tr>
         <td>${item.productName}${item.serials && item.serials.length ? `<br/><span style="font-size:11px;color:#666">${item.serials.map(s => s.serial).join(', ')}</span>` : ''}</td>
         <td style="text-align:center">${item.quantity}</td>
-        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
-        <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
+        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
+        <td style="text-align:center">${item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
       </tr>
     `).join('');
     printElement(`
@@ -296,11 +296,11 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
         <tbody>${rows}</tbody>
       </table>
       <div class="totals"><table>
-        <tr><td>المجموع</td><td>${inv.subtotal.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>${inv.discount.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
-        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+        <tr><td>المجموع</td><td>${inv.subtotal.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>${inv.discount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>` : ''}
+        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>` : ''}
       </table></div>
     `, `فاتورة ${inv.invoiceNumber}`);
   };
@@ -377,7 +377,7 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
                   </div>
                   <div className={`rounded-xl p-2 text-center ${balanceLabel(balance).bgClass}`}>
                     <div className="text-xs text-gray-500">{balanceLabel(balance).text}</div>
-                    <div className={`font-bold text-sm ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div>
+                    <div className={`font-bold text-sm ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -410,7 +410,7 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
                 </div>
                 <div className="flex items-center gap-5">
                   <div className="text-center"><div className="text-xs text-gray-500">الفواتير</div><div className="text-sm font-bold text-white">{invCount}</div></div>
-                  <div className="text-center"><div className="text-xs text-gray-500">{balanceLabel(balance).text}</div><div className={`text-sm font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div></div>
+                  <div className="text-center"><div className="text-xs text-gray-500">{balanceLabel(balance).text}</div><div className={`text-sm font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div></div>
                   <div className="flex gap-1">
                     <button onClick={() => openAdvancedStatement(c)} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
                     <button onClick={() => openPaymentModal(c)} className="p-1.5 rounded-lg text-green-400 hover:bg-green-900/20"><DollarSign size={14} /></button>
@@ -449,7 +449,7 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
                     </td>
                     <td className="py-2.5 px-3 text-center text-gray-400 text-xs hidden md:table-cell">{c.type === 'individual' ? 'فرد' : c.type === 'company' ? 'شركة' : c.type === 'wholesale' ? 'جملة' : 'تاجر'}</td>
                     <td className="py-2.5 px-3 text-center text-white">{getCustomerInvoices(c.id).length}</td>
-                    <td className={`py-2.5 px-3 text-center font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</td>
+                    <td className={`py-2.5 px-3 text-center font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
                     <td className="py-2.5 px-3">
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => openAdvancedStatement(c)} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
@@ -492,7 +492,7 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
             <div className="grid grid-cols-4 gap-3 mb-4">
               <div className="bg-muted-bg rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">الرصيد الافتتاحي</div>
-                <div className="font-bold text-white">{viewCustomer.openingBalance.toLocaleString('ar-EG')}</div>
+                <div className="font-bold text-white">{viewCustomer.openingBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
               </div>
               <div className="bg-muted-bg rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">إجمالي الفواتير</div>
@@ -554,9 +554,9 @@ export default function Customers({ customers, saleInvoices, purchaseInvoices, p
                           <button onClick={() => setViewInvoice(t.ref as SaleInvoice)} className="text-violet-300 hover:underline text-right">{t.desc}</button>
                         ) : t.desc}
                       </td>
-                      <td className="py-2 px-3 text-center text-red-400">{t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td>
-                      <td className="py-2 px-3 text-center text-green-400">{t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td>
-                      <td className="py-2 px-3 text-center text-white font-medium">{t.runningBalance.toLocaleString('ar-EG')}</td>
+                      <td className="py-2 px-3 text-center text-red-400">{t.debit > 0 ? t.debit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+                      <td className="py-2 px-3 text-center text-green-400">{t.credit > 0 ? t.credit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+                      <td className="py-2 px-3 text-center text-white font-medium">{t.runningBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
                     </tr>
                   ))}
                   {getFullStatementRows(viewCustomer).length === 0 && (

@@ -979,9 +979,9 @@ const validateStock = (): string | null => {
           `).join('') || ''}
         </td>
         <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.quantity}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.unitPrice.toLocaleString('ar-EG')}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.discount > 0 ? item.discount.toLocaleString('ar-EG') : '-'}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;font-weight:700;">${item.total.toLocaleString('ar-EG')}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;">${item.discount > 0 ? item.discount.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;font-weight:700;">${item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
       </tr>
     `).join('');
 
@@ -1046,11 +1046,11 @@ const validateStock = (): string | null => {
         </table>
         <div class="summary-section">
           <div class="summary-box">
-            <div class="summary-row"><span class="label">المجموع الفرعي</span><span class="value">${inv.subtotal.toLocaleString('ar-EG')} ج.م</span></div>
-            ${inv.discount > 0 ? `<div class="summary-row"><span class="label">الخصم</span><span class="value" style="color:#c00;">- ${inv.discount.toLocaleString('ar-EG')} ج.م</span></div>` : ''}
-            <div class="summary-row total"><span class="label">الإجمالي النهائي</span><span class="value">${inv.total.toLocaleString('ar-EG')} ج.م</span></div>
-            <div class="summary-row"><span class="label">المدفوع</span><span class="value" style="color:#16a34a;">${inv.paid.toLocaleString('ar-EG')} ج.م</span></div>
-            ${inv.remaining > 0 ? `<div class="summary-row"><span class="label" style="color:#c00;">المتبقي</span><span class="value" style="color:#c00;">${inv.remaining.toLocaleString('ar-EG')} ج.م</span></div>` : ''}
+            <div class="summary-row"><span class="label">المجموع الفرعي</span><span class="value">${inv.subtotal.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span></div>
+            ${inv.discount > 0 ? `<div class="summary-row"><span class="label">الخصم</span><span class="value" style="color:#c00;">- ${inv.discount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span></div>` : ''}
+            <div class="summary-row total"><span class="label">الإجمالي النهائي</span><span class="value">${inv.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span></div>
+            <div class="summary-row"><span class="label">المدفوع</span><span class="value" style="color:#16a34a;">${inv.paid.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span></div>
+            ${inv.remaining > 0 ? `<div class="summary-row"><span class="label" style="color:#c00;">المتبقي</span><span class="value" style="color:#c00;">${inv.remaining.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span></div>` : ''}
           </div>
         </div>
         ${inv.notes ? `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:24px;background:#fffef0;"><div style="font-size:12px;color:#888;margin-bottom:6px;">📝 ملاحظات</div><div style="font-size:14px;color:#333;">${inv.notes}</div></div>` : ''}
@@ -1374,7 +1374,7 @@ const validateStock = (): string | null => {
                           <div className="w-full">
                             <label className="form-label text-xs">الإجمالي</label>
                             <div className="text-sm font-bold text-white py-2">
-                              {item.total.toLocaleString('ar-EG')}
+                              {item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}
                             </div>
                           </div>
                         </div>
@@ -1629,8 +1629,8 @@ const validateStock = (): string | null => {
                     <tr className="border-t border-white/5">
                       <td className="py-2 px-3 text-white">{item.productName}</td>
                       <td className="py-2 px-3 text-center text-gray-300">{item.quantity}</td>
-                      <td className="py-2 px-3 text-center text-gray-300">{item.unitPrice.toLocaleString('ar-EG')}</td>
-                      <td className="py-2 px-3 text-center font-bold text-white">{item.total.toLocaleString('ar-EG')}</td>
+                      <td className="py-2 px-3 text-center text-gray-300">{item.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
+                      <td className="py-2 px-3 text-center font-bold text-white">{item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
                     </tr>
                     {item.serials?.map((s, i) => (
                       <tr key={i} className="border-t border-white/5 bg-violet-900/10">
@@ -1832,7 +1832,7 @@ const validateStock = (): string | null => {
                         <div className="col-span-3 md:col-span-2 flex items-end">
                           <div className="w-full">
                             <label className="form-label text-xs">الإجمالي</label>
-                            <div className="text-sm font-bold text-white py-2">{item.total.toLocaleString('ar-EG')}</div>
+                            <div className="text-sm font-bold text-white py-2">{item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
                           </div>
                         </div>
                         <div className="col-span-1 flex items-end pb-1 justify-end">

@@ -183,7 +183,7 @@ const pendingSerials = state.serials
         <td>${i + 1}</td>
         <td>${c.name}</td>
         <td>${c.phone || '-'}</td>
-        <td style="color:#16a34a;font-weight:bold">${c.balance.toLocaleString('ar-EG')} ج.م</td>
+        <td style="color:#16a34a;font-weight:bold">${c.balance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td>
       </tr>
     `).join('');
 
@@ -192,7 +192,7 @@ const pendingSerials = state.serials
         <td>${i + 1}</td>
         <td>${s.name}</td>
         <td>${s.phone || '-'}</td>
-        <td style="color:#dc2626;font-weight:bold">${s.balance.toLocaleString('ar-EG')} ج.م</td>
+        <td style="color:#dc2626;font-weight:bold">${s.balance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td>
       </tr>
     `).join('');
 
@@ -250,17 +250,17 @@ const pendingSerials = state.serials
         <div class="summary">
           <div class="sum-card green">
             <div class="sum-label">💚 لينا عندهم</div>
-            <div class="sum-value">${totalOwing.toLocaleString('ar-EG')} ج.م</div>
+            <div class="sum-value">${totalOwing.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</div>
             <div style="font-size:11px;color:#16a34a;margin-top:4px">${allOwingUs.length} جهة</div>
           </div>
           <div class="sum-card red">
             <div class="sum-label">❤️ ليهم عندنا</div>
-            <div class="sum-value">${totalOwed.toLocaleString('ar-EG')} ج.م</div>
+            <div class="sum-value">${totalOwed.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</div>
             <div style="font-size:11px;color:#dc2626;margin-top:4px">${allWeOwe.length} جهة</div>
           </div>
           <div class="sum-card blue">
             <div class="sum-label">📊 الصافي</div>
-            <div class="sum-value">${Math.abs(netBalance).toLocaleString('ar-EG')} ج.م</div>
+            <div class="sum-value">${Math.abs(netBalance).toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</div>
             <div style="font-size:11px;color:#2563eb;margin-top:4px">
               ${netBalance >= 0 ? 'لصالحنا ✅' : 'علينا ⚠️'}
             </div>
@@ -275,7 +275,7 @@ const pendingSerials = state.serials
               <tfoot>
                 <tr style="background:#f0fdf4;font-weight:bold">
                   <td colspan="3" style="text-align:center">الإجمالي</td>
-                  <td style="color:#16a34a;font-weight:900">${totalOwing.toLocaleString('ar-EG')} ج.م</td>
+                  <td style="color:#16a34a;font-weight:900">${totalOwing.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td>
                 </tr>
               </tfoot>
             </table>`
@@ -289,7 +289,7 @@ const pendingSerials = state.serials
               <tfoot>
                 <tr style="background:#fef2f2;font-weight:bold">
                   <td colspan="3" style="text-align:center">الإجمالي</td>
-                  <td style="color:#dc2626;font-weight:900">${totalOwed.toLocaleString('ar-EG')} ج.م</td>
+                  <td style="color:#dc2626;font-weight:900">${totalOwed.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td>
                 </tr>
               </tfoot>
             </table>`
@@ -307,7 +307,7 @@ const pendingSerials = state.serials
     const date = new Date().toLocaleDateString('ar-EG', {
       year: 'numeric', month: 'numeric', day: 'numeric'
     });
-    const fmt = (num: number) => num.toLocaleString('ar-EG');
+    const fmt = (num: number) => num.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
 
     let msg = `📒 تقرير حسابات التجار\n`;
     msg += `🗓️ ${date}\n\n`;
@@ -560,7 +560,7 @@ const pendingSerials = state.serials
               <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} />
               <Tooltip
                 contentStyle={{ background: '#1a1c20', border: '1px solid #2a2c32', borderRadius: 8, color: '#ecece8' }}
-                formatter={(v: unknown) => [`${Number(v).toLocaleString('ar-EG')} ج.م`, '']}
+                formatter={(v: unknown) => [`${Number(v).toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م`, '']}
               />
               <Area type="monotone" dataKey="مبيعات" stroke="#c9cfc8" fill="url(#salesGrad)" strokeWidth={2} />
               <Area type="monotone" dataKey="مشتريات" stroke="#7f93a8" fill="url(#purchGrad)" strokeWidth={2} />
@@ -658,7 +658,7 @@ const pendingSerials = state.serials
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       inv.status === 'paid' ? 'bg-green-900/40 text-green-400' : 'bg-yellow-900/40 text-yellow-400'
                     }`}>
-                      {inv.remaining > 0 ? `متبقي ${inv.remaining.toLocaleString('ar-EG')}` : 'مدفوع'}
+                      {inv.remaining > 0 ? `متبقي ${inv.remaining.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}` : 'مدفوع'}
                     </span>
                   </div>
                 </div>

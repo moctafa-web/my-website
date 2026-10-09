@@ -42,7 +42,7 @@ export default function ProductQRModal({ product, onClose }: Props) {
             <img src="${qrDataUrl}" />
             <div class="name">${product.name}</div>
             <div class="sku">${product.sku}</div>
-            <div class="price">${product.salePrice.toLocaleString('ar-EG')} ج.م</div>
+            <div class="price">${product.salePrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</div>
           </div>
           <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
         </body>
@@ -75,7 +75,7 @@ export default function ProductQRModal({ product, onClose }: Props) {
           )}
           <div className="text-black font-bold text-sm">{product.name}</div>
           <div className="text-black font-mono text-base mt-1 tracking-wider">{product.sku}</div>
-          <div className="text-gray-600 text-sm mt-1">{product.salePrice.toLocaleString('ar-EG')} ج.م</div>
+          <div className="text-gray-600 text-sm mt-1">{product.salePrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</div>
         </div>
 
         <p className="text-xs text-gray-500 mb-4 text-center">يحتوي الكود على رقم SKU، يمكن مسحه بقارئ الباركود أو كاميرا الموبايل لتسجيل المنتج فورًا بدل البحث اليدوي.</p>

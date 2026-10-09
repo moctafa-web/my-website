@@ -1,8 +1,11 @@
 // src/utils/helpers.ts
 
 export const formatCurrency = (amount: number, currency = 'EGP'): string => {
-  return `${amount.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  return `${Math.round(amount || 0).toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ${currency}`;
 };
+
+export const formatMoney = (amount: number): string =>
+  Math.round(amount || 0).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
 
 export const formatDate = (dateStr: string): string => {
   try {
@@ -16,7 +19,7 @@ export const formatDate = (dateStr: string): string => {
 export const formatDateTime = (dateStr: string): string => {
   try {
     const d = new Date(dateStr);
-    return d.toLocaleString('ar-EG');
+    return d.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
   } catch {
     return dateStr;
   }

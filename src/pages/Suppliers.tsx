@@ -255,7 +255,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
     const finalDisplayAmount = (dateFrom || dateTo) ? finalBalance : Math.abs(finalBalance);
 
     const rows = rowsToPrint.map(t =>
-      `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG')}</td></tr>`
+      `<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.debit > 0 ? t.debit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td><td>${t.credit > 0 ? t.credit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td><td>${t.runningBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td></tr>`
     ).join('');
 
     printElement(`
@@ -263,15 +263,15 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
         <div><div class="company-name">ONE</div></div>
         <div class="invoice-info"><div><strong>كشف حساب مورد</strong></div><div>${s.name}</div><div>${s.phone || ''}</div><div>${periodLabel}</div></div>
       </div>
-      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>` : (s.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${s.openingBalance.toLocaleString('ar-EG')} ج.م</p>` : '')}
+      ${(dateFrom || dateTo) ? `<p style="margin-bottom:10px;font-size:13px">الرصيد قبل الفترة المحددة: ${openingForPeriod.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</p>` : (s.openingBalance > 0 ? `<p style="margin-bottom:10px;font-size:13px">الرصيد الافتتاحي: ${s.openingBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</p>` : '')}
       <table>
         <thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="totals"><table>
-        <tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>إجمالي حركة المدين في الفترة</td><td>${periodTotalDebit.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr><td>إجمالي حركة الدائن في الفترة</td><td>${periodTotalCredit.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr class="total-row"><td>${finalLabel}</td><td>${finalDisplayAmount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
       </table></div>
     `);
   };
@@ -282,8 +282,8 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
       <tr>
         <td>${item.productName}${item.serials && item.serials.length ? `<br/><span style="font-size:11px;color:#666">${item.serials.map(s => s.serial).join(', ')}</span>` : ''}</td>
         <td style="text-align:center">${item.quantity}</td>
-        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
-        <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
+        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
+        <td style="text-align:center">${item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
       </tr>
     `).join('');
     printElement(`
@@ -301,11 +301,11 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
         <tbody>${rows}</tbody>
       </table>
       <div class="totals"><table>
-        <tr><td>المجموع</td><td>${inv.subtotal.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>${inv.discount.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
-        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+        <tr><td>المجموع</td><td>${inv.subtotal.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        ${inv.discount > 0 ? `<tr><td>الخصم</td><td>${inv.discount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>` : ''}
+        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>` : ''}
       </table></div>
     `, `فاتورة ${inv.invoiceNumber}`);
   };
@@ -382,7 +382,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
                   </div>
                   <div className={`rounded-xl p-2 text-center ${balanceLabel(balance).bgClass}`}>
                     <div className="text-xs text-gray-500">{balanceLabel(balance).text}</div>
-                    <div className={`font-bold text-sm ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div>
+                    <div className={`font-bold text-sm ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
                   </div>
                 </div>
 
@@ -416,7 +416,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
                 </div>
                 <div className="flex items-center gap-5">
                   <div className="text-center"><div className="text-xs text-gray-500">الفواتير</div><div className="text-sm font-bold text-white">{invCount}</div></div>
-                  <div className="text-center"><div className="text-xs text-gray-500">{balanceLabel(balance).text}</div><div className={`text-sm font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</div></div>
+                  <div className="text-center"><div className="text-xs text-gray-500">{balanceLabel(balance).text}</div><div className={`text-sm font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div></div>
                   <div className="flex gap-1">
                     <button onClick={() => { setViewSupplier(s); setDateFrom(''); setDateTo(''); }} className="p-1.5 rounded-lg text-violet-400 hover:bg-violet-900/20"><Eye size={14} /></button>
                     <button onClick={() => openPaymentModal(s)} className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-900/20"><DollarSign size={14} /></button>
@@ -455,7 +455,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
                     </td>
                     <td className="py-2.5 px-3 text-center text-gray-400 text-xs hidden md:table-cell">{s.type === 'supplier' ? 'مورد' : s.type === 'trader' ? 'تاجر' : 'مورد وتاجر'}</td>
                     <td className="py-2.5 px-3 text-center text-white">{getSupplierInvoices(s.id).length}</td>
-                    <td className={`py-2.5 px-3 text-center font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG')}</td>
+                    <td className={`py-2.5 px-3 text-center font-bold ${balanceLabel(balance).colorClass}`}>{balanceLabel(balance).amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
                     <td className="py-2.5 px-3">
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => { setViewSupplier(s); setDateFrom(''); setDateTo(''); }} className="p-1 rounded text-violet-400 hover:bg-violet-900/20"><Eye size={13} /></button>
@@ -495,7 +495,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
             </div>
 
             <div className="grid grid-cols-4 gap-3 mb-4">
-              <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">الرصيد الافتتاحي</div><div className="font-bold text-white">{viewSupplier.openingBalance.toLocaleString('ar-EG')}</div></div>
+              <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">الرصيد الافتتاحي</div><div className="font-bold text-white">{viewSupplier.openingBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div></div>
               <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">إجمالي الفواتير</div><div className="font-bold text-blue-400">{formatCurrency(getSupplierInvoices(viewSupplier.id).reduce((s, i) => s + i.total, 0))}</div></div>
               <div className="bg-muted-bg rounded-xl p-3 text-center"><div className="text-xs text-gray-500">المدفوع</div><div className="font-bold text-green-400">{formatCurrency(getSupplierInvoices(viewSupplier.id).reduce((s, i) => s + i.paid, 0))}</div></div>
               <div className={`${balanceLabel(getBalance(viewSupplier)).bgClass} border ${getBalance(viewSupplier) > 0 ? 'border-red-700/30' : 'border-green-700/30'} rounded-xl p-3 text-center`}><div className="text-xs text-gray-500">{balanceLabel(getBalance(viewSupplier)).text}</div><div className={`font-bold ${balanceLabel(getBalance(viewSupplier)).colorClass}`}>{formatCurrency(balanceLabel(getBalance(viewSupplier)).amount)}</div></div>
@@ -547,9 +547,9 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
                           <button onClick={() => setViewInvoice(t.ref as PurchaseInvoice)} className="text-violet-300 hover:underline text-right">{t.desc}</button>
                         ) : t.desc}
                       </td>
-                      <td className="py-2 px-3 text-center text-red-400">{t.debit > 0 ? t.debit.toLocaleString('ar-EG') : '-'}</td>
-                      <td className="py-2 px-3 text-center text-green-400">{t.credit > 0 ? t.credit.toLocaleString('ar-EG') : '-'}</td>
-                      <td className="py-2 px-3 text-center text-white font-medium">{t.runningBalance.toLocaleString('ar-EG')}</td>
+                      <td className="py-2 px-3 text-center text-red-400">{t.debit > 0 ? t.debit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+                      <td className="py-2 px-3 text-center text-green-400">{t.credit > 0 ? t.credit.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+                      <td className="py-2 px-3 text-center text-white font-medium">{t.runningBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
                     </tr>
                   ))}
                   {getFullStatementRows(viewSupplier).length === 0 && (

@@ -580,10 +580,10 @@ export default function Products({
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-center text-gray-300 text-xs">
-                    {p.costPrice.toLocaleString('ar-EG')}
+                    {p.costPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}
                   </td>
                   <td className="py-2.5 px-3 text-center text-white text-xs font-medium">
-                    {p.salePrice.toLocaleString('ar-EG')}
+                    {p.salePrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}
                   </td>
                   <td className="py-2.5 px-3 text-center">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -916,11 +916,11 @@ function ProductListRow({
       <div className="flex items-center gap-6">
         <div className="text-right hidden md:block">
           <div className="text-xs text-gray-500">شراء</div>
-          <div className="text-sm text-gray-300">{product.costPrice.toLocaleString('ar-EG')}</div>
+          <div className="text-sm text-gray-300">{product.costPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
         </div>
         <div className="text-right">
           <div className="text-xs text-gray-500">بيع</div>
-          <div className="text-sm font-bold text-white">{product.salePrice.toLocaleString('ar-EG')}</div>
+          <div className="text-sm font-bold text-white">{product.salePrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
         </div>
         <div className="text-center">
           <div className={`text-xl font-black ${stockColor}`}>{stock}</div>

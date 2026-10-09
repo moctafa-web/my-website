@@ -129,11 +129,11 @@ export default function Settings({ settings, onUpdateSettings, cashBalance, bank
           <div className="space-y-3">
             <div className="flex items-center justify-between bg-green-900/20 border border-green-700/30 rounded-xl px-4 py-3">
               <span className="text-green-400">💵 خزنة الكاش</span>
-              <span className="text-xl font-black text-white">{cashBalance.toLocaleString('ar-EG')} ج.م</span>
+              <span className="text-xl font-black text-white">{cashBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span>
             </div>
             <div className="flex items-center justify-between bg-blue-900/20 border border-blue-700/30 rounded-xl px-4 py-3">
               <span className="text-blue-400">🏦 خزنة البنك</span>
-              <span className="text-xl font-black text-white">{bankBalance.toLocaleString('ar-EG')} ج.م</span>
+              <span className="text-xl font-black text-white">{bankBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</span>
             </div>
           </div>
         </div>

@@ -139,7 +139,7 @@ export default function Layout({
                 كاش
               </span>
               <span className="text-xs font-semibold text-good-fg tabular-nums">
-                {cashBalance.toLocaleString("ar-EG")} ج.م
+                {cashBalance.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} ج.م
               </span>
             </div>
             <div className="flex items-center justify-between bg-elevated border border-border rounded-md px-3 py-2">
@@ -148,7 +148,7 @@ export default function Layout({
                 بنك
               </span>
               <span className="text-xs font-semibold text-info-fg tabular-nums">
-                {bankBalance.toLocaleString("ar-EG")} ج.م
+                {bankBalance.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} ج.م
               </span>
             </div>
           </div>
@@ -242,13 +242,13 @@ export default function Layout({
               <div className="bg-elevated border border-border rounded-md px-3 py-1.5 text-xs">
                 <span className="text-muted">كاش</span>
                 <span className="text-good-fg font-semibold mr-1.5 tabular-nums">
-                  {cashBalance.toLocaleString("ar-EG")}
+                  {cashBalance.toLocaleString("ar-EG", { maximumFractionDigits: 0 })}
                 </span>
               </div>
               <div className="bg-elevated border border-border rounded-md px-3 py-1.5 text-xs">
                 <span className="text-muted">بنك</span>
                 <span className="text-info-fg font-semibold mr-1.5 tabular-nums">
-                  {bankBalance.toLocaleString("ar-EG")}
+                  {bankBalance.toLocaleString("ar-EG", { maximumFractionDigits: 0 })}
                 </span>
               </div>
             </div>

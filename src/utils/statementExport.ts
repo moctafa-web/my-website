@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { formatCurrency, paymentMethodLabel } from './helpers';
+import { formatMoney, paymentMethodLabel } from './helpers';
 
 export type DetailLevel = 'brief' | 'items' | 'items_price' | 'full';
 
@@ -12,7 +12,7 @@ export interface DetailLine {
 
 // سطر الصنف حسب مستوى التفاصيل: "5 x Airpods" أو "5 x Airpods @ 3,200"
 export const detailLineText = (l: DetailLine, level: DetailLevel): string =>
-  `${l.qty} x ${l.name}${level === 'items_price' || level === 'full' ? ` @ ${formatCurrency(l.price)}` : ''}`;
+  `${l.qty} x ${l.name}${level === 'items_price' || level === 'full' ? ` @ ${formatMoney(l.price)}` : ''}`;
 
 export interface ExportRow {
   date: string;
@@ -42,7 +42,7 @@ export interface ExportInput {
 }
 
 const side = (b: number) => (Math.abs(b) < 0.005 ? '' : b > 0 ? 'لنا' : 'له');
-const balText = (b: number) => `${formatCurrency(Math.abs(b))} ${side(b)}`.trim();
+const balText = (b: number) => `${formatMoney(Math.abs(b))} ${side(b)}`.trim();
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // البيان بدون طريقة الدفع (لأنها بتتعرض في عمود مستقل)
@@ -59,11 +59,11 @@ export const buildStatementHtml = (d: ExportInput): string => {
   const color = (b: number) => (Math.abs(b) < 0.005 ? '#555' : b > 0 ? '#b91c1c' : '#15803d');
   const rows = d.rows.map(r => `
     <tr>
-      <td>${esc(r.date)}</td>
+      <td class="dt">${esc(r.date)}</td>
       <td>${esc(baseText(r))}${lvl !== 'brief' && r.lines?.length ? `<ul class="items">${r.lines.map(l => `<li dir="auto">${esc(detailLineText(l, lvl))}${lvl === 'full' && l.serials.length ? `<div class="sn" dir="ltr">${l.serials.map(esc).join('<br/>')}</div>` : ''}</li>`).join('')}</ul>` : ''}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ''}</td>
       <td>${esc(methodText(r)) || '-'}</td>
-      <td class="num">${r.debit ? formatCurrency(r.debit) : '-'}</td>
-      <td class="num">${r.credit ? formatCurrency(r.credit) : '-'}</td>
+      <td class="num">${r.debit ? formatMoney(r.debit) : '-'}</td>
+      <td class="num">${r.credit ? formatMoney(r.credit) : '-'}</td>
       <td class="num bal" style="color:${color(r.balanceAfter)}">${balText(r.balanceAfter)}</td>
     </tr>`).join('');
 
@@ -77,6 +77,7 @@ export const buildStatementHtml = (d: ExportInput): string => {
     .st tr { page-break-inside: avoid; }
     .st th { background: #eef0f6; font-size: 12px; }
     .st td, .st th { border: 1px solid #ccc; padding: 6px 8px; font-size: 12px; text-align: right; }
+    .st .dt { white-space: nowrap; width: 1%; }
     .st .num { text-align: center; white-space: nowrap; }
     .st .bal { font-weight: 700; }
     .st .items { margin: 4px 0 0; padding-right: 14px; font-size: 11px; color: #333; }
@@ -95,7 +96,7 @@ export const buildStatementHtml = (d: ExportInput): string => {
       <tbody>
         <tr class="open"><td>${esc(d.dateFrom || '—')}</td><td colspan="4">الرصيد الافتتاحي</td><td class="num bal" style="color:${color(d.opening)}">${balText(d.opening)}</td></tr>
         ${rows}
-        <tr class="total"><td colspan="3">الإجمالي</td><td class="num">${formatCurrency(d.totalDebit)}</td><td class="num">${formatCurrency(d.totalCredit)}</td><td class="num" style="color:${color(d.closing)}">${balText(d.closing)}</td></tr>
+        <tr class="total"><td colspan="3">الإجمالي</td><td class="num">${formatMoney(d.totalDebit)}</td><td class="num">${formatMoney(d.totalCredit)}</td><td class="num" style="color:${color(d.closing)}">${balText(d.closing)}</td></tr>
       </tbody>
     </table>
     <div class="sum">الرصيد الختامي: <b style="color:${color(d.closing)}">${balText(d.closing)}${d.closing > 0.005 ? ' (مستحق لنا)' : d.closing < -0.005 ? ' (مستحق له)' : ''}</b></div>
@@ -135,7 +136,7 @@ export const exportStatementExcel = (d: ExportInput) => {
   for (let r = headerRow + 1; r <= lastRow; r++) {
     numCols.forEach(c => {
       const cell = ws[XLSX.utils.encode_cell({ r, c })];
-      if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
+      if (cell && typeof cell.v === 'number') cell.z = '#,##0';
     });
   }
   const wb = XLSX.utils.book_new();

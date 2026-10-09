@@ -109,9 +109,9 @@ export default function Finance({
       <tr>
         <td>${r.date}</td>
         <td>${r.description}</td>
-        <td style="text-align:center;color:#16a34a">${r.direction === 'in' ? r.amount.toLocaleString('ar-EG') : '-'}</td>
-        <td style="text-align:center;color:#dc2626">${r.direction === 'out' ? r.amount.toLocaleString('ar-EG') : '-'}</td>
-        <td style="text-align:center;font-weight:bold">${r.runningBalance.toLocaleString('ar-EG')}</td>
+        <td style="text-align:center;color:#16a34a">${r.direction === 'in' ? r.amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+        <td style="text-align:center;color:#dc2626">${r.direction === 'out' ? r.amount.toLocaleString('ar-EG', { maximumFractionDigits: 0 }) : '-'}</td>
+        <td style="text-align:center;font-weight:bold">${r.runningBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
       </tr>
     `).join('');
 
@@ -120,15 +120,15 @@ export default function Finance({
         <div><div class="company-name">ONE</div></div>
         <div class="invoice-info"><div><strong>كشف حساب ${label}</strong></div><div>${periodLabel}</div></div>
       </div>
-      <p style="margin-bottom:10px;font-size:13px">الرصيد ${(treasuryDateFrom || treasuryDateTo) ? 'قبل الفترة المحددة' : 'الافتتاحي'}: ${openingForPeriod.toLocaleString('ar-EG')} ج.م</p>
+      <p style="margin-bottom:10px;font-size:13px">الرصيد ${(treasuryDateFrom || treasuryDateTo) ? 'قبل الفترة المحددة' : 'الافتتاحي'}: ${openingForPeriod.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</p>
       <table>
         <thead><tr><th>التاريخ</th><th>البيان</th><th>دخول (إيداع)</th><th>خروج (سحب)</th><th>الرصيد الجاري</th></tr></thead>
         <tbody>${bodyRows || '<tr><td colspan="5" style="text-align:center;color:#9ca3af">لا توجد حركات</td></tr>'}</tbody>
       </table>
       <div class="totals"><table>
-        <tr><td>إجمالي الدخول في الفترة</td><td>${totalIn.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>إجمالي الخروج في الفترة</td><td>${totalOut.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr class="total-row"><td>الرصيد ${(treasuryDateFrom || treasuryDateTo) ? 'في نهاية الفترة' : 'الحالي'}</td><td>${finalBalance.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr><td>إجمالي الدخول في الفترة</td><td>${totalIn.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr><td>إجمالي الخروج في الفترة</td><td>${totalOut.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr class="total-row"><td>الرصيد ${(treasuryDateFrom || treasuryDateTo) ? 'في نهاية الفترة' : 'الحالي'}</td><td>${finalBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
       </table></div>
     `, `كشف حساب ${label}`);
   };

@@ -56,16 +56,16 @@ export default function Timeline({ rows, onRowClick }: Props) {
             <div className="text-right">
               {row.debit > 0 && (
                 <p className="text-sm text-red-400 font-medium">
-                  {row.debit.toLocaleString('ar-EG')}
+                  {row.debit.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}
                 </p>
               )}
               {row.credit > 0 && (
                 <p className="text-sm text-green-400 font-medium">
-                  +{row.credit.toLocaleString('ar-EG')}
+                  +{row.credit.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}
                 </p>
               )}
               <p className="text-xs text-gray-500 mt-1">
-                الرصيد: {row.runningBalance.toLocaleString('ar-EG')}
+                الرصيد: {row.runningBalance.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}
               </p>
             </div>
           </div>

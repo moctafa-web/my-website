@@ -895,8 +895,8 @@ export default function Purchases({
       <tr>
         <td>${item.productName}</td>
         <td style="text-align:center">${item.quantity}</td>
-        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG')}</td>
-        <td style="text-align:center">${item.total.toLocaleString('ar-EG')}</td>
+        <td style="text-align:center">${item.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
+        <td style="text-align:center">${item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</td>
       </tr>
       ${item.serials?.map(s => `
         <tr><td colspan="4" style="font-size:11px;color:#666;padding-right:20px">
@@ -918,9 +918,9 @@ export default function Purchases({
         <tbody>${itemsHtml}</tbody>
       </table>
       <div class="totals"><table>
-        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG')} ج.م</td></tr>
-        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG')} ج.م</td></tr>` : ''}
+        <tr class="total-row"><td>الإجمالي</td><td>${inv.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        <tr><td>المدفوع</td><td>${inv.paid.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>
+        ${inv.remaining > 0 ? `<tr><td>المتبقي</td><td>${inv.remaining.toLocaleString('ar-EG', { maximumFractionDigits: 0 })} ج.م</td></tr>` : ''}
       </table></div>
     `);
   };
@@ -1162,7 +1162,7 @@ export default function Purchases({
                         <div className="col-span-3 md:col-span-2 flex items-end">
                           <div className="w-full">
                             <label className="form-label text-xs">الإجمالي</label>
-                            <div className="text-sm font-bold text-white py-2">{item.total.toLocaleString('ar-EG')}</div>
+                            <div className="text-sm font-bold text-white py-2">{item.total.toLocaleString('ar-EG', { maximumFractionDigits: 0 })}</div>
                           </div>
                         </div>
                         <div className="col-span-1 flex items-end pb-1 justify-end">
