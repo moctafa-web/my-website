@@ -69,7 +69,7 @@ export const buildStatementHtml = (d: ExportInput): string => {
 
   return `
   <style>
-    @page { size: A4; margin: 12mm; }
+    @page { size: A4; margin: 0; }
     .st h2 { font-size: 20px; margin-bottom: 4px; }
     .st .meta { font-size: 12px; color: #444; margin-bottom: 2px; }
     .st table { width: 100%; border-collapse: collapse; margin-top: 12px; }

@@ -240,6 +240,7 @@ export default function App() {
             onUpdateNoonOrder={store.updateNoonOrder}
             onAddNoonOrders={store.addNoonOrders}
             onSettleNoonOrders={store.settleNoonOrders}
+            onReturnNoonOrders={store.returnNoonOrders}
           />
         );
 

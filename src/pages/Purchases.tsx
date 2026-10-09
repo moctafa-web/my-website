@@ -1252,6 +1252,11 @@ export default function Purchases({
                   );
                 })}
               </div>
+              <div className="flex justify-start mt-3">
+                <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
+                  <Plus size={13} /> إضافة منتج
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

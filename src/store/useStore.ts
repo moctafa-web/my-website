@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AppState, Product, Customer, Supplier, Party, SaleInvoice, PurchaseInvoice,
-  Payment, Expense, TreasuryTransaction, NoonOrder, DailyClosing, InvoiceItem,
+  Payment, Expense, TreasuryTransaction, NoonOrder, NoonAdjustment, DailyClosing, InvoiceItem,
   DailyJournal, SerialItem, Brand, AppSettings, Partner, ProfitDistribution,
   WeeklyInventoryCount, StockTransfer, DailyOperationEntry, DailyInventoryScan, Employee
 } from '../types';
 import { normalizeForCompare, generateId, normalizeDateValue } from '../utils/helpers';
 import { makeTransactionId } from './domains/id.store';
+import { netProfit } from '../utils/noonReturns';
 import { applyTreasuryChange } from './domains/treasury.store';
 import { completePendingPurchaseState } from './domains/purchases.store';
 import { generateDemoData } from '../lib/demo-data';
@@ -1886,47 +1887,119 @@ export function useStore() {
     return { addedCount, mergedCount };
   }, []);
 
-  const settleNoonOrders = useCallback((settlements: { orderId: string; settledAmount: number; settledDate?: string }[], opts?: { actualTotal?: number }) => {
+  // تسجيل مرتجع (بعد التوصيل): الفلوس ممكن تكون نزلت (settledAmount) فتفضل مستنية خصم نون، أو ماجتش أصلاً
+  const returnNoonOrders = useCallback((ids: string[], opts: { date?: string; restock: boolean }) => {
+    setState(prev => {
+      const today = new Date().toISOString().split('T')[0];
+      const newState = { ...prev };
+      const updatedProducts: Product[] = [];
+      const updatedSerials: SerialItem[] = [];
+      const updatedOrders: NoonOrder[] = [];
+      newState.noonOrders = prev.noonOrders.map(order => {
+        if (!ids.includes(order.id) || order.status === 'canceled') return order;
+        const alreadyRestocked = order.status === 'returned' && order.returnRestocked;
+        if (order.status === 'returned' && !opts.restock) return order;
+        const doRestock = opts.restock && !alreadyRestocked;
+        if (doRestock) {
+          order.items.forEach(item => {
+            const product = newState.products.find(p => p.id === item.productId);
+            if (product?.productType === 'serial') {
+              const rec = item.serial
+                ? newState.serials.find(sr => sr.serial === item.serial)
+                : newState.serials.find(sr => sr.productId === item.productId && sr.noonOrderId === order.id);
+              if (rec) {
+                newState.serials = newState.serials.map(sr => {
+                  if (sr.id !== rec.id) return sr;
+                  const u = { ...sr, status: 'available' as const, noonOrderId: undefined };
+                  updatedSerials.push(u);
+                  return u;
+                });
+              }
+            } else {
+              newState.products = newState.products.map(p => {
+                if (p.id !== item.productId) return p;
+                const u = { ...p, stock: p.stock + 1 };
+                updatedProducts.push(u);
+                return u;
+              });
+            }
+          });
+        }
+        const updated: NoonOrder = {
+          ...order,
+          status: 'returned',
+          returnedDate: order.returnedDate || opts.date || today,
+          returnRestocked: order.returnRestocked || doRestock,
+        };
+        updated.settlementProfit = updated.settledAmount != null ? netProfit(updated) : updated.settlementProfit;
+        updatedOrders.push(updated);
+        return updated;
+      });
+      updatedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
+      updatedProducts.forEach(p => saveToFirebase('products', p.id, p));
+      updatedSerials.forEach(sr => saveToFirebase('serials', sr.id, sr));
+      return newState;
+    });
+  }, []);
+
+  const settleNoonOrders = useCallback((
+    settlements: { orderId: string; settledAmount: number; settledDate?: string }[],
+    opts?: { actualTotal?: number; adjustments?: { orderId: string; amount: number; kind: NoonAdjustment['kind']; note?: string }[] }
+  ) => {
     setState(prev => {
       const newState = { ...prev };
       const today = new Date().toISOString().split('T')[0];
       const valid = settlements.filter(s => prev.noonOrders.some(o => o.id === s.orderId) && s.settledAmount > 0);
+      const adjs = (opts?.adjustments || []).filter(a => a.amount > 0 && prev.noonOrders.some(o => o.id === a.orderId));
+      const batchDate = valid[0]?.settledDate || today;
       const ordersTotal = valid.reduce((sum, s) => sum + s.settledAmount, 0);
-      // الفلوس اللي دخلت البنك فعلاً (لو اتحدد) والفرق = مصاريف الدفعة (شحن/عمولات أخرى)
-      const actual = opts?.actualTotal !== undefined && opts.actualTotal >= 0 ? opts.actualTotal : ordersTotal;
-      const extraTotal = Math.max(0, Math.round((ordersTotal - actual) * 100) / 100);
-      const updatedOrders: NoonOrder[] = [];
+      const adjTotal = adjs.reduce((sum, a) => sum + a.amount, 0);
+      const expected = Math.round((ordersTotal - adjTotal) * 100) / 100;
+      // الفلوس اللي دخلت البنك فعلاً. الفرق عن المتوقع = مصاريف على الدفعة كلها (بتتوزع على أوردرات الدفعة)
+      const actual = opts?.actualTotal !== undefined && !Number.isNaN(opts.actualTotal) ? opts.actualTotal : expected;
+      const extraTotal = Math.max(0, Math.round((expected - actual) * 100) / 100);
+      const touched = new Map<string, NoonOrder>();
       newState.noonOrders = newState.noonOrders.map(order => {
         const settlement = valid.find(s => s.orderId === order.id);
-        if (!settlement) return order;
-        const totalCost = order.items.reduce((sum, it) => sum + (it.costPrice || 0), 0);
-        const extraShare = ordersTotal > 0 ? Math.round(extraTotal * (settlement.settledAmount / ordersTotal) * 100) / 100 : 0;
-        const updated = {
-          ...order,
-          status: 'settled' as const,
-          settledAmount: settlement.settledAmount,
-          settledDate: settlement.settledDate || today,
-          settlementExtraFee: extraShare,
-          settlementProfit: settlement.settledAmount - totalCost - extraShare,
-        };
-        updatedOrders.push(updated);
-        return updated;
+        const myAdjs = adjs.filter(a => a.orderId === order.id);
+        if (!settlement && myAdjs.length === 0) return order;
+        let u: NoonOrder = { ...order };
+        if (settlement) {
+          const extraShare = ordersTotal > 0 ? Math.round(extraTotal * (settlement.settledAmount / ordersTotal) * 100) / 100 : 0;
+          u = {
+            ...u,
+            // المرتجع بيفضل مرتجع (الفلوس نزلت وبتستنى الخصم)، غير كده بيتقفل كمحوّل
+            status: order.status === 'returned' ? 'returned' : 'settled',
+            settledAmount: settlement.settledAmount,
+            settledDate: settlement.settledDate || today,
+            settlementExtraFee: extraShare,
+          };
+        }
+        if (myAdjs.length) {
+          u.adjustments = [
+            ...(u.adjustments || []),
+            ...myAdjs.map(a => ({ id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, date: batchDate, amount: a.amount, kind: a.kind, note: a.note })),
+          ];
+        }
+        if (u.settledAmount != null) u.settlementProfit = netProfit(u);
+        touched.set(u.id, u);
+        return u;
       });
-      if (actual > 0) {
+      if (actual !== 0 && (valid.length > 0 || adjs.length > 0)) {
         newState.bankBalance = newState.bankBalance + actual;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
           id: makeTransactionId(),
           type: 'sale' as const,
-          description: `تسوية تحويل بنكي جماعي - ${valid.length} أوردر${extraTotal > 0 ? ` (بعد مصاريف ${extraTotal})` : ''}`,
-          amount: actual,
+          description: `تسوية تحويل بنكي جماعي - ${valid.length} أوردر${adjs.length ? ` + ${adjs.length} خصم` : ''}${extraTotal > 0 ? ` (مصاريف ${extraTotal})` : ''}`,
+          amount: Math.abs(actual),
           treasury: 'bank' as const,
-          direction: 'in' as const,
-          date: valid[0]?.settledDate || today,
+          direction: actual >= 0 ? 'in' as const : 'out' as const,
+          date: batchDate,
           createdAt: new Date().toISOString(),
         }];
       }
-      updatedOrders.forEach(o => saveToFirebase('noonOrders', o.id, o));
-      if (actual > 0) saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
+      touched.forEach(o => saveToFirebase('noonOrders', o.id, o));
+      if (actual !== 0) saveToFirebase('treasury', 'main', { cashBalance: newState.cashBalance, bankBalance: newState.bankBalance });
       return newState;
     });
   }, []);
@@ -2445,7 +2518,7 @@ export function useStore() {
     updatePaymentDate, updateSaleInvoiceDate, updatePurchaseInvoiceDate,
     addExpense,
     addTreasuryTransfer, addTreasuryAdjustment,
-    addNoonOrder, updateNoonOrder, addNoonOrders, settleNoonOrders,
+    addNoonOrder, updateNoonOrder, addNoonOrders, settleNoonOrders, returnNoonOrders,
     addBrand,
     addDailyClosing,
     saveDailyJournal,

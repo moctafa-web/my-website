@@ -110,11 +110,12 @@ export const buildSyncPreview = (rows: SheetRow[], orders: NoonOrder[]): SyncPre
     const from = order.status;
     let kind: ChangeKind; let reason = ''; let checked = false;
     if (to === null) { kind = 'unknown'; reason = `حالة نون "${row.status || 'فارغة'}" غير معروفة`; }
+    else if (to === 'returned' && (from === 'settled' || from === 'paid') && from !== (to as string)) { kind = 'forward'; reason = from === 'settled' ? 'مرتجع بعد التسوية: الجهاز يرجع للمخزون والفلوس تستنى خصم نون' : 'مرتجع: الجهاز يرجع للمخزون'; checked = true; }
     else if (PROTECTED.includes(from)) { kind = 'protected'; reason = 'حالة مالية (مدفوع/محوّل) ماتتغيرش'; }
     else if (to === from) { kind = 'same'; }
     else if (to === 'canceled') { kind = 'cancel'; reason = 'هيتلغي ويرجّع الجهاز للمخزون'; checked = true; }
     else if (from === 'canceled' || from === 'returned') { kind = 'conflict'; reason = `النظام عنده "${from === 'canceled' ? 'ملغي' : 'مرتجع'}" ونون بتقول غير كده، راجعها`; }
-    else if (to === 'returned') { kind = 'forward'; reason = 'مرتجع'; checked = true; }
+    else if (to === 'returned') { kind = 'forward'; reason = 'مرتجع: الجهاز يرجع للمخزون'; checked = true; }
     else if ((RANK[to] ?? -1) > (RANK[from] ?? -1)) { kind = 'forward'; checked = true; }
     else { kind = 'conflict'; reason = 'نون بتقول حالة أقدم من اللي في النظام، راجعها'; }
     items.push({ row, order, from, to, kind, reason, defaultChecked: checked });

@@ -291,6 +291,15 @@ export interface NoonOrderItem {
   costPrice?: number;
 }
 
+export interface NoonAdjustment {
+  id: string;
+  date: string;
+  /** المبلغ المخصوم من نون (موجب = خصم علينا) */
+  amount: number;
+  kind: 'shipping' | 'fee' | 'return_clawback' | 'other';
+  note?: string;
+}
+
 export interface NoonOrder {
   id: string;
   orderNumber: string;
@@ -306,6 +315,11 @@ export interface NoonOrder {
   settlementProfit?: number;
   /** حصة الأوردر من مصاريف الدفعة (شحن/عمولات أخرى) = فرق مجموع الأوردرات عن التحويل الفعلي */
   settlementExtraFee?: number;
+  /** خصومات/مصاريف نزلت على الأوردر في دفعات لاحقة (شحن، رسوم، استرجاع فلوس مرتجع) */
+  adjustments?: NoonAdjustment[];
+  returnedDate?: string;
+  /** الجهاز رجع للمخزون فعلاً */
+  returnRestocked?: boolean;
   createdAt: string;
 }
 

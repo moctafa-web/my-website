@@ -323,6 +323,7 @@ export default function ErpApp() {
             onUpdateNoonOrder={store.updateNoonOrder}
             onAddNoonOrders={store.addNoonOrders}
             onSettleNoonOrders={store.settleNoonOrders}
+            onReturnNoonOrders={store.returnNoonOrders}
           />
         );
       case "finance":

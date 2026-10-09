@@ -194,7 +194,7 @@ export const printElement = (htmlContent: string, title = 'ONE - طباعة') =>
       <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet" />
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Tajawal', Arial, sans-serif; direction: rtl; background: #fff; color: #1a1a2e; padding: 20px; }
+        body { font-family: 'Tajawal', Arial, sans-serif; direction: rtl; background: #fff; color: #1a1a2e; padding: 0; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: right; font-size: 13px; }
         th { background: #1a1a2e; color: white; font-weight: 600; }
@@ -210,11 +210,20 @@ export const printElement = (htmlContent: string, title = 'ONE - طباعة') =>
         .paid { background: #d1fae5; color: #065f46; }
         .partial { background: #fef3c7; color: #92400e; }
         .unpaid { background: #fee2e2; color: #991b1b; }
-        @media print { body { padding: 10px; } }
+        /* هوامش الطباعة = صفر عشان المتصفح ما يكتبش الرابط/العنوان/التاريخ في الهيدر والفوتر.
+           الهوامش الفعلية بتيجي من جدول التغليف (يتكرر في كل صفحة) */
+        @page { margin: 0; }
+        .pg-wrap, .pg-wrap > thead > tr > td, .pg-wrap > tfoot > tr > td, .pg-wrap > tbody > tr > td { border: 0 !important; padding: 0 !important; background: transparent !important; }
+        .pg-wrap { margin: 0; }
+        .pg-wrap > thead > tr > td, .pg-wrap > tfoot > tr > td { height: 12mm; }
+        .pg-wrap > tbody > tr > td { padding: 0 12mm !important; }
+        @media print { body { padding: 0; } }
       </style>
     </head>
     <body>
+      <table class="pg-wrap"><thead><tr><td></td></tr></thead><tfoot><tr><td></td></tr></tfoot><tbody><tr><td>
       ${htmlContent}
+      </td></tr></tbody></table>
     </body>
     </html>
   `);

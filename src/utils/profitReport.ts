@@ -1,4 +1,5 @@
 import { AppState } from '../types';
+import { clawbackPending, orderCost, orderFees } from './noonReturns';
 
 export type Channel = 'offline' | 'noon' | 'amazon' | 'other';
 
@@ -81,13 +82,30 @@ export const buildProfitRows = (state: AppState, f: ProfitFilter): ProfitResult 
   state.noonOrders.forEach(o => {
     const ch: Channel = o.platform === 'noon' ? 'noon' : o.platform === 'amazon' ? 'amazon' : 'other';
     if (f.channel !== 'all' && f.channel !== ch) return;
+    if (o.status === 'canceled') { excludedCount++; return; }
+
+    // مرتجع: لو الفلوس نزلت فهي هتتخصم (ربح 0)، ولو فيه مصاريف عليه (شحن/رسوم) أو الجهاز مارجعش المخزون بنسجّل الخسارة
+    if (o.status === 'returned') {
+      const fees = orderFees(o);
+      const lostCost = o.returnRestocked ? 0 : ((o.settledAmount || 0) > 0 ? orderCost(o) : 0);
+      if (fees <= 0 && lostCost <= 0) { excludedCount++; return; }
+      const date = day(o.returnedDate || o.settledDate || o.date);
+      if (!inRange(date, f)) return;
+      rows.push({
+        key: `n-${o.id}-ret`, date, channel: ch, docId: o.id, docNumber: o.orderNumber, party: o.customerName,
+        product: `↩️ مرتجع — ${o.items.map(i => i.productName).join(' + ')}`, qty: o.items.length,
+        revenue: 0, cost: r2(lostCost), commission: r2(fees), profit: r2(-fees - lostCost),
+        status: o.status, estimated: clawbackPending(o) > 0.005,
+      });
+      return;
+    }
+
     const settled = o.status === 'settled';
     const date = settled && o.settledDate ? day(o.settledDate) : day(o.date);
     if (!inRange(date, f)) return;
-    if (o.status === 'canceled' || o.status === 'returned') { excludedCount++; return; }
 
     const revenueTotal = o.items.reduce((s, it) => s + (it.price || 0), 0);
-    const commissionTotal = settled ? Math.max(0, revenueTotal - (o.settledAmount || 0)) + (o.settlementExtraFee || 0) : null;
+    const commissionTotal = settled ? Math.max(0, revenueTotal - (o.settledAmount || 0)) + orderFees(o) : null;
     o.items.forEach((it, idx) => {
       const share = revenueTotal > 0 ? (it.price || 0) / revenueTotal : 1 / Math.max(o.items.length, 1);
       const commission = commissionTotal === null ? null : commissionTotal * share;

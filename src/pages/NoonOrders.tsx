@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { NoonOrder, NoonOrderItem, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
+import { NoonOrder, NoonOrderItem, NoonAdjustment, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
+import { ADJ_KIND_LABEL, clawbackDone, clawbackPending, returnState } from '../utils/noonReturns';
 import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, normalizeDateValue } from '../utils/helpers';
 import { parseImportDate } from '../utils/importDate';
 import NoonPasteImport from '../components/NoonPasteImport';
@@ -15,7 +16,8 @@ interface Props {
   onAddNoonOrder: (o: NoonOrder) => { success: boolean; message?: string; merged?: boolean } | void;
   onUpdateNoonOrder: (o: NoonOrder) => void;
   onAddNoonOrders: (os: NoonOrder[]) => { addedCount: number; mergedCount: number } | void;
-  onSettleNoonOrders: (settlements: { orderId: string; settledAmount: number; settledDate?: string }[], opts?: { actualTotal?: number }) => void;
+  onSettleNoonOrders: (settlements: { orderId: string; settledAmount: number; settledDate?: string }[], opts?: { actualTotal?: number; adjustments?: { orderId: string; amount: number; kind: NoonAdjustment['kind']; note?: string }[] }) => void;
+  onReturnNoonOrders: (ids: string[], opts: { date?: string; restock: boolean }) => void;
 }
 
 const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: string }[] = [
@@ -24,7 +26,52 @@ const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: strin
   { id: 'other', label: 'أخرى', emoji: '🔵', color: 'bg-blue-900/30 border-blue-700/40 text-blue-300' },
 ];
 
-export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders }: Props) {
+// اختيار سيريال: بحث بجزء من السيريال/IMEI، وتحته قايمة تعلّم منها الجهاز (زي فاتورة البيع)
+function SerialPicker({ candidates, value, usedElsewhere, onPick }: {
+  candidates: SerialItem[];
+  value: string;
+  usedElsewhere: Set<string>;
+  onPick: (s: SerialItem | null) => void;
+}) {
+  const [q, setQ] = useState('');
+  const LIMIT = 30;
+  const term = q.trim().toLowerCase();
+  const matches = candidates.filter(s =>
+    !usedElsewhere.has(s.serial) &&
+    (!term || s.serial.toLowerCase().includes(term) || (s.imei1 || '').toLowerCase().includes(term) || (s.imei2 || '').toLowerCase().includes(term)));
+  const shown = matches.slice(0, LIMIT);
+  const chosen = candidates.find(s => s.serial === value);
+  return (
+    <div className="mb-2">
+      <label className="text-xs text-gray-500 mb-1 block">السيريال ({candidates.length} متاح لهذا المنتج):</label>
+      {value && (
+        <div className="flex items-center justify-between gap-2 mb-2 bg-green-900/20 border border-green-700/30 rounded-lg px-3 py-1.5">
+          <div className="text-xs">
+            <span className="text-green-300 font-mono" dir="ltr">✓ {value}</span>
+            {chosen?.imei1 ? <span className="text-gray-400 font-mono mr-2" dir="ltr">IMEI: {chosen.imei1}</span> : null}
+          </div>
+          <button type="button" onClick={() => onPick(null)} className="text-xs text-red-300 hover:underline">إلغاء الاختيار</button>
+        </div>
+      )}
+      <input type="text" value={q} onChange={e => setQ(e.target.value)} dir="ltr"
+        className="input-dark w-full text-xs font-mono" placeholder="اكتب جزء من السيريال أو IMEI للتصفية..." />
+      <div className="mt-1 max-h-40 overflow-y-auto border border-border rounded-lg">
+        {shown.length === 0 ? (
+          <div className="p-2 text-xs text-gray-500 text-center">لا يوجد سيريال مطابق</div>
+        ) : shown.map(s => (
+          <button type="button" key={s.id} onClick={() => { onPick(s); setQ(''); }}
+            className={`w-full text-right px-3 py-1.5 text-xs font-mono flex items-center justify-between gap-2 border-b border-border/40 last:border-0 hover:bg-white/5 ${s.serial === value ? 'bg-green-900/20 text-green-300' : 'text-gray-200'}`}>
+            <span dir="ltr">{s.serial}</span>
+            <span className="text-gray-500" dir="ltr">{s.imei1 ? `IMEI: ${s.imei1}` : ''}{s.serial === value ? '  ✓' : ''}</span>
+          </button>
+        ))}
+        {matches.length > LIMIT && <div className="p-1.5 text-[11px] text-gray-500 text-center">و {matches.length - LIMIT} كمان، اكتب أكتر لتضييق القايمة</div>}
+      </div>
+    </div>
+  );
+}
+
+export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders, onReturnNoonOrders }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
@@ -65,6 +112,10 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   const [settleIds, setSettleIds] = useState<string[]>([]);
   const [actualTotal, setActualTotal] = useState('');
   const [importNote, setImportNote] = useState('');
+  const [adjRows, setAdjRows] = useState<{ orderNumber: string; kind: NoonAdjustment['kind']; amount: string; note: string }[]>([]);
+  const [returnIds, setReturnIds] = useState<string[] | null>(null);
+  const [returnDate, setReturnDate] = useState(getTodayStr());
+  const [returnRestock, setReturnRestock] = useState(true);
   const [settleDate, setSettleDate] = useState(getTodayStr());
 
   const filtered = noonOrders.filter(o => {
@@ -247,10 +298,12 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
   const updateStatus = (orderId: string, status: OrderStatus) => {
     const order = noonOrders.find(o => o.id === orderId);
+    if (status === 'returned') { setReturnIds([orderId]); setReturnDate(getTodayStr()); setReturnRestock(true); return; }
     if (order) onUpdateNoonOrder({ ...order, status });
   };
 
   const bulkUpdateStatus = (status: OrderStatus) => {
+    if (status === 'returned') { setReturnIds(selected); setReturnDate(getTodayStr()); setReturnRestock(true); return; }
     selected.forEach(id => {
       const order = noonOrders.find(o => o.id === id);
       if (order) onUpdateNoonOrder({ ...order, status });
@@ -360,7 +413,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     reader.readAsBinaryString(file);
   };
 
-  const eligibleForSettlement = filtered.filter(o => o.status === 'delivered' || o.status === 'shipped');
+  const eligibleForSettlement = filtered.filter(o => o.status === 'delivered' || o.status === 'shipped' || (o.status === 'returned' && o.settledAmount == null));
   const selectedEligible = selected.filter(id => eligibleForSettlement.some(o => o.id === id));
 
   const openSettleModal = () => {
@@ -368,18 +421,30 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     selectedEligible.forEach(id => { initial[id] = ''; });
     setSettleAmounts(initial);
     setSettleIds(selectedEligible);
+    setAdjRows([]);
     setActualTotal('');
     setImportNote('');
     setShowSettleModal(true);
   };
 
+  const findOrderByRef = (ref: string) => {
+    const k = ref.trim().toLowerCase();
+    return k ? noonOrders.find(o => o.orderNumber.trim().toLowerCase() === k || (o.shipmentNumber || '').trim().toLowerCase() === k) : undefined;
+  };
+  const resolvedAdjs = adjRows.map(r => ({ ...r, order: findOrderByRef(r.orderNumber), amountNum: parseFloat(r.amount) }))
+    .filter(r => r.order && r.amountNum > 0);
+
   const handleConfirmSettlement = () => {
     const settlements = settleIds
       .filter(id => settleAmounts[id] && parseFloat(settleAmounts[id]) > 0)
       .map(id => ({ orderId: id, settledAmount: parseFloat(settleAmounts[id]), settledDate: settleDate }));
-    if (settlements.length === 0) return;
+    if (settlements.length === 0 && resolvedAdjs.length === 0) return;
     const actual = actualTotal.trim() !== '' ? parseFloat(actualTotal) : undefined;
-    onSettleNoonOrders(settlements, actual !== undefined && !Number.isNaN(actual) ? { actualTotal: actual } : undefined);
+    onSettleNoonOrders(settlements, {
+      ...(actual !== undefined && !Number.isNaN(actual) ? { actualTotal: actual } : {}),
+      adjustments: resolvedAdjs.map(r => ({ orderId: r.order!.id, amount: r.amountNum, kind: r.kind, note: r.note || undefined })),
+    });
+    setAdjRows([]);
     setShowSettleModal(false);
     setSelected([]);
     setSettleAmounts({});
@@ -400,6 +465,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       const amounts: Record<string, string> = {};
       const ids: string[] = [];
       const skipped: string[] = [];
+      const adjImported: { orderNumber: string; kind: NoonAdjustment['kind']; amount: string; note: string }[] = [];
       let fileTotal: number | undefined;
       let fileDate = '';
       rows.forEach(row => {
@@ -408,21 +474,30 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
         if (!fileDate && String(row.transferDate || '').trim()) fileDate = parseImportDate(row.transferDate, '');
         const key = String(row.orderNumber || '').trim().toLowerCase();
         const amount = num(row.settledAmount);
+        const deduction = num(row.deduction);
+        if (key && deduction > 0) {
+          const typeTxt = String(row.deductionType || '').toLowerCase();
+          const kind: NoonAdjustment['kind'] = /شحن|ship/.test(typeTxt) ? 'shipping' : /مرتجع|return|استرجاع/.test(typeTxt) ? 'return_clawback'
+            : /رسوم|عمولة|fee/.test(typeTxt) ? 'fee' : (findOrderByRef(key)?.status === 'returned' ? 'return_clawback' : 'other');
+          adjImported.push({ orderNumber: String(row.orderNumber).trim(), kind, amount: String(deduction), note: String(row.deductionType || '').trim() });
+          return;
+        }
         if (!key || !(amount > 0)) return;
         const order = noonOrders.find(o => o.orderNumber.trim().toLowerCase() === key || (o.shipmentNumber || '').trim().toLowerCase() === key);
         if (!order) { skipped.push(`${row.orderNumber} (مش موجود)`); return; }
-        if (order.status !== 'delivered' && order.status !== 'shipped') { skipped.push(`${row.orderNumber} (حالته ${statusLabel(order.status)})`); return; }
+        if (order.status !== 'delivered' && order.status !== 'shipped' && !(order.status === 'returned' && order.settledAmount == null)) { skipped.push(`${row.orderNumber} (حالته ${statusLabel(order.status)})`); return; }
         if (!ids.includes(order.id)) ids.push(order.id);
         amounts[order.id] = String(amount);
       });
       if (settleFileRef.current) settleFileRef.current.value = '';
-      if (ids.length === 0) {
+      if (ids.length === 0 && adjImported.length === 0) {
         setInfoToast(`⚠️ مفيش أوردرات صالحة للتسوية في الملف${skipped.length ? `: ${skipped.slice(0, 5).join('، ')}` : ''}`);
         setTimeout(() => setInfoToast(null), 8000);
         return;
       }
       setSettleAmounts(amounts);
       setSettleIds(ids);
+      setAdjRows(adjImported);
       setActualTotal(fileTotal !== undefined ? String(fileTotal) : '');
       if (fileDate) setSettleDate(fileDate);
       setImportNote(skipped.length ? `⚠️ اتخطى ${skipped.length}: ${skipped.slice(0, 8).join('، ')}${skipped.length > 8 ? '...' : ''}` : '');
@@ -433,14 +508,16 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
   const downloadSettlementTemplate = () => {
     const base = eligibleForSettlement.length > 0
-      ? eligibleForSettlement.map(o => ({ orderNumber: o.orderNumber, settledAmount: '' as string | number, totalTransfer: '' as string | number, transferDate: '' as string }))
-      : [{ orderNumber: 'NNN-001', settledAmount: '', totalTransfer: '', transferDate: '' }];
+      ? eligibleForSettlement.map(o => ({ orderNumber: o.orderNumber, settledAmount: '' as string | number, deduction: '' as string | number, deductionType: '' as string, totalTransfer: '' as string | number, transferDate: '' as string }))
+      : [{ orderNumber: 'NNN-001', settledAmount: '', deduction: '', deductionType: '', totalTransfer: '', transferDate: '' }];
     const ws = XLSX.utils.json_to_sheet(base);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Settlement');
     const info = XLSX.utils.aoa_to_sheet([
       ['orderNumber', 'رقم الأوردر (أو رقم الشحنة)'],
       ['settledAmount', 'صافي سعر الأوردر بعد عمولة نون والضريبة'],
+      ['deduction', 'خصم على أوردر (حتى لو قديم أو اتسوّى قبل كده): اكتب رقم الأوردر في orderNumber والمبلغ المخصوم هنا، وسيب settledAmount فاضي'],
+      ['deductionType', 'نوع الخصم: شحن / رسوم / مرتجع / أخرى (لو الأوردر مرتجع بيتحسب خصم مرتجع تلقائي)'],
       ['totalTransfer', 'اختياري: اكتبه في أي صف واحد. إجمالي التحويل الفعلي للدفعة. الفرق بينه وبين مجموع الأوردرات = مصاريف الدفعة (شحن/عمولات أخرى) وبتتوزع على الأوردرات'],
       ['transferDate', 'اختياري: تاريخ التحويل (يكتب في صف واحد)'],
     ]);
@@ -467,7 +544,9 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     [settleIds, settleAmounts]
   );
   const actualNum = actualTotal.trim() !== '' && !Number.isNaN(parseFloat(actualTotal)) ? parseFloat(actualTotal) : null;
-  const extraFees = actualNum !== null ? Math.max(0, totalSettlementAmount - actualNum) : 0;
+  const adjTotal = resolvedAdjs.reduce((sum, r) => sum + r.amountNum, 0);
+  const expectedIn = totalSettlementAmount - adjTotal;
+  const extraFees = actualNum !== null ? Math.max(0, expectedIn - actualNum) : 0;
 
   const totalSettlementProfit = useMemo(() => {
     return settleIds.reduce((sum, id) => {
@@ -593,6 +672,17 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       {/* ==================== ORDERS VIEW ==================== */}
       {viewMode === 'orders' && (
         <div className="space-y-4">
+          {(() => {
+            const pend = noonOrders.filter(o => clawbackPending(o) > 0.005);
+            if (!pend.length) return null;
+            const total = pend.reduce((sum, o) => sum + clawbackPending(o), 0);
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-orange-900/20 border border-orange-700/40 rounded-xl px-4 py-3 text-sm">
+                <span className="text-orange-200">↩️ {pend.length} مرتجع فلوسه نزلت ونون لسه ماخصمتهاش: إجمالي <b>{formatCurrency(total)}</b> هيتخصم من دفعات جاية</span>
+                <button onClick={() => { setStatusFilter('returned'); setSearch(''); }} className="btn-secondary px-3 py-1 text-xs">عرض المرتجعات</button>
+              </div>
+            );
+          })()}
           {/* فلتر التاريخ */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-gray-400">📅 من</span>
@@ -728,6 +818,15 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                         <option value="canceled">❌ ملغي</option>
                       </select>
                     )}
+                    {o.status === 'returned' && (() => {
+                      const st = returnState(o);
+                      return (
+                        <div className={`mt-1 text-[10px] ${st === 'pending_clawback' ? 'text-orange-300' : 'text-gray-400'}`}>
+                          {st === 'pending_clawback' ? `⏳ مستني خصم نون ${formatCurrency(clawbackPending(o))}` : st === 'closed_clawed' ? '✔ اتخصم من نون' : 'الفلوس ماجتش'}
+                          {!o.returnRestocked && <div className="text-red-300">الجهاز مش في المخزون</div>}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="py-3 px-3 text-center hidden lg:table-cell">
                     {o.settledAmount != null
@@ -823,6 +922,29 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
               <span className="text-gray-400">إجمالي السعر</span>
               <span className="text-white">{formatCurrency(viewOrder.items.reduce((s, i) => s + i.price, 0))}</span>
             </div>
+            {((viewOrder.adjustments || []).length > 0 || viewOrder.status === 'returned') && (
+              <div className="mt-3 bg-muted-bg rounded-xl p-3 text-sm space-y-1">
+                {viewOrder.status === 'returned' && (
+                  <div className="text-orange-200">
+                    ↩️ مرتجع{viewOrder.returnedDate ? ` بتاريخ ${viewOrder.returnedDate}` : ''} —{' '}
+                    {returnState(viewOrder) === 'pending_clawback' ? `الفلوس نزلت وفاضل ${formatCurrency(clawbackPending(viewOrder))} يتخصموا من نون`
+                      : returnState(viewOrder) === 'closed_clawed' ? 'نون خصمت الفلوس بالكامل' : 'الفلوس ماجتش، مفيش حاجة تتخصم'}
+                  </div>
+                )}
+                {(viewOrder.adjustments || []).map(a => (
+                  <div key={a.id} className="flex justify-between text-xs">
+                    <span className="text-gray-400">{a.date} — {ADJ_KIND_LABEL[a.kind]}{a.note ? ` (${a.note})` : ''}</span>
+                    <span className="text-red-300">- {formatCurrency(a.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {['delivered', 'shipped', 'settled', 'paid'].includes(viewOrder.status) && (
+              <button onClick={() => { setReturnIds([viewOrder.id]); setReturnDate(getTodayStr()); setReturnRestock(true); setViewOrder(null); }} className="mt-3 w-full btn-secondary text-sm text-orange-300">↩️ تسجيل مرتجع</button>
+            )}
+            {viewOrder.status === 'returned' && !viewOrder.returnRestocked && (
+              <button onClick={() => { onReturnNoonOrders([viewOrder.id], { restock: true }); setViewOrder(null); }} className="mt-3 w-full btn-secondary text-sm text-green-300">📦 رجّع الجهاز للمخزون</button>
+            )}
             {viewOrder.settlementProfit != null && (
               <div className="flex justify-between mt-1">
                 <span className="text-gray-400 text-sm">الربح</span>
@@ -960,10 +1082,11 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             {/* Order Items */}
             <div className="space-y-3 mb-4">
               {orderItems.map((item, idx) => {
-                // ✅ نجيب السيريالات المتاحة لهذا المنتج
+                // السيريالات المتاحة + السيريال المختار حالياً (في التعديل بيكون حالته "محوّل" مش "متاح")
                 const availableSerials = serials.filter(
-                  s => s.productId === item.productId && s.status === 'available'
+                  s => s.productId === item.productId && (s.status === 'available' || s.serial === item.tempSerial)
                 );
+                const usedElsewhere = new Set(orderItems.filter((_, i) => i !== idx).map(it => it.tempSerial).filter(Boolean));
                 const isSerialProduct = products.find(p => p.id === item.productId)?.productType === 'serial';
 
                 return (
@@ -976,29 +1099,17 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
                     {/* ✅ لو المنتج بسيريالات، اعرض dropdown للسيريالات المتاحة فعليًا */}
                     {isSerialProduct && availableSerials.length > 0 ? (
-                      <div className="mb-2">
-                        <label className="text-xs text-gray-500 mb-1 block">اختر السيريال:</label>
-                        <select
-                          value={item.tempSerial}
-                          onChange={e => {
-                            const chosen = availableSerials.find(s => s.serial === e.target.value);
-                            setOrderItems(prev => prev.map((it, i) => i === idx ? {
-                              ...it,
-                              tempSerial: e.target.value,
-                              tempImei1: chosen?.imei1 || '',
-                              tempImei2: chosen?.imei2 || '',
-                            } : it));
-                          }}
-                          className="input-dark w-full text-xs font-mono"
-                        >
-                          <option value="">-- اختر السيريال --</option>
-                          {availableSerials.map(s => (
-                            <option key={s.id} value={s.serial}>
-                              {s.serial} {s.imei1 ? `| IMEI: ${s.imei1}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <SerialPicker
+                        candidates={availableSerials}
+                        value={item.tempSerial}
+                        usedElsewhere={usedElsewhere}
+                        onPick={chosen => setOrderItems(prev => prev.map((it, i) => i === idx ? {
+                          ...it,
+                          tempSerial: chosen?.serial || '',
+                          tempImei1: chosen?.imei1 || '',
+                          tempImei2: chosen?.imei2 || '',
+                        } : it))}
+                      />
                     ) : (
                       // منتج عادي (بدون سيريالات) - إدخال يدوي اختياري
                       <div className="grid grid-cols-3 gap-2 mb-2">
@@ -1116,19 +1227,46 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             </div>
 
             {importNote && <div className="mb-3 text-xs text-orange-300">{importNote}</div>}
+            <div className="mb-4 bg-muted-bg rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-bold text-white">➖ خصومات على أوردرات (جديدة أو قديمة)</div>
+                <button onClick={() => setAdjRows(r => [...r, { orderNumber: '', kind: 'return_clawback', amount: '', note: '' }])} className="text-xs text-violet-300 hover:underline">+ إضافة خصم</button>
+              </div>
+              <div className="text-[11px] text-gray-500 mb-2">لو نون خصمت من الدفعة دي مبلغ على أوردر اتسوّى قبل كده (مرتجع، شحن، رسوم)، اكتب رقم الأوردر والمبلغ. بيتسجل على الأوردر نفسه وبيتحسب في ربحه.</div>
+              <datalist id="noon-orders-list">{noonOrders.map(o => <option key={o.id} value={o.orderNumber} />)}</datalist>
+              {adjRows.map((r, i) => {
+                const ord = findOrderByRef(r.orderNumber);
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-2 mb-2">
+                    <input list="noon-orders-list" value={r.orderNumber} onChange={e => setAdjRows(rows => rows.map((x, k) => k === i ? { ...x, orderNumber: e.target.value } : x))} placeholder="رقم الأوردر" className={`input-dark text-sm w-44 ${r.orderNumber && !ord ? 'border-red-500/60' : ''}`} dir="ltr" />
+                    <select value={r.kind} onChange={e => setAdjRows(rows => rows.map((x, k) => k === i ? { ...x, kind: e.target.value as NoonAdjustment['kind'] } : x))} className="input-dark text-sm">
+                      {(Object.keys(ADJ_KIND_LABEL) as NoonAdjustment['kind'][]).map(k => <option key={k} value={k}>{ADJ_KIND_LABEL[k]}</option>)}
+                    </select>
+                    <input type="number" value={r.amount} onChange={e => setAdjRows(rows => rows.map((x, k) => k === i ? { ...x, amount: e.target.value } : x))} placeholder="المبلغ المخصوم" className="input-dark text-sm w-32" />
+                    <button onClick={() => setAdjRows(rows => rows.filter((_, k) => k !== i))} className="text-red-400 text-xs">حذف</button>
+                    {r.orderNumber && !ord && <span className="text-xs text-red-400">أوردر مش موجود</span>}
+                    {ord && <span className="text-[11px] text-gray-500">{ord.customerName || ''} · {statusLabel(ord.status)}{ord.status === 'returned' && clawbackPending(ord) > 0 ? ` · مستني خصم ${formatCurrency(clawbackPending(ord))}` : ''}</span>}
+                  </div>
+                );
+              })}
+            </div>
             <div className="mb-4">
               <label className="form-label">إجمالي التحويل الفعلي للدفعة (اختياري)</label>
-              <input type="number" value={actualTotal} onChange={e => setActualTotal(e.target.value)} className="input-dark w-full md:w-64" placeholder={`مجموع الأوردرات: ${totalSettlementAmount}`} />
+              <input type="number" value={actualTotal} onChange={e => setActualTotal(e.target.value)} className="input-dark w-full md:w-64" placeholder={`المتوقع: ${expectedIn}`} />
               <div className="text-[11px] text-gray-500 mt-1">اللي دخل البنك فعلاً. لو أقل من مجموع الأوردرات، الفرق يتحسب مصاريف (شحن/عمولات أخرى).</div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
               <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">مجموع الأوردرات ({settleIds.length})</div>
                 <div className="font-bold text-blue-300 text-lg">{formatCurrency(totalSettlementAmount)}</div>
               </div>
+              <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center">
+                <div className="text-xs text-gray-500">خصومات أوردرات سابقة</div>
+                <div className="font-bold text-red-300 text-lg">{formatCurrency(adjTotal)}</div>
+              </div>
               <div className="bg-cyan-900/20 border border-cyan-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">هيدخل البنك</div>
-                <div className="font-bold text-cyan-300 text-lg">{formatCurrency(actualNum ?? totalSettlementAmount)}</div>
+                <div className="font-bold text-cyan-300 text-lg">{formatCurrency(actualNum ?? expectedIn)}</div>
               </div>
               <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-gray-500">مصاريف الدفعة</div>
@@ -1141,8 +1279,8 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                 </div>
               </div>
             </div>
-            {actualNum !== null && actualNum > totalSettlementAmount && (
-              <div className="mb-3 text-xs text-orange-300">⚠️ التحويل الفعلي أكبر من مجموع الأوردرات بـ {formatCurrency(actualNum - totalSettlementAmount)}. هيدخل البنك المبلغ الفعلي، راجع الأرقام.</div>
+            {actualNum !== null && actualNum > expectedIn && (
+              <div className="mb-3 text-xs text-orange-300">⚠️ التحويل الفعلي أكبر من المتوقع بـ {formatCurrency(actualNum - expectedIn)}. هيدخل البنك المبلغ الفعلي، راجع الأرقام.</div>
             )}
 
             <div className="flex gap-3">
@@ -1156,8 +1294,44 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
       )}
         </div>
       )}
+      {returnIds && (() => {
+        const list = returnIds.map(id => noonOrders.find(o => o.id === id)).filter((o): o is NoonOrder => !!o && o.status !== 'canceled');
+        return (
+          <div className="fixed inset-0 z-[9999] bg-black/70 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setReturnIds(null)}>
+            <div className="w-full max-w-lg bg-surface border border-border rounded-2xl p-5 my-10" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-white text-lg">↩️ تسجيل مرتجع ({list.length})</h3>
+                <button onClick={() => setReturnIds(null)} className="p-2 text-gray-400"><X size={18} /></button>
+              </div>
+              <div className="space-y-1 max-h-48 overflow-y-auto mb-3 text-sm">
+                {list.map(o => (
+                  <div key={o.id} className="bg-muted-bg rounded-lg px-3 py-2 flex justify-between gap-2">
+                    <span className="font-mono text-violet-300">{o.orderNumber}</span>
+                    <span className={o.settledAmount ? 'text-orange-300 text-xs' : 'text-gray-400 text-xs'}>
+                      {o.settledAmount ? `الفلوس نزلت ${formatCurrency(o.settledAmount)} ← هتستنى خصم نون` : 'الفلوس ماجتش ← مفيش خصم'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <label className="form-label">تاريخ المرتجع</label>
+              <input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)} className="input-dark w-full md:w-48" />
+              <label className="flex items-center gap-2 mt-3 text-sm cursor-pointer">
+                <input type="checkbox" checked={returnRestock} onChange={e => setReturnRestock(e.target.checked)} />
+                الجهاز رجع فعلاً (يرجع للمخزون)
+              </label>
+              <div className="text-[11px] text-gray-500 mt-2 leading-relaxed">
+                لو فلوس الأوردر نزلت قبل كده، هتفضل في البنك وتظهر "مستني خصم نون" لحد ما الخصم ينزل في دفعة جاية (تسجله من التسوية ← خصومات). لو ماجتش أصلاً، الأوردر بيتقفل كمرتجع من غير أي أثر مالي.
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => { onReturnNoonOrders(list.map(o => o.id), { date: returnDate, restock: returnRestock }); setReturnIds(null); setSelected([]); }} disabled={!list.length} className="btn-primary flex-1 disabled:opacity-50">تأكيد المرتجع</button>
+                <button onClick={() => setReturnIds(null)} className="btn-secondary px-4">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {showPaste && <NoonPasteImport noonOrders={noonOrders} products={products} serials={serials} onAdd={onAddNoonOrders} onClose={() => setShowPaste(false)} />}
-      {showSync && <NoonSyncModal orders={noonOrders} onUpdateOrder={onUpdateNoonOrder} onClose={() => setShowSync(false)} />}
+      {showSync && <NoonSyncModal orders={noonOrders} onUpdateOrder={onUpdateNoonOrder} onReturnOrders={onReturnNoonOrders} onClose={() => setShowSync(false)} />}
     </div>
   );
 }

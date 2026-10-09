@@ -7,10 +7,11 @@ import { buildSyncPreview, parseNoonSheet, SheetRow, SyncItem } from '../utils/n
 interface Props {
   orders: NoonOrder[];
   onUpdateOrder: (o: NoonOrder) => void;
+  onReturnOrders?: (ids: string[], opts: { date?: string; restock: boolean }) => void;
   onClose: () => void;
 }
 
-export default function NoonSyncModal({ orders, onUpdateOrder, onClose }: Props) {
+export default function NoonSyncModal({ orders, onUpdateOrder, onReturnOrders, onClose }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<SheetRow[] | null>(null);
   const [fileName, setFileName] = useState('');
@@ -49,9 +50,14 @@ export default function NoonSyncModal({ orders, onUpdateOrder, onClose }: Props)
   const apply = () => {
     if (!preview) return;
     let n = 0;
+    const returns: string[] = [];
     preview.changes.forEach(i => {
-      if (checked[i.order.id] && i.to) { onUpdateOrder({ ...i.order, status: i.to }); n++; }
+      if (!checked[i.order.id] || !i.to) return;
+      if (i.to === 'returned' && onReturnOrders) returns.push(i.order.id);
+      else onUpdateOrder({ ...i.order, status: i.to });
+      n++;
     });
+    if (returns.length) onReturnOrders?.(returns, { restock: true });
     setDone(n);
     setRows(null);
   };

@@ -1500,6 +1500,11 @@ const validateStock = (): string | null => {
                   );
                 })}
               </div>
+              <div className="flex justify-start mt-3">
+                <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
+                  <Plus size={13} /> إضافة بند
+                </button>
+              </div>
             </div>
 
             {/* Totals & Payment */}
