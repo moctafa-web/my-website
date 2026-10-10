@@ -84,8 +84,8 @@ export const reconcilePartyInvoicePayments = (
   const nextById = new Map(nextInvoices.map(inv => [inv.id, inv]));
 
   return {
-    sales: isSale ? saleInvoices.map(inv => nextById.get(inv.id) || inv) : saleInvoices,
-    purchases: isSale ? purchaseInvoices : purchaseInvoices.map(inv => nextById.get(inv.id) || inv),
+    sales: isSale ? saleInvoices.map(inv => (nextById.get(inv.id) as SaleInvoice | undefined) || inv) : saleInvoices,
+    purchases: isSale ? purchaseInvoices : purchaseInvoices.map(inv => (nextById.get(inv.id) as PurchaseInvoice | undefined) || inv),
   };
 };
 
@@ -2067,7 +2067,11 @@ export function useStore() {
         if (myAdjs.length) {
           u.adjustments = [
             ...(u.adjustments || []),
-            ...myAdjs.map(a => ({ id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, date: batchDate, amount: a.amount, kind: a.kind, note: a.note })),
+            ...myAdjs.map(a => ({
+              id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, date: batchDate, amount: a.amount, kind: a.kind, note: a.note,
+              // رسوم على أوردر اتسوّى في شهر سابق → بتتخصم من أرباح شهر الخصم (الشهر ممكن يكون اتقفل واتوزع)
+              ...(a.kind !== 'return_clawback' && u.settledDate && u.settledDate.slice(0, 7) < batchDate.slice(0, 7) ? { deferred: true } : {}),
+            })),
           ];
         }
         if (u.settledAmount != null) u.settlementProfit = netProfit(u);

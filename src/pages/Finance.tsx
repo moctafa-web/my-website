@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TreasuryTransaction, DailyClosing, Partner, Employee, ProfitDistribution, SaleInvoice, PurchaseInvoice, Expense, NoonOrder } from '../types';
 import { formatCurrency, formatDateTime, generateId, printElement, getTodayStr } from '../utils/helpers';
+import { deferredCharges, deferredTotal } from '../utils/noonReturns';
 import { Plus, Edit, Trash2, X, Check, Users, TrendingUp, ChevronDown, ChevronUp, Printer, Calendar } from 'lucide-react';
 
 interface Props {
@@ -218,9 +219,13 @@ export default function Finance({
       });
 
     // ربح نون = settlementProfit للأوردرات المسواة في الشهر
-    const noonProfit = noonOrders
+    const noonProfitBase = noonOrders
       .filter(o => o.status === 'settled' && o.settledDate && isInMonth(o.settledDate))
       .reduce((s, o) => s + (o.settlementProfit || 0), 0);
+    // رسوم لاحقة على أوردرات اتسوّت في شهور سابقة: بتتخصم من أرباح الشهر اللي اتخصمت فيه
+    const noonDeferred = deferredCharges(noonOrders, isInMonth);
+    const noonDeferredTotal = deferredTotal(noonDeferred);
+    const noonProfit = noonProfitBase - noonDeferredTotal;
 
     // المصروفات
     const totalExpenses = expenses
@@ -229,7 +234,7 @@ export default function Finance({
 
     const netProfit = salesProfit + noonProfit - totalExpenses;
 
-    return { salesProfit, noonProfit, totalExpenses, netProfit };
+    return { salesProfit, noonProfit, noonDeferredTotal, noonDeferredCount: noonDeferred.length, totalExpenses, netProfit };
   }, [selectedMonth, saleInvoices, noonOrders, expenses]);
 
   // ── حساب نصيب كل شريك ──
@@ -707,6 +712,11 @@ export default function Finance({
                 <div className={`text-lg font-black ${monthlyStats.noonProfit >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
                   {formatCurrency(monthlyStats.noonProfit)}
                 </div>
+                {monthlyStats.noonDeferredTotal > 0 && (
+                  <div className="text-[10px] text-orange-300 mt-1 leading-snug">
+                    بعد خصم {formatCurrency(monthlyStats.noonDeferredTotal)} رسوم لاحقة ({monthlyStats.noonDeferredCount}) على أوردرات اتسوّت في شهور سابقة
+                  </div>
+                )}
               </div>
               <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 text-center">
                 <div className="text-xs text-red-400 mb-1">المصروفات</div>

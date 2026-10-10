@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { AppState } from '../types';
+import { AppState, NoonOrder } from '../types';
+import { deferredCharges, deferredTotal } from '../utils/noonReturns';
 import { formatCurrency, getTodayStr } from '../utils/helpers';
 import ProfitDetailReport from '../components/ProfitDetailReport';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -62,9 +63,11 @@ export default function Reports({ state }: Props) {
   const totalPurchases = state.purchaseInvoices.reduce((s, i) => s + i.total, 0);
   const totalExpenses = state.expenses.reduce((s, e) => s + e.amount, 0);
   const totalOfflineProfit = calcOfflineProfit(state.saleInvoices);
-  const totalNoonProfit = state.noonOrders.filter(o => o.platform === 'noon').reduce((s, o) => s + (o.settlementProfit || 0), 0);
-  const totalAmazonProfit = state.noonOrders.filter(o => o.platform === 'amazon').reduce((s, o) => s + (o.settlementProfit || 0), 0);
-  const totalOtherPlatformProfit = state.noonOrders.filter(o => o.platform !== 'noon' && o.platform !== 'amazon').reduce((s, o) => s + (o.settlementProfit || 0), 0);
+  // الرسوم اللاحقة (على أوردرات اتسوّت قبل كده) بتتخصم من ربح المنصة بتاعها
+  const deferredOf = (pred: (o: NoonOrder) => boolean) => deferredTotal(deferredCharges(state.noonOrders, () => true, pred));
+  const totalNoonProfit = state.noonOrders.filter(o => o.platform === 'noon').reduce((s, o) => s + (o.settlementProfit || 0), 0) - deferredOf(o => o.platform === 'noon');
+  const totalAmazonProfit = state.noonOrders.filter(o => o.platform === 'amazon').reduce((s, o) => s + (o.settlementProfit || 0), 0) - deferredOf(o => o.platform === 'amazon');
+  const totalOtherPlatformProfit = state.noonOrders.filter(o => o.platform !== 'noon' && o.platform !== 'amazon').reduce((s, o) => s + (o.settlementProfit || 0), 0) - deferredOf(o => o.platform !== 'noon' && o.platform !== 'amazon');
   const netProfit = totalOfflineProfit - totalExpenses + totalNoonProfit + totalAmazonProfit + totalOtherPlatformProfit;
   const totalDebt = state.customers.reduce((s, c) => {
     const invs = state.saleInvoices.filter(i => i.customerId === c.id);
@@ -88,9 +91,9 @@ export default function Reports({ state }: Props) {
     const settledOrders = state.noonOrders.filter(o => o.settledDate && filterFn(o.settledDate));
     const noonOrdersInPeriod = settledOrders.filter(o => o.platform === 'noon');
     const amazonOrdersInPeriod = settledOrders.filter(o => o.platform === 'amazon');
-    const noonProfit = noonOrdersInPeriod.reduce((s, o) => s + (o.settlementProfit || 0), 0);
+    const noonProfit = noonOrdersInPeriod.reduce((s, o) => s + (o.settlementProfit || 0), 0) - deferredTotal(deferredCharges(state.noonOrders, filterFn, o => o.platform === 'noon'));
     const noonAmount = noonOrdersInPeriod.reduce((s, o) => s + (o.settledAmount || 0), 0);
-    const amazonProfit = amazonOrdersInPeriod.reduce((s, o) => s + (o.settlementProfit || 0), 0);
+    const amazonProfit = amazonOrdersInPeriod.reduce((s, o) => s + (o.settlementProfit || 0), 0) - deferredTotal(deferredCharges(state.noonOrders, filterFn, o => o.platform === 'amazon'));
     const amazonAmount = amazonOrdersInPeriod.reduce((s, o) => s + (o.settledAmount || 0), 0);
 
     const totalNet = offlineProfit - periodExpenses + noonProfit + amazonProfit;
@@ -395,7 +398,7 @@ export default function Reports({ state }: Props) {
             </div>
             <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-3 text-center">
               <div className="text-xs text-gray-500">إجمالي ربح أوردرات المنصات</div>
-              <div className="font-bold text-green-300 text-lg">{formatCurrency(state.noonOrders.reduce((s, o) => s + (o.settlementProfit || 0), 0))}</div>
+              <div className="font-bold text-green-300 text-lg">{formatCurrency(state.noonOrders.reduce((s, o) => s + (o.settlementProfit || 0), 0) - deferredOf(() => true))}</div>
             </div>
           </div>
         )}

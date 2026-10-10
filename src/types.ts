@@ -298,6 +298,8 @@ export interface NoonAdjustment {
   amount: number;
   kind: 'shipping' | 'fee' | 'return_clawback' | 'other';
   note?: string;
+  /** رسوم لاحقة على أوردر اتسوّى في شهر سابق: بتتخصم من أرباح شهر الخصم (date) مش من شهر الأوردر */
+  deferred?: boolean;
 }
 
 export interface NoonOrder {

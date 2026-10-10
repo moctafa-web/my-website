@@ -19,7 +19,7 @@ export const formatDate = (dateStr: string): string => {
 export const formatDateTime = (dateStr: string): string => {
   try {
     const d = new Date(dateStr);
-    return d.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+    return d.toLocaleString('ar-EG');
   } catch {
     return dateStr;
   }

@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
-import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC, printElement } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
@@ -985,19 +985,11 @@ const validateStock = (): string | null => {
       </tr>
     `).join('');
 
-    const w = window.open('', '_blank', 'width=900,height=700');
-    if (!w) return;
-    w.document.write(`
-      <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
-      <head>
-        <meta charset="UTF-8"/>
-        <title>فاتورة ${inv.invoiceNumber}</title>
+    // الطباعة عن طريق iframe مخفي (printElement): الهوامش بتتظبط من هناك فمفيش رابط/عنوان/تاريخ بيطلع في الهيدر والفوتر
+    printElement(`
         <style>
-          @page { size: A4; margin: 20mm; }
-          @media print { body { margin: 0; } .no-print { display: none !important; } }
           * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; direction: rtl; color: #111; background: #fff; font-size: 14px; line-height: 1.6; padding: 30px; max-width: 210mm; margin: 0 auto; }
+          body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; direction: rtl; color: #111; background: #fff; font-size: 14px; line-height: 1.6; }
           .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #111; margin-bottom: 24px; }
           .shop-name { font-size: 32px; font-weight: 900; letter-spacing: 2px; color: #111; }
           .invoice-title h1 { font-size: 22px; font-weight: 800; color: #111; margin-bottom: 6px; }
@@ -1007,6 +999,8 @@ const validateStock = (): string | null => {
           .info-label { font-size: 11px; color: #888; margin-bottom: 3px; }
           .info-value { font-size: 15px; font-weight: 600; color: #111; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+          .items-table thead th { border: 0; }
+          .items-table tbody td { border-top: 0; border-left: 0; border-right: 0; }
           .items-table thead tr { background: #111; color: #fff; }
           .items-table thead th { padding: 12px; font-size: 13px; font-weight: 600; text-align: center; }
           .items-table thead th:first-child { text-align: right; }
@@ -1024,8 +1018,6 @@ const validateStock = (): string | null => {
           .footer .thank-you { font-size: 18px; font-weight: 700; color: #111; margin-bottom: 6px; }
           .print-btn { display: block; margin: 24px auto 0; padding: 12px 40px; background: #111; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-family: inherit; }
         </style>
-      </head>
-      <body>
         <div class="header">
           <div class="shop-name">ONE</div>
           <div class="invoice-title">
@@ -1058,12 +1050,7 @@ const validateStock = (): string | null => {
           <div class="thank-you">شكراً لتعاملكم معنا</div>
           <div>للاستفسار - 01220125121</div>
         </div>
-        <div class="no-print"><button class="print-btn" onclick="window.print();">🖨️ طباعة الفاتورة</button></div>
-        <script>window.onload = () => window.print();<\/script>
-      </body>
-      </html>
-    `);
-    w.document.close();
+    `, `فاتورة ${inv.invoiceNumber}`);
   };
 
   return (

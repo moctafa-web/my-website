@@ -16,8 +16,23 @@ export const clawbackDone = (o: NoonOrder) =>
   r2((o.adjustments || []).filter(a => a.kind === 'return_clawback').reduce((s, a) => s + a.amount, 0));
 
 // مصاريف الأوردر (شحن/عمولات أخرى) غير خصم المرتجع، + حصته من مصاريف الدفعة
+// الرسوم اللاحقة (deferred) مش بتدخل هنا: بتتخصم من أرباح الفترة اللي اتخصمت فيها (deferredCharges)
 export const orderFees = (o: NoonOrder) =>
-  r2((o.adjustments || []).filter(a => a.kind !== 'return_clawback').reduce((s, a) => s + a.amount, 0) + (o.settlementExtraFee || 0));
+  r2((o.adjustments || []).filter(a => a.kind !== 'return_clawback' && !a.deferred).reduce((s, a) => s + a.amount, 0) + (o.settlementExtraFee || 0));
+
+export interface DeferredCharge { order: NoonOrder; adj: NoonAdjustment }
+
+// رسوم لاحقة على أوردرات اتسوّت قبل كده: بتتحسب على الفترة اللي اتخصمت فيها (تاريخ الخصم)
+export const deferredCharges = (orders: NoonOrder[], inPeriod: (date: string) => boolean, platform?: (o: NoonOrder) => boolean): DeferredCharge[] => {
+  const out: DeferredCharge[] = [];
+  orders.forEach(o => {
+    if (platform && !platform(o)) return;
+    (o.adjustments || []).forEach(a => { if (a.deferred && inPeriod(a.date)) out.push({ order: o, adj: a }); });
+  });
+  return out;
+};
+
+export const deferredTotal = (charges: DeferredCharge[]) => r2(charges.reduce((s, c) => s + c.adj.amount, 0));
 
 // مرتجع وفلوسه نزلت لنا (settledAmount) ونون لسه ماخصمتهاش بالكامل
 export const clawbackPending = (o: NoonOrder) =>

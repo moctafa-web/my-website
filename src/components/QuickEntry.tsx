@@ -336,12 +336,12 @@ export default function QuickEntry({
     if (!party) { setError('اختار طرفًا موجودًا من القائمة'); return; }
     const payment = {
       id: generateId(),
-      type: mode === 'payment_in' ? 'sale' : 'purchase' as const,
+      type: (mode === 'payment_in' ? 'sale' : 'purchase') as 'sale' | 'purchase',
       referenceId: party.id,
       referenceName: party.name,
       amount,
       paymentMethod,
-      direction: mode === 'payment_in' ? 'in' : 'out' as const,
+      direction: (mode === 'payment_in' ? 'in' : 'out') as 'in' | 'out',
       date: paymentDate || getTodayStr(),
       notes: '',
       createdAt: new Date().toISOString(),

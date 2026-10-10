@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NoonOrder, NoonOrderItem, NoonAdjustment, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
-import { ADJ_KIND_LABEL, clawbackDone, clawbackPending, returnState } from '../utils/noonReturns';
+import { ADJ_KIND_LABEL, clawbackDone, clawbackPending, deferredCharges, deferredTotal, returnState } from '../utils/noonReturns';
 import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, normalizeDateValue } from '../utils/helpers';
 import { parseImportDate } from '../utils/importDate';
 import NoonPasteImport from '../components/NoonPasteImport';
@@ -150,9 +150,12 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     const totalItems = monthOrders.reduce((sum, o) => sum + o.items.length, 0);
     const totalCost = monthOrders.reduce((sum, o) => sum + o.items.reduce((s, i) => s + (i.costPrice || 0), 0), 0);
     const totalRevenue = monthOrders.reduce((sum, o) => sum + o.items.reduce((s, i) => s + i.price, 0), 0);
-    const totalProfit = monthOrders.reduce((sum, o) => sum + (o.settlementProfit || 0), 0);
+    // رسوم لاحقة اتخصمت في الشهر ده على أوردرات اتسوّت قبله: بتتخصم من ربح الشهر ده
+    const deferredFees = deferredTotal(deferredCharges(noonOrders, isInMonth));
+    const totalProfit = monthOrders.reduce((sum, o) => sum + (o.settlementProfit || 0), 0) - deferredFees;
 
     return {
+      deferredFees,
       totalOrders: monthOrders.length,
       statusCounts,
       totalItems,
@@ -638,6 +641,9 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
               <div className={`text-2xl font-bold ${monthReportStats.totalProfit >= 0 ? 'text-green-300' : 'text-red-300'} mt-2`}>
                 {formatCurrency(monthReportStats.totalProfit)}
               </div>
+              {monthReportStats.deferredFees > 0 && (
+                <div className="text-[11px] text-orange-300 mt-1">بعد خصم {formatCurrency(monthReportStats.deferredFees)} رسوم لاحقة على أوردرات اتسوّت في شهور سابقة</div>
+              )}
             </div>
           </div>
 
@@ -943,7 +949,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                 )}
                 {(viewOrder.adjustments || []).map(a => (
                   <div key={a.id} className="flex justify-between text-xs">
-                    <span className="text-gray-400">{a.date} — {ADJ_KIND_LABEL[a.kind]}{a.note ? ` (${a.note})` : ''}</span>
+                    <span className="text-gray-400">{a.date} — {ADJ_KIND_LABEL[a.kind]}{a.note ? ` (${a.note})` : ''}{a.deferred && <span className="text-orange-300"> · رسوم لاحقة: اتخصمت من أرباح شهر {a.date.slice(0, 7)}</span>}</span>
                     <span className="text-red-300">- {formatCurrency(a.amount)}</span>
                   </div>
                 ))}
@@ -1255,6 +1261,9 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                     <input type="number" value={r.amount} onChange={e => setAdjRows(rows => rows.map((x, k) => k === i ? { ...x, amount: e.target.value } : x))} placeholder="المبلغ المخصوم" className="input-dark text-sm w-32" />
                     <button onClick={() => setAdjRows(rows => rows.filter((_, k) => k !== i))} className="text-red-400 text-xs">حذف</button>
                     {r.orderNumber && !ord && <span className="text-xs text-red-400">أوردر مش موجود</span>}
+                    {ord && r.kind !== 'return_clawback' && ord.settledDate && !settleIds.includes(ord.id) && ord.settledDate.slice(0, 7) < settleDate.slice(0, 7) && (
+                      <span className="text-[11px] text-orange-300 w-full">⚠️ الأوردر اتسوّى في {ord.settledDate.slice(0, 7)}: الرسوم دي هتتخصم من أرباح شهر {settleDate.slice(0, 7)} مش من شهر الأوردر</span>
+                    )}
                     {ord && <span className="text-[11px] text-gray-500">{ord.items.map(it => it.productName).filter(Boolean).slice(0, 2).join('، ')} · {statusLabel(ord.status)}{ord.status === 'returned' && clawbackPending(ord) > 0 ? ` · مستني خصم ${formatCurrency(clawbackPending(ord))}` : ''}</span>}
                   </div>
                 );

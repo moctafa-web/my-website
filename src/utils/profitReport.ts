@@ -1,5 +1,5 @@
 import { AppState } from '../types';
-import { clawbackPending, orderCost, orderFees } from './noonReturns';
+import { clawbackPending, deferredCharges, orderCost, orderFees } from './noonReturns';
 
 export type Channel = 'offline' | 'noon' | 'amazon' | 'other';
 
@@ -121,6 +121,20 @@ export const buildProfitRows = (state: AppState, f: ProfitFilter): ProfitResult 
         commission: commission === null ? null : r2(commission),
         profit: r2(profit), status: o.status, estimated: commission === null,
       });
+    });
+  });
+
+  // ===== رسوم لاحقة على أوردرات اتسوّت في شهور سابقة: بتتحسب على فترة الخصم =====
+  deferredCharges(
+    state.noonOrders,
+    d => inRange(day(d), f),
+    o => f.channel === 'all' || f.channel === (o.platform === 'noon' ? 'noon' : o.platform === 'amazon' ? 'amazon' : 'other'),
+  ).forEach(({ order: o, adj }) => {
+    const ch: Channel = o.platform === 'noon' ? 'noon' : o.platform === 'amazon' ? 'amazon' : 'other';
+    rows.push({
+      key: `n-${o.id}-late-${adj.id}`, date: day(adj.date), channel: ch, docId: `${o.id}-late-${adj.id}`, docNumber: o.orderNumber, party: o.customerName,
+      product: `➖ رسوم لاحقة على أوردر اتسوّى في ${(o.settledDate || '').slice(0, 7)}${adj.note ? ` (${adj.note})` : ''}`, qty: 0,
+      revenue: 0, cost: 0, commission: r2(adj.amount), profit: r2(-adj.amount), status: o.status,
     });
   });
 
