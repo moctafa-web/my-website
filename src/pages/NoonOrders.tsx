@@ -764,10 +764,10 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
               </th>
               <th className="text-right py-3 px-3 text-gray-400 font-medium">رقم الأوردر</th>
               <th className="text-right py-3 px-3 text-gray-400 font-medium hidden md:table-cell">المنتج</th>
-              <th className="text-center py-3 px-3 text-gray-400 font-medium hidden md:table-cell">المنصة</th>
-              <th className="text-center py-3 px-3 text-gray-400 font-medium">التاريخ</th>
-              <th className="text-center py-3 px-3 text-gray-400 font-medium">المنتجات</th>
-              <th className="text-center py-3 px-3 text-gray-400 font-medium">الحالة</th>
+              <th className="text-center py-3 px-3 text-gray-400 font-medium whitespace-nowrap hidden md:table-cell">المنصة</th>
+              <th className="text-center py-3 px-3 text-gray-400 font-medium whitespace-nowrap">التاريخ</th>
+              <th className="text-center py-3 px-3 text-gray-400 font-medium whitespace-nowrap">المنتجات</th>
+              <th className="text-center py-3 px-3 text-gray-400 font-medium whitespace-nowrap">الحالة</th>
               <th className="text-center py-3 px-3 text-gray-400 font-medium hidden lg:table-cell">المبلغ المحول</th>
               <th className="text-center py-3 px-3 text-gray-400 font-medium hidden lg:table-cell">الربح</th>
               <th className="py-3 px-3"></th>
@@ -790,8 +790,8 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                     </button>
                   </td>
                   <td className="py-3 px-3">
-                    <div className="font-mono text-violet-400 text-sm">{o.orderNumber}</div>
-                    {o.shipmentNumber && <div className="text-xs text-gray-500 font-mono">{o.shipmentNumber}</div>}
+                    <div className="font-mono text-violet-400 text-xs whitespace-nowrap">{o.orderNumber}</div>
+                    {o.shipmentNumber && <div className="text-[10px] text-gray-500 font-mono whitespace-nowrap">{o.shipmentNumber}</div>}
                   </td>
                   <td className="py-3 px-3 text-white hidden md:table-cell">
                     {o.items.length === 0 ? '-' : (
@@ -804,22 +804,22 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                     )}
                   </td>
                   <td className="py-3 px-3 text-center hidden md:table-cell">
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${pInfo.color}`}>
+                    <span className={`inline-block whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full border ${pInfo.color}`}>
                       {pInfo.emoji} {pInfo.label}
                     </span>
                   </td>
-                  <td className="py-3 px-3 text-center text-gray-400 text-xs">{o.date}</td>
+                  <td className="py-3 px-3 text-center text-gray-400 text-xs whitespace-nowrap">{o.date}</td>
                   <td className="py-3 px-3 text-center text-white">{o.items.length}</td>
                   <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
                     {o.status === 'settled' ? (
-                      <span className={`text-xs px-2 py-1 rounded-lg border ${statusColor(o.status)}`}>
+                      <span className={`inline-block whitespace-nowrap text-[11px] px-1.5 py-0.5 rounded-lg border ${statusColor(o.status)}`}>
                         🏦 {statusLabel(o.status)}
                       </span>
                     ) : (
                       <select
                         value={o.status}
                         onChange={e => updateStatus(o.id, e.target.value as OrderStatus)}
-                        className={`text-xs rounded-lg border px-2 py-1 cursor-pointer bg-transparent ${statusColor(o.status)}`}>
+                        className={`text-[11px] rounded-lg border px-1 py-0.5 cursor-pointer bg-transparent ${statusColor(o.status)}`}>
                         <option value="pending">⏳ معلق</option>
                         <option value="shipped">📦 تم الشحن</option>
                         <option value="delivered">✅ تم التوصيل</option>
