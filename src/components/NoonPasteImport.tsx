@@ -1,15 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { X, ClipboardPaste } from 'lucide-react';
 import { NoonOrder, NoonOrderItem, Product, SerialItem } from '../types';
-import { formatCurrency, generateId, getProductUPCs, getTodayStr, productHasUPC } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, productHasUPC, statusColor, statusLabel } from '../utils/helpers';
 import { parseImportDate } from '../utils/importDate';
-import { mapNoonStatus } from '../utils/noonSync';
+import { buildSyncPreview, mapNoonStatus, SheetRow, SyncItem } from '../utils/noonSync';
 
 interface Props {
   noonOrders: NoonOrder[];
   products: Product[];
   serials: SerialItem[];
   onAdd: (orders: NoonOrder[]) => { addedCount: number; mergedCount: number } | void;
+  /** تحديث حالة أوردر موجود (نفس منطق مزامنة الشيت) */
+  onUpdateOrder?: (o: NoonOrder) => void;
+  onReturnOrders?: (ids: string[], opts: { date?: string; restock: boolean }) => void;
   onClose: () => void;
 }
 
@@ -32,7 +35,7 @@ const HEADER_RE = /order|awb|shipment|date|status|رقم|اوردر|أوردر|�
 const DATE_RE = /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}$|^\d{4}-\d{2}-\d{2}/;
 const SHIP_RE = /^P[A-Z]\d{6,}[A-Z]?$/i;       // PH38570886273E
 const ORDER_RE = /^N[A-Z]{3,}\d{6,}$/i;         // NEGIA0007449431
-const STATUS_RE = /^(shipped|delivered|cancel+ed|returned|pending|in[_ ]transit|out[_ ]for[_ ]delivery|dispatched|created)$/i;
+const isStatusCell = (c: string) => c.length <= 40 && mapNoonStatus(c) !== null;
 
 // تقسيم صف الشيت: بيتعرف على كل خانة من شكلها (تاريخ / رقم أوردر / رقم شحنة / حالة / اسم / سيريال)
 // ولو الخانات مش بالشكل المعروف بيرجع للترتيب: أوردر | شحنة | اسم | سيريال أو UPC | سعر
@@ -44,7 +47,7 @@ export const splitRow = (cells: string[]) => {
     if (!out.date && DATE_RE.test(c)) out.date = c;
     else if (!out.shipment && SHIP_RE.test(c)) out.shipment = c;
     else if (!out.order && ORDER_RE.test(c)) out.order = c;
-    else if (!out.status && STATUS_RE.test(c)) out.status = c;
+    else if (!out.status && isStatusCell(c)) out.status = c;
     else rest.push(c);
   });
   if (!out.order && !out.shipment && !out.date) {
@@ -61,8 +64,9 @@ export const splitRow = (cells: string[]) => {
   return out;
 };
 
-export default function NoonPasteImport({ noonOrders, products, serials, onAdd, onClose }: Props) {
+export default function NoonPasteImport({ noonOrders, products, serials, onAdd, onUpdateOrder, onReturnOrders, onClose }: Props) {
   const [text, setText] = useState('');
+  const [override, setOverride] = useState<Record<string, boolean>>({});
   const [date, setDate] = useState(getTodayStr());
   const [result, setResult] = useState('');
 
@@ -99,6 +103,22 @@ export default function NoonPasteImport({ noonOrders, products, serials, onAdd, 
     return out;
   }, [text, serials, products, existing]);
 
+  // تحديث حالة الأوردرات الموجودة: الصفوف اللي أوردرها موجود وفيها حالة في اللصق
+  const statusPreview = useMemo(() => {
+    const rows: SheetRow[] = parsed
+      .filter(p => p.state === 'exists' && p.rawStatus)
+      .map(p => ({ awb: p.shipment || p.orderNumber, altKey: p.orderNumber, status: p.rawStatus.toLowerCase() }));
+    return rows.length ? buildSyncPreview(rows, noonOrders) : null;
+  }, [parsed, noonOrders]);
+  const changes = useMemo(() => statusPreview?.changes ?? [], [statusPreview]);
+  const isChecked = (i: SyncItem) => override[i.order.id] ?? i.defaultChecked;
+  const selectedChanges = changes.filter(isChecked);
+  const changeByKey = useMemo(() => {
+    const m = new Map<string, SyncItem>();
+    changes.forEach(i => { [i.order.orderNumber, i.order.shipmentNumber].forEach(k => { if (k) m.set(k.trim().toLowerCase(), i); }); });
+    return m;
+  }, [changes]);
+
   const okRows = parsed.filter(p => p.state === 'ok');
   const count = (s: Parsed['state']) => parsed.filter(p => p.state === s).length;
 
@@ -123,13 +143,28 @@ export default function NoonPasteImport({ noonOrders, products, serials, onAdd, 
       } as NoonOrder;
     });
     const res = orders.length ? onAdd(orders) : undefined;
-    setResult(`✅ تمت إضافة ${res?.addedCount ?? orders.length} أوردر${res?.mergedCount ? ` (+${res.mergedCount} مدموج)` : ''}`);
+    let upd = 0;
+    const returns: string[] = [];
+    selectedChanges.forEach(i => {
+      if (!i.to) return;
+      if (i.to === 'returned' && onReturnOrders) returns.push(i.order.id);
+      else if (onUpdateOrder) onUpdateOrder({ ...i.order, status: i.to });
+      else return;
+      upd++;
+    });
+    if (returns.length) onReturnOrders?.(returns, { restock: true });
+    const parts: string[] = [];
+    if (orders.length) parts.push(`إضافة ${res?.addedCount ?? orders.length} أوردر${res?.mergedCount ? ` (+${res.mergedCount} مدموج)` : ''}`);
+    if (upd) parts.push(`تحديث حالة ${upd} أوردر`);
+    setResult(`✅ تم: ${parts.join(' + ')}`);
+    setOverride({});
     setText('');
   };
 
-  const tag = (s: Parsed['state']) =>
+  const tag = (s: Parsed['state'], p?: Parsed) =>
+    p && s === 'exists' && changeByKey.has((p.orderNumber).toLowerCase()) ? <span className="text-blue-300">موجود — هتتحدث حالته ↓</span> :
     s === 'ok' ? <span className="text-green-300">جاهز</span> :
-    s === 'exists' ? <span className="text-gray-400">موجود قبل كده (هيتخطى)</span> :
+    s === 'exists' ? <span className="text-gray-400">موجود قبل كده</span> :
     s === 'skipStatus' ? <span className="text-gray-400">ملغي/مرتجع (هيتخطى)</span> :
     s === 'dupInPaste' ? <span className="text-orange-300">سيريال مكرر في اللصق</span> :
     <span className="text-red-400">السيريال/UPC مش في النظام</span>;
@@ -144,7 +179,7 @@ export default function NoonPasteImport({ noonOrders, products, serials, onAdd, 
         <p className="text-xs text-gray-500 mt-1 leading-relaxed">
           في الشيت حدد الصفوف (من غير العناوين لو حبيت) وانسخها Ctrl+C، وبعدين الصقها هنا Ctrl+V. الأعمدة بالترتيب:
           <b className="text-gray-300"> رقم الأوردر | رقم الشحنة | اسم المنتج | السيريال أو UPC | (السعر اختياري)</b>.
-          النظام بيتعرف على الأعمدة من شكلها، فتقدر تلصق الشيت زي ما هو (تاريخ، اسم، رقم أوردر NEGIA…، رقم شحنة PH…E، حالة، سيريال). اسم المنتج للعرض فقط، والمطابقة بالسيريال أو الـ UPC. الحالة (Shipped/Delivered…) بتتسجل مع الأوردر. لو السعر فاضي بيتاخد سعر البيع من المنتج.
+          النظام بيتعرف على الأعمدة من شكلها، فتقدر تلصق الشيت زي ما هو (تاريخ، اسم، رقم أوردر NEGIA…، رقم شحنة PH…E، حالة، سيريال). اسم المنتج للعرض فقط، والمطابقة بالسيريال أو الـ UPC. الحالة (Shipped/Delivered…) بتتسجل مع الأوردر، ولو الأوردر موجود قبل كده وحالته في اللصق اتغيرت (مثلاً Shipped ← Delivered) هتظهر لك تحت وتتحدث. لو السعر فاضي بيتاخد سعر البيع من المنتج.
         </p>
         <div className="flex items-center gap-2 mt-3">
           <span className="text-xs text-gray-400">تاريخ احتياطي (لو الصف مفيهوش تاريخ)</span>
@@ -158,7 +193,7 @@ export default function NoonPasteImport({ noonOrders, products, serials, onAdd, 
           <div className="mt-4 space-y-3">
             <div className="text-xs text-gray-400">
               {parsed.length} صف: <b className="text-green-300">{okRows.length} جاهز</b>
-              {count('exists') > 0 && <> — {count('exists')} موجود قبل كده</>}
+              {count('exists') > 0 && <> — {count('exists')} موجود قبل كده{changes.length > 0 && <b className="text-blue-300"> ({changes.length} حالتهم اتغيرت)</b>}</>}
               {count('nomatch') > 0 && <span className="text-red-400"> — {count('nomatch')} غير مطابق</span>}
               {count('dupInPaste') > 0 && <span className="text-orange-300"> — {count('dupInPaste')} مكرر</span>}
             </div>
@@ -177,14 +212,48 @@ export default function NoonPasteImport({ noonOrders, products, serials, onAdd, 
                       <td className="p-2">{p.product?.name || <span className="text-gray-500">{p.name}</span>}</td>
                       <td className="p-2 font-mono" dir="ltr">{p.code || '—'}</td>
                       <td className="p-2 text-center">{p.product ? formatCurrency(p.price ?? p.product.salePrice ?? 0) : '—'}</td>
-                      <td className="p-2">{tag(p.state)}{p.rawStatus ? <span className="text-gray-500"> · {p.rawStatus}</span> : null}</td>
+                      <td className="p-2">{tag(p.state, p)}{p.rawStatus ? <span className="text-gray-500"> · {p.rawStatus}</span> : null}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <button onClick={submit} disabled={okRows.length === 0} className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50">
-              <ClipboardPaste size={15} /> إضافة {okRows.length} صف جاهز
+            {changes.length > 0 && (
+              <div>
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <div className="font-bold text-sm text-white">🔄 تحديث حالة أوردرات موجودة</div>
+                  <button onClick={() => setOverride(Object.fromEntries(changes.map(i => [i.order.id, true])))} className="text-xs text-violet-300 hover:underline">تحديد الكل</button>
+                  <button onClick={() => setOverride({})} className="text-xs text-gray-400 hover:underline">الافتراضي</button>
+                  <button onClick={() => setOverride(Object.fromEntries(changes.map(i => [i.order.id, false])))} className="text-xs text-gray-400 hover:underline">إلغاء الكل</button>
+                </div>
+                <div className="overflow-x-auto max-h-[260px] overflow-y-auto border border-border rounded-xl">
+                  <table className="w-full text-xs min-w-[560px]">
+                    <thead className="sticky top-0 bg-elevated"><tr className="text-gray-400 border-b border-border">
+                      <th className="p-2 w-8"></th><th className="p-2 text-right">الأوردر</th><th className="p-2 text-right">من</th><th className="p-2 text-right">إلى</th><th className="p-2 text-right">ملاحظة</th>
+                    </tr></thead>
+                    <tbody>
+                      {changes.map(i => (
+                        <tr key={i.order.id} className="border-b border-border/40">
+                          <td className="p-2 text-center"><input type="checkbox" checked={isChecked(i)} onChange={e => setOverride(o => ({ ...o, [i.order.id]: e.target.checked }))} /></td>
+                          <td className="p-2 font-mono" dir="ltr">{i.order.orderNumber}</td>
+                          <td className="p-2"><span className={`px-2 py-0.5 rounded-lg border ${statusColor(i.from)}`}>{statusLabel(i.from)}</span></td>
+                          <td className="p-2">{i.to && <span className={`px-2 py-0.5 rounded-lg border ${statusColor(i.to)}`}>{statusLabel(i.to)}</span>}</td>
+                          <td className={`p-2 ${i.kind === 'conflict' ? 'text-orange-300' : i.kind === 'cancel' ? 'text-red-300' : 'text-gray-400'}`}>{i.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {statusPreview && (statusPreview.protectedCount > 0 || statusPreview.unknownStatus.length > 0) && (
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    {statusPreview.protectedCount > 0 && <>{statusPreview.protectedCount} أوردر مدفوع/محوّل ماتلمسوش · </>}
+                    {statusPreview.unknownStatus.length > 0 && <>{statusPreview.unknownStatus.length} بحالة مش معروفة</>}
+                  </div>
+                )}
+              </div>
+            )}
+            <button onClick={submit} disabled={okRows.length === 0 && selectedChanges.length === 0} className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50">
+              <ClipboardPaste size={15} /> {[okRows.length ? `إضافة ${okRows.length} صف جاهز` : '', selectedChanges.length ? `تحديث حالة ${selectedChanges.length}` : ''].filter(Boolean).join(' + ') || 'مفيش حاجة للتنفيذ'}
             </button>
           </div>
         )}

@@ -120,7 +120,8 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
 
   const filtered = noonOrders.filter(o => {
     const matchSearch = o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
-      (o.customerName || '').toLowerCase().includes(search.toLowerCase());
+      (o.customerName || '').toLowerCase().includes(search.toLowerCase()) ||
+      o.items.some(it => (it.productName || '').toLowerCase().includes(search.toLowerCase()));
     const matchStatus = statusFilter === 'all' || o.status === statusFilter;
     const od = normalizeDateValue(o.date);
     const matchDate = (!dateFrom || od >= dateFrom) && (!dateTo || od <= dateTo);
@@ -745,7 +746,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="بحث برقم الأوردر أو العميل..."
+              placeholder="بحث برقم الأوردر أو اسم المنتج..."
               className="input-dark w-full pr-9" />
           </div>
 
@@ -762,7 +763,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                 </button>
               </th>
               <th className="text-right py-3 px-3 text-gray-400 font-medium">رقم الأوردر</th>
-              <th className="text-right py-3 px-3 text-gray-400 font-medium hidden md:table-cell">العميل</th>
+              <th className="text-right py-3 px-3 text-gray-400 font-medium hidden md:table-cell">المنتج</th>
               <th className="text-center py-3 px-3 text-gray-400 font-medium hidden md:table-cell">المنصة</th>
               <th className="text-center py-3 px-3 text-gray-400 font-medium">التاريخ</th>
               <th className="text-center py-3 px-3 text-gray-400 font-medium">المنتجات</th>
@@ -792,7 +793,16 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                     <div className="font-mono text-violet-400 text-sm">{o.orderNumber}</div>
                     {o.shipmentNumber && <div className="text-xs text-gray-500 font-mono">{o.shipmentNumber}</div>}
                   </td>
-                  <td className="py-3 px-3 text-white hidden md:table-cell">{o.customerName || '-'}</td>
+                  <td className="py-3 px-3 text-white hidden md:table-cell">
+                    {o.items.length === 0 ? '-' : (
+                      <>
+                        {o.items.slice(0, 2).map((it, i) => (
+                          <div key={i} className="text-sm leading-snug">{it.productName || '-'}</div>
+                        ))}
+                        {o.items.length > 2 && <div className="text-xs text-gray-500">+{o.items.length - 2} أصناف أخرى</div>}
+                      </>
+                    )}
+                  </td>
                   <td className="py-3 px-3 text-center hidden md:table-cell">
                     <span className={`text-xs px-2 py-0.5 rounded-full border ${pInfo.color}`}>
                       {pInfo.emoji} {pInfo.label}
@@ -1245,7 +1255,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                     <input type="number" value={r.amount} onChange={e => setAdjRows(rows => rows.map((x, k) => k === i ? { ...x, amount: e.target.value } : x))} placeholder="المبلغ المخصوم" className="input-dark text-sm w-32" />
                     <button onClick={() => setAdjRows(rows => rows.filter((_, k) => k !== i))} className="text-red-400 text-xs">حذف</button>
                     {r.orderNumber && !ord && <span className="text-xs text-red-400">أوردر مش موجود</span>}
-                    {ord && <span className="text-[11px] text-gray-500">{ord.customerName || ''} · {statusLabel(ord.status)}{ord.status === 'returned' && clawbackPending(ord) > 0 ? ` · مستني خصم ${formatCurrency(clawbackPending(ord))}` : ''}</span>}
+                    {ord && <span className="text-[11px] text-gray-500">{ord.items.map(it => it.productName).filter(Boolean).slice(0, 2).join('، ')} · {statusLabel(ord.status)}{ord.status === 'returned' && clawbackPending(ord) > 0 ? ` · مستني خصم ${formatCurrency(clawbackPending(ord))}` : ''}</span>}
                   </div>
                 );
               })}
@@ -1330,7 +1340,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           </div>
         );
       })()}
-      {showPaste && <NoonPasteImport noonOrders={noonOrders} products={products} serials={serials} onAdd={onAddNoonOrders} onClose={() => setShowPaste(false)} />}
+      {showPaste && <NoonPasteImport noonOrders={noonOrders} products={products} serials={serials} onAdd={onAddNoonOrders} onUpdateOrder={onUpdateNoonOrder} onReturnOrders={onReturnNoonOrders} onClose={() => setShowPaste(false)} />}
       {showSync && <NoonSyncModal orders={noonOrders} onUpdateOrder={onUpdateNoonOrder} onReturnOrders={onReturnNoonOrders} onClose={() => setShowSync(false)} />}
     </div>
   );

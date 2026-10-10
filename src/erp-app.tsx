@@ -161,6 +161,7 @@ export default function ErpApp() {
             onAddParty={store.addParty}
             onUpdateParty={store.updateParty}
             onDeleteParty={store.deleteParty}
+            onMergeParties={store.mergeParties}
             onAddPayment={store.addPayment}
             onDeletePayment={store.deletePayment}
             onUpdatePayment={store.updatePayment}

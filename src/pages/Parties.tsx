@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Party, SaleInvoice, PurchaseInvoice, Payment } from '../types';
 import { generateId, getTodayStr, formatMoney, printElement, normalizeDateValue, paymentMethodLabel } from '../utils/helpers';
-import { Plus, Search, Edit, Pencil, Trash2, Eye, DollarSign, X, Printer, Copy, Check, ShieldCheck, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, Edit, Pencil, Trash2, Eye, DollarSign, X, Printer, Copy, Check, ShieldCheck, FileSpreadsheet, GitMerge } from 'lucide-react';
 import { buildStatementHtml, exportStatementExcel, detailLineText, ExportInput, DetailLevel, DetailLine } from '../utils/statementExport';
 import { calculatePartyBalance } from '../store/domains/accounting.store';
 
@@ -13,6 +13,8 @@ interface Props {
   onAddParty: (p: Party) => { success: boolean; message?: string } | void;
   onUpdateParty: (p: Party) => void;
   onDeleteParty: (id: string) => { success: boolean; message?: string } | void;
+  /** دمج حسابين: keepId يفضل والباقي يتنقل كل حاجته له بالاسم النهائي */
+  onMergeParties?: (keepId: string, otherIds: string[], finalName: string) => { success: boolean; message?: string };
   onAddPayment: (p: Payment) => void;
   onDeletePayment?: (id: string) => { success: boolean; message?: string } | void;
   onUpdatePayment?: (id: string, patch: Partial<Pick<Payment, 'amount' | 'paymentMethod' | 'date' | 'notes' | 'instapayPerson'>>) => void;
@@ -42,7 +44,7 @@ type StatementRow = {
   lines?: DetailLine[];
 };
 
-export default function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onAddPayment, onDeletePayment, onUpdatePayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }: Props) {
+export default function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onMergeParties, onAddPayment, onDeletePayment, onUpdatePayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }: Props) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [showForm, setShowForm] = useState(false);
@@ -67,6 +69,13 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   const [paymentNotes, setPaymentNotes] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  // ===== دمج حسابين =====
+  const [showMerge, setShowMerge] = useState(false);
+  const [mergeA, setMergeA] = useState('');
+  const [mergeB, setMergeB] = useState('');
+  const [mergeName, setMergeName] = useState('');
+  const [mergeError, setMergeError] = useState('');
+  const [mergeDone, setMergeDone] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [form, setForm] = useState({ name:'', phone:'', email:'', address:'', customer:true, supplier:true, openingBalance:'', notes:'' });
@@ -89,6 +98,24 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
       return matchesSearch && matchesFilter;
     });
   }, [parties, search, filter, saleInvoices, purchaseInvoices, payments]);
+
+  const openMerge = (a?: Party) => { setMergeA(a?.id || ''); setMergeB(''); setMergeName(a?.name || ''); setMergeError(''); setShowMerge(true); };
+  const sortedParties = useMemo(() => [...parties].sort((x, y) => x.name.localeCompare(y.name, 'ar')), [parties]);
+  const partyA = parties.find(x => x.id === mergeA);
+  const partyB = parties.find(x => x.id === mergeB);
+  const movements = (p?: Party) => p ? saleInvoices.filter(i => i.customerId === p.id).length + purchaseInvoices.filter(i => i.supplierId === p.id).length + payments.filter(x => x.referenceId === p.id).length : 0;
+  const doMerge = () => {
+    if (!partyA || !partyB || !onMergeParties) return;
+    if (partyA.id === partyB.id) { setMergeError('اختار حسابين مختلفين.'); return; }
+    const name = mergeName.trim();
+    if (!name) { setMergeError('اكتب الاسم الجديد للحساب بعد الدمج.'); return; }
+    const total = balance(partyA) + balance(partyB);
+    if (!window.confirm(`هيتم دمج "${partyA.name}" و "${partyB.name}" في حساب واحد باسم "${name}".\nكل الفواتير والدفعات هتتنقل للحساب الجديد، والحسابين القدام هيتمسحوا.\nالرصيد بعد الدمج: ${formatMoney(Math.abs(total))} ${total > 0 ? 'مستحق لنا' : total < 0 ? 'مستحق له' : 'متطابق'}.\nالعملية دي مش بترجع. متأكد؟`)) return;
+    const r = onMergeParties(partyA.id, [partyB.id], name);
+    if (r?.success === false) { setMergeError(r.message || 'تعذر الدمج'); return; }
+    setShowMerge(false);
+    setMergeDone(`✅ تم دمج الحسابين في حساب واحد باسم "${name}".`);
+  };
 
   const openAdd = () => { setEdit(null); setError(''); setForm({name:'',phone:'',email:'',address:'',customer:true,supplier:true,openingBalance:'',notes:''}); setShowForm(true); };
   const openEdit = (p: Party) => { setEdit(p); setError(''); setForm({name:p.name,phone:p.phone||'',email:p.email||'',address:p.address||'',customer:p.roles.customer,supplier:p.roles.supplier,openingBalance:String(p.openingBalance || 0),notes:p.notes||''}); setShowForm(true); };
@@ -238,9 +265,13 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   return <div className="p-4 md:p-6 space-y-5 h-full overflow-auto" dir="rtl">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h2 className="text-xl font-bold text-white">👥 الأطراف والحسابات</h2><p className="text-sm text-gray-500">حساب واحد للشخص أو الشركة مهما كان يتعامل معك كعميل أو مورد</p></div>
-      <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16}/> حساب جديد</button>
+      <div className="flex flex-wrap gap-2">
+        {onMergeParties && <button onClick={() => openMerge()} className="btn-secondary flex items-center gap-2"><GitMerge size={16}/> دمج حسابين</button>}
+        <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16}/> حساب جديد</button>
+      </div>
     </div>
 
+    {mergeDone && <div className="rounded-xl border border-green-700/30 bg-green-900/20 px-4 py-3 text-sm text-green-300 flex justify-between"><span>{mergeDone}</span><button onClick={() => setMergeDone('')}><X size={14}/></button></div>}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
       <div className="bg-surface border border-border rounded-xl p-4"><div className="text-xs text-muted">إجمالي الحسابات</div><div className="text-2xl font-black text-white mt-1">{parties.length}</div></div>
       <div className="bg-surface border border-border rounded-xl p-4"><div className="text-xs text-muted">عملاء + موردون</div><div className="text-2xl font-black text-violet-300 mt-1">{parties.filter(p=>p.roles.customer&&p.roles.supplier).length}</div></div>
@@ -255,7 +286,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
 
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-muted"><th className="p-3 text-right">الحساب</th><th className="p-3">الدور</th><th className="p-3">الرصيد</th><th className="p-3">الحركات</th><th className="p-3">إجراءات</th></tr></thead>
-      <tbody>{filtered.map(p=>{const b=balance(p); const count=saleInvoices.filter(i=>i.customerId===p.id).length+purchaseInvoices.filter(i=>i.supplierId===p.id).length+payments.filter(x=>x.referenceId===p.id).length; return <tr key={p.id} className="border-b border-border/60 hover:bg-white/[.02]"><td className="p-3"><div className="font-bold text-white">{p.name}</div><div className="text-xs text-muted">{p.phone||''}</div></td><td className="p-3 text-center"><span className="text-xs">{p.roles.customer?'عميل':''}{p.roles.customer&&p.roles.supplier?' + ':''}{p.roles.supplier?'مورد':''}</span></td><td className={`p-3 text-center font-bold ${b>0?'text-red-400':b<0?'text-green-400':'text-gray-400'}`}>{formatMoney(Math.abs(b))} <span className="text-[10px] font-normal">{b>0?'مستحق لنا':b<0?'مستحق له':'متطابق'}</span></td><td className="p-3 text-center">{count}</td><td className="p-3"><div className="flex justify-center gap-1"><button onClick={()=>openStatement(p)} className="p-2 rounded-lg text-violet-300 hover:bg-violet-900/20" title="كشف الحساب"><Eye size={15}/></button><button onClick={()=>openPayment(p)} className="p-2 rounded-lg text-green-300 hover:bg-green-900/20" title="دفعة"><DollarSign size={15}/></button><button onClick={()=>openEdit(p)} className="p-2 rounded-lg text-blue-300 hover:bg-blue-900/20"><Edit size={15}/></button><button onClick={()=>{const r=onDeleteParty(p.id) as {success:boolean;message?:string}|undefined; if(r?.success===false) setError(r.message||'لا يمكن حذف الحساب');}} className="p-2 rounded-lg text-red-300 hover:bg-red-900/20"><Trash2 size={15}/></button></div></td></tr>})}</tbody></table></div>
+      <tbody>{filtered.map(p=>{const b=balance(p); const count=saleInvoices.filter(i=>i.customerId===p.id).length+purchaseInvoices.filter(i=>i.supplierId===p.id).length+payments.filter(x=>x.referenceId===p.id).length; return <tr key={p.id} className="border-b border-border/60 hover:bg-white/[.02]"><td className="p-3"><div className="font-bold text-white">{p.name}</div><div className="text-xs text-muted">{p.phone||''}</div></td><td className="p-3 text-center"><span className="text-xs">{p.roles.customer?'عميل':''}{p.roles.customer&&p.roles.supplier?' + ':''}{p.roles.supplier?'مورد':''}</span></td><td className={`p-3 text-center font-bold ${b>0?'text-red-400':b<0?'text-green-400':'text-gray-400'}`}>{formatMoney(Math.abs(b))} <span className="text-[10px] font-normal">{b>0?'مستحق لنا':b<0?'مستحق له':'متطابق'}</span></td><td className="p-3 text-center">{count}</td><td className="p-3"><div className="flex justify-center gap-1"><button onClick={()=>openStatement(p)} className="p-2 rounded-lg text-violet-300 hover:bg-violet-900/20" title="كشف الحساب"><Eye size={15}/></button><button onClick={()=>openPayment(p)} className="p-2 rounded-lg text-green-300 hover:bg-green-900/20" title="دفعة"><DollarSign size={15}/></button><button onClick={()=>openEdit(p)} className="p-2 rounded-lg text-blue-300 hover:bg-blue-900/20"><Edit size={15}/></button>{onMergeParties&&<button onClick={()=>openMerge(p)} className="p-2 rounded-lg text-amber-300 hover:bg-amber-900/20" title="دمج مع حساب تاني"><GitMerge size={15}/></button>}<button onClick={()=>{const r=onDeleteParty(p.id) as {success:boolean;message?:string}|undefined; if(r?.success===false) setError(r.message||'لا يمكن حذف الحساب');}} className="p-2 rounded-lg text-red-300 hover:bg-red-900/20"><Trash2 size={15}/></button></div></td></tr>})}</tbody></table></div>
       {filtered.length===0&&<div className="text-center text-muted py-12">لا توجد حسابات مطابقة</div>}
     </div>
 
@@ -292,6 +323,32 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
           <tr className="bg-white/[.04] font-bold"><td className="p-2" colSpan={2}>الإجمالي / الرصيد الختامي</td><td className="p-2 text-center">{formatMoney(periodDebit)}</td><td className="p-2 text-center">{formatMoney(periodCredit)}</td><td className={`p-2 text-center ${balClass(closingBalance)}`}>{balText(closingBalance)}</td><td className="p-2"></td></tr>
         </tbody></table>{!periodRows.length&&<div className="text-center text-muted py-10">لا توجد حركات في الفترة المحددة.</div>}</div>
       <div className="flex justify-end gap-2 mt-5"><button onClick={()=>onNavigateToSales?.(view.id)} className="btn-secondary">فواتير البيع</button><button onClick={()=>onNavigateToPurchases?.(view.id)} className="btn-primary">فواتير الشراء</button></div>
+    </div></div>}
+    {showMerge&&<div className="fixed inset-0 z-[9999] bg-black/70 flex items-start justify-center p-4 overflow-auto" onClick={()=>setShowMerge(false)}><div className="w-full max-w-xl bg-surface border border-border rounded-2xl p-5 mt-8" onClick={e=>e.stopPropagation()}>
+      <div className="flex justify-between items-center mb-1"><h3 className="font-bold text-white">🔗 دمج حسابين لنفس الطرف</h3><button onClick={()=>setShowMerge(false)}><X size={18}/></button></div>
+      <p className="text-xs text-gray-500 mb-4">كل الفواتير والدفعات والرصيد الافتتاحي للحسابين بيتجمعوا في حساب واحد بالاسم اللي تختاره، والحسابين القدام بيتمسحوا.</p>
+      <div className="grid md:grid-cols-2 gap-3">
+        <div><label className="text-xs text-gray-400">الحساب الأول</label>
+          <select className="input-dark w-full mt-1" value={mergeA} onChange={e=>{ setMergeA(e.target.value); const a=parties.find(x=>x.id===e.target.value); if(a && !mergeName) setMergeName(a.name); }}><option value="">اختار...</option>{sortedParties.filter(x=>x.id!==mergeB).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
+        <div><label className="text-xs text-gray-400">الحساب التاني</label>
+          <select className="input-dark w-full mt-1" value={mergeB} onChange={e=>setMergeB(e.target.value)}><option value="">اختار...</option>{sortedParties.filter(x=>x.id!==mergeA).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
+      </div>
+      {partyA && partyB && <>
+        <div className="mt-4">
+          <label className="text-xs text-gray-400">الاسم الجديد بعد الدمج</label>
+          <input className="input-dark w-full mt-1" value={mergeName} onChange={e=>setMergeName(e.target.value)} placeholder="اكتب الاسم النهائي"/>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <button onClick={()=>setMergeName(partyA.name)} className="text-xs px-3 py-1 rounded-lg border border-border text-gray-300 hover:bg-white/5">استخدم: {partyA.name}</button>
+            <button onClick={()=>setMergeName(partyB.name)} className="text-xs px-3 py-1 rounded-lg border border-border text-gray-300 hover:bg-white/5">استخدم: {partyB.name}</button>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-muted border-b border-border"><th className="p-2 text-right">الحساب</th><th className="p-2">الحركات</th><th className="p-2">الرصيد</th></tr></thead><tbody>
+          {[partyA,partyB].map(x=>{const b=balance(x);return <tr key={x.id} className="border-b border-border/50"><td className="p-2 text-white">{x.name}</td><td className="p-2 text-center">{movements(x)}</td><td className={`p-2 text-center font-bold ${b>0?'text-red-400':b<0?'text-green-400':'text-gray-400'}`}>{formatMoney(Math.abs(b))} <span className="text-[10px] font-normal">{b>0?'مستحق لنا':b<0?'مستحق له':'متطابق'}</span></td></tr>})}
+          {(()=>{const t=balance(partyA)+balance(partyB);return <tr className="bg-white/[.04] font-bold"><td className="p-2 text-white">بعد الدمج: {mergeName||'—'}</td><td className="p-2 text-center">{movements(partyA)+movements(partyB)}</td><td className={`p-2 text-center ${t>0?'text-red-400':t<0?'text-green-400':'text-gray-400'}`}>{formatMoney(Math.abs(t))} <span className="text-[10px] font-normal">{t>0?'مستحق لنا':t<0?'مستحق له':'متطابق'}</span></td></tr>})()}
+        </tbody></table></div>
+      </>}
+      {mergeError&&<div className="text-red-400 text-sm mt-3">{mergeError}</div>}
+      <div className="flex justify-end gap-2 mt-5"><button onClick={()=>setShowMerge(false)} className="btn-secondary">إلغاء</button><button onClick={doMerge} disabled={!partyA||!partyB||!mergeName.trim()} className="btn-primary disabled:opacity-50">دمج الحسابين</button></div>
     </div></div>}
   </div>;
 }

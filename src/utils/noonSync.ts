@@ -3,6 +3,8 @@ import { NoonOrder, OrderStatus } from '../types';
 
 export interface SheetRow {
   awb: string;
+  /** مفتاح بديل للمطابقة (مثلاً رقم الأوردر لو الأساسي رقم الشحنة) */
+  altKey?: string;
   status: string; // حالة نون الخام (lowercase)
   createdAt?: string;
   expectedDate?: string;
@@ -27,7 +29,21 @@ const STATUS_MAP: Record<string, OrderStatus> = {
   created: 'pending',
 };
 
-export const mapNoonStatus = (raw: string): OrderStatus | null => STATUS_MAP[raw.trim().toLowerCase().replace(/[\s-]+/g, '_')] ?? null;
+// لو الحالة مكتوبة بزيادة (مثلاً "DELIVERED EX") بناخد أول كلمة معروفة بدل ما نتجاهلها
+const STATUS_PREFIX: [RegExp, OrderStatus][] = [
+  [/^delivered(_|$)/, 'delivered'],
+  [/^shipped(_|$)/, 'shipped'],
+  [/^cancel+ed(_|$)/, 'canceled'],
+  [/^return(ed)?(_|$)/, 'returned'],
+  [/^(in_transit|out_for_delivery)(_|$)/, 'shipped'],
+];
+
+export const mapNoonStatus = (raw: string): OrderStatus | null => {
+  const k = raw.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!k) return null;
+  if (STATUS_MAP[k]) return STATUS_MAP[k];
+  return STATUS_PREFIX.find(([re]) => re.test(k))?.[1] ?? null;
+};
 
 const norm = (s: unknown) => String(s ?? '').trim().toLowerCase();
 const pick = (row: Record<string, any>, names: string[]) => {
@@ -103,7 +119,7 @@ export const buildSyncPreview = (rows: SheetRow[], orders: NoonOrder[]): SyncPre
   rows.forEach(r => lastByAwb.set(norm(r.awb), r));
 
   lastByAwb.forEach(row => {
-    const order = byKey.get(norm(row.awb));
+    const order = byKey.get(norm(row.awb)) || (row.altKey ? byKey.get(norm(row.altKey)) : undefined);
     if (!order) { notFound.push(row); return; }
     seenOrders.add(order.id);
     const to = mapNoonStatus(row.status);
@@ -118,6 +134,8 @@ export const buildSyncPreview = (rows: SheetRow[], orders: NoonOrder[]): SyncPre
     else if (to === 'returned') { kind = 'forward'; reason = 'مرتجع: الجهاز يرجع للمخزون'; checked = true; }
     else if ((RANK[to] ?? -1) > (RANK[from] ?? -1)) { kind = 'forward'; checked = true; }
     else { kind = 'conflict'; reason = 'نون بتقول حالة أقدم من اللي في النظام، راجعها'; }
+    const dupIdx = items.findIndex(x => x.order.id === order.id);
+    if (dupIdx >= 0) items.splice(dupIdx, 1); // نفس الأوردر ظهر بمفتاحين: نعتمد آخر ظهور
     items.push({ row, order, from, to, kind, reason, defaultChecked: checked });
   });
 

@@ -18,7 +18,7 @@ import { auth } from '../firebase';
 
 const partyKey = (name: string) => normalizeForCompare(name || '');
 
-const reconcilePartyInvoicePayments = (
+export const reconcilePartyInvoicePayments = (
   saleInvoices: SaleInvoice[],
   purchaseInvoices: PurchaseInvoice[],
   payments: Payment[],
@@ -89,18 +89,78 @@ const reconcilePartyInvoicePayments = (
   };
 };
 
-const customerFromParty = (party: Party): Customer => ({
+export const customerFromParty = (party: Party): Customer => ({
   id: party.id, name: party.name, phone: party.phone, email: party.email, address: party.address,
   type: party.roles.supplier && !party.roles.customer ? 'trader' : 'individual',
   openingBalance: party.openingBalance, totalInvoices: 0, totalPaid: 0, notes: party.notes, createdAt: party.createdAt,
 });
 
-const supplierFromParty = (party: Party): Supplier => ({
+export const supplierFromParty = (party: Party): Supplier => ({
   id: party.id, name: party.name, phone: party.phone, email: party.email, address: party.address,
   type: party.roles.customer && party.roles.supplier ? 'both' : 'supplier',
   // Legacy supplier balance is represented as the opposite side of the unified opening balance.
   openingBalance: Math.max(0, -party.openingBalance), totalInvoices: 0, totalPaid: 0, notes: party.notes, createdAt: party.createdAt,
 });
+
+// ==================== دمج حسابين (نفس التاجر باسمين) ====================
+// بيحوّل كل فواتير ودفعات وحركات خزنة الحسابات المدموجة لحساب واحد (keepId) بالاسم الجديد،
+// بيجمع الرصيد الافتتاحي، وبيعيد توزيع الدفعات على الفواتير. الرصيد النهائي = مجموع الرصيدين بالظبط.
+export const mergePartiesInState = (
+  prev: AppState,
+  keepId: string,
+  otherIds: string[],
+  finalName: string,
+): { error: string } | { error?: undefined; state: AppState; keep: Party; removedIds: string[]; saleInvoices: SaleInvoice[]; purchaseInvoices: PurchaseInvoice[]; payments: Payment[]; treasuryTransactions: TreasuryTransaction[] } => {
+  const name = (finalName || '').trim().replace(/\s+/g, ' ');
+  if (!name) return { error: 'اكتب الاسم الجديد للحساب بعد الدمج.' };
+  if (otherIds.length === 0 || otherIds.includes(keepId) || new Set(otherIds).size !== otherIds.length) return { error: 'اختار حسابين مختلفين للدمج.' };
+  const parties = prev.parties || [];
+  const keep = parties.find(x => x.id === keepId);
+  const others = otherIds.map(id => parties.find(x => x.id === id));
+  if (!keep || others.some(o => !o)) return { error: 'أحد الحسابات المختارة مش موجود.' };
+  const all = [keep, ...(others as Party[])];
+  const ids = new Set(all.map(x => x.id));
+  const clash = parties.find(x => !ids.has(x.id) && partyKey(x.name) === partyKey(name));
+  if (clash) return { error: `فيه حساب تاني بنفس الاسم: ${clash.name}` };
+
+  const firstOf = (f: (x: Party) => string | undefined) => all.map(f).find(v => v && v.trim());
+  const merged: Party = {
+    ...keep,
+    name,
+    roles: { customer: all.some(x => x.roles.customer), supplier: all.some(x => x.roles.supplier) },
+    phone: firstOf(x => x.phone) || '',
+    email: firstOf(x => x.email) || '',
+    address: firstOf(x => x.address) || '',
+    notes: [...new Set(all.map(x => (x.notes || '').trim()).filter(Boolean))].join(' | '),
+    openingBalance: all.reduce((a, x) => a + Number(x.openingBalance || 0), 0),
+    createdAt: all.map(x => x.createdAt).filter(Boolean).sort()[0] || keep.createdAt,
+  };
+
+  const oldNames = [...new Set(all.map(x => x.name).filter(n => n && n !== name))];
+  const renameText = (t: string) => oldNames.reduce((acc, n) => acc.split(n).join(name), t || '');
+
+  let saleInvoices = prev.saleInvoices.map(i => ids.has(i.customerId) ? { ...i, customerId: keepId, customerName: name } : i);
+  let purchaseInvoices = prev.purchaseInvoices.map(i => ids.has(i.supplierId) ? { ...i, supplierId: keepId, supplierName: name } : i);
+  const payments = prev.payments.map(x => ids.has(x.referenceId) ? { ...x, referenceId: keepId, referenceName: name } : x);
+  const treasuryTransactions = prev.treasuryTransactions.map(t => t.referenceId && ids.has(t.referenceId)
+    ? { ...t, referenceId: keepId, description: renameText(t.description) } : t);
+
+  // إعادة توزيع الدفعات على الفواتير (الأقدم أولاً) بعد ضم الحسابين
+  const rs = reconcilePartyInvoicePayments(saleInvoices, purchaseInvoices, payments, keepId, 'sale');
+  saleInvoices = rs.sales;
+  const rp = reconcilePartyInvoicePayments(saleInvoices, purchaseInvoices, payments, keepId, 'purchase');
+  purchaseInvoices = rp.purchases;
+
+  const removedIds = otherIds;
+  const state: AppState = {
+    ...prev,
+    parties: parties.filter(x => !removedIds.includes(x.id)).map(x => x.id === keepId ? merged : x),
+    customers: prev.customers.filter(x => !removedIds.includes(x.id)).map(x => x.id === keepId ? customerFromParty(merged) : x),
+    suppliers: prev.suppliers.filter(x => !removedIds.includes(x.id)).map(x => x.id === keepId ? supplierFromParty(merged) : x),
+    saleInvoices, purchaseInvoices, payments, treasuryTransactions,
+  };
+  return { state, keep: merged, removedIds, saleInvoices, purchaseInvoices, payments, treasuryTransactions };
+};
 
 const buildUnifiedParties = (customers: Customer[], suppliers: Supplier[]): { parties: Party[]; customerMap: Map<string,string>; supplierMap: Map<string,string> } => {
   const byName = new Map<string, Party>();
@@ -126,6 +186,8 @@ const buildUnifiedParties = (customers: Customer[], suppliers: Supplier[]): { pa
 export function useStore() {
   const [state, setState] = useState<AppState>(() => generateDemoData());
   const [hydrated, setHydrated] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [loadError, setLoadError] = useState<string | null>(null);
   const treasurySyncRef = useRef<{ ready: boolean; syncedTxIds: Set<string>; syncedClosingIds: Set<string> }>({
     ready: false,
@@ -537,6 +599,33 @@ export function useStore() {
     });
     if (blocked) return { success: false, message: 'لا يمكن حذف الحساب لأنه مرتبط بفواتير أو دفعات. احتفظ بالتاريخ ويمكنك تعديل بياناته.' };
     deleteFromFirebase('parties', id); deleteFromFirebase('customers', id); deleteFromFirebase('suppliers', id);
+    return { success: true };
+  }, []);
+
+  // دمج حسابين لنفس الطرف: keepId هو الحساب اللي هيفضل (والباقي بيتمسح بعد نقل كل حركاته)
+  const mergeParties = useCallback((keepId: string, otherIds: string[], finalName: string): { success: boolean; message?: string } => {
+    // فحص مسبق على آخر حالة عشان نرجّع رسالة الخطأ فوراً للشاشة
+    const check = mergePartiesInState(stateRef.current, keepId, otherIds, finalName);
+    if (check.error !== undefined) return { success: false, message: check.error };
+    setState(prev => {
+      const r = mergePartiesInState(prev, keepId, otherIds, finalName);
+      if (r.error !== undefined) return prev;
+      const touchedIds = new Set([keepId, ...otherIds]);
+      const touchedSale = prev.saleInvoices.filter(i => touchedIds.has(i.customerId)).map(i => i.id);
+      const touchedPurchase = prev.purchaseInvoices.filter(i => touchedIds.has(i.supplierId)).map(i => i.id);
+      const touchedPay = prev.payments.filter(x => touchedIds.has(x.referenceId)).map(x => x.id);
+      const touchedTx = prev.treasuryTransactions.filter(t => t.referenceId && touchedIds.has(t.referenceId)).map(t => t.id);
+      saveToFirebase('parties', keepId, r.keep);
+      saveToFirebase('customers', keepId, customerFromParty(r.keep));
+      saveToFirebase('suppliers', keepId, supplierFromParty(r.keep));
+      r.saleInvoices.filter(i => touchedSale.includes(i.id)).forEach(i => saveToFirebase('saleInvoices', i.id, i));
+      r.purchaseInvoices.filter(i => touchedPurchase.includes(i.id)).forEach(i => saveToFirebase('purchaseInvoices', i.id, i));
+      r.payments.filter(x => touchedPay.includes(x.id)).forEach(x => saveToFirebase('payments', x.id, x));
+      r.treasuryTransactions.filter(t => touchedTx.includes(t.id)).forEach(t => saveToFirebase('treasuryTransactions', t.id, t));
+      // الحسابات المدموجة تتمسح بعد ما كل حركاتها اتنقلت
+      r.removedIds.forEach(id => { deleteFromFirebase('parties', id); deleteFromFirebase('customers', id); deleteFromFirebase('suppliers', id); });
+      return r.state;
+    });
     return { success: true };
   }, []);
 
@@ -2508,7 +2597,7 @@ export function useStore() {
     updateState,
     addProduct, updateProduct, deleteProduct,
     addSerial, updateSerial, addSerials,
-    addParty, updateParty, deleteParty,
+    addParty, updateParty, deleteParty, mergeParties,
     addCustomer, updateCustomer, deleteCustomer,
     addSupplier, updateSupplier, deleteSupplier,
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,
