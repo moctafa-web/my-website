@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { X, ClipboardPaste } from 'lucide-react';
 import { NoonOrder, NoonOrderItem, Product, SerialItem } from '../types';
-import { formatCurrency, generateId, getTodayStr, productHasUPC, statusColor, statusLabel } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, productMatchesCode, statusColor, statusLabel } from '../utils/helpers';
 import { parseImportDate } from '../utils/importDate';
 import { buildSyncPreview, mapNoonStatus, SheetRow, SyncItem } from '../utils/noonSync';
 
@@ -89,7 +89,7 @@ export default function NoonPasteImport({ noonOrders, products, serials, onAdd, 
       const status = (mapped ?? 'pending') as NoonOrder['status'];
       const lc = code.toLowerCase();
       const serial = code ? serials.find(s => s.serial.trim().toLowerCase() === lc && s.status === 'available') : undefined;
-      const product = serial ? products.find(p => p.id === serial.productId) : code ? products.find(p => productHasUPC(p, code)) : undefined;
+      const product = serial ? products.find(p => p.id === serial.productId) : code ? products.find(p => productMatchesCode(p, code)) : undefined;
       let state: Parsed['state'] = 'ok';
       if (existing.has(orderNumber.toLowerCase())) state = 'exists';
       else if (status === 'canceled' || status === 'returned') state = 'skipStatus';

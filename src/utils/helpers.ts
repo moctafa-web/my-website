@@ -61,6 +61,22 @@ export const productHasUPC = (product: { upc?: string; upcs?: string[] }, code: 
   return !!normalized && getProductUPCs(product).some(u => u.toLowerCase() === normalized);
 };
 
+// توحيد شكل الكود للمقارنة: بنشيل المسافات والشرطات والعلامات (زي ' اللي بيحطها Google Sheets)
+// و ".0" اللي بتيجي لما الرقم يتحول لعشري، فنفس الباركود يتطابق حتى لو شكله اتغيّر في الشيت.
+export const normalizeProductCode = (code: string): string =>
+  String(code ?? '').trim().replace(/^['"`]+|['"`]+$/g, '').replace(/\.0+$/, '').replace(/[\s\-_]/g, '').toLowerCase();
+
+// مطابقة منتج بكود: UPC الأساسي، كل الـ UPCs، الباركود، أو الـ SKU.
+export const productMatchesCode = (
+  product: { upc?: string; upcs?: string[]; barcode?: string; sku?: string },
+  code: string,
+): boolean => {
+  const n = normalizeProductCode(code);
+  if (!n) return false;
+  return [product.upc, ...(product.upcs || []), product.barcode, product.sku]
+    .some(v => !!v && normalizeProductCode(String(v)) === n);
+};
+
 export const generateId = (): string => {
   return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };

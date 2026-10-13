@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NoonOrder, NoonOrderItem, NoonAdjustment, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
 import { ADJ_KIND_LABEL, clawbackDone, clawbackPending, deferredCharges, deferredTotal, returnState } from '../utils/noonReturns';
-import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, normalizeDateValue } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, productMatchesCode, normalizeDateValue } from '../utils/helpers';
 import { parseImportDate } from '../utils/importDate';
 import NoonPasteImport from '../components/NoonPasteImport';
 import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote, Edit } from 'lucide-react';
@@ -188,6 +188,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
     return stock > 0 && (
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
+      (p.barcode || '').toLowerCase().includes(q) ||
       getProductUPCs(p).some(u => u.includes(q))
     );
   }).slice(0, 10);
@@ -360,7 +361,7 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           : undefined;
         const product = matchedSerial
           ? products.find(p => p.id === matchedSerial.productId)
-          : products.find(p => productHasUPC(p, upcValue));
+          : products.find(p => productMatchesCode(p, upcValue));
         if (!product) {
           importErrors.push(`الصف ${rowIndex + 2}: ${serialValue ? `السيريال ${serialValue} غير موجود/غير متاح` : `الـ UPC ${upcValue || '(فارغ)'} غير موجود في النظام`}`);
           return;
@@ -378,11 +379,11 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
             : undefined;
           const product = matchedSerial
             ? products.find(p => p.id === matchedSerial.productId)
-            : products.find(p => productHasUPC(p, upcValue));
+            : products.find(p => productMatchesCode(p, upcValue));
           return {
             productId: product?.id || '',
             productName: product?.name || '',
-            upc: product ? (upcValue && productHasUPC(product, upcValue) ? upcValue : (product.upc || '')) : upcValue,
+            upc: product ? (upcValue && productHasUPC(product, upcValue) ? upcValue : (product.upc || upcValue)) : upcValue,
             serial: matchedSerial?.serial || serialValue,
             imei1: matchedSerial?.imei1 || String(row.imei1 || ''),
             imei2: matchedSerial?.imei2 || String(row.imei2 || ''),
