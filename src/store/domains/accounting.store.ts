@@ -75,24 +75,49 @@ export const calculatePartyBalance = (
 
 export const getPartyBalance = (state: AppState, party: Pick<Customer | Supplier, 'id' | 'openingBalance'>): number => calculatePartyBalance(state, party);
 
+// تاريخ أقدم مبلغ لسه متحاسبش عليه (للدفتر): بنوزّع المدفوعات على الفواتير الأقدم أولاً (FIFO)،
+// فاللي اتدفع بالكامل ما بيتحسبش، والعمر بيبدأ من أقدم فاتورة (أو جزء منها) لسه عليها فلوس.
+// لو الباقي كله رصيد افتتاحي بنرجّع undefined.
+const oldestUnpaidDate = (
+  state: Pick<AppState, 'saleInvoices' | 'purchaseInvoices'>,
+  party: Pick<Party, 'id' | 'openingBalance'>,
+  balance: number,
+): string | undefined => {
+  if (Math.abs(balance) <= EPSILON) return undefined;
+  const owedToUs = balance > 0;
+  const docs: { date: string; createdAt: string; amount: number }[] = owedToUs
+    ? state.saleInvoices.filter(i => i.customerId === party.id).map(i => ({ date: i.date, createdAt: i.createdAt || '', amount: i.total }))
+    : state.purchaseInvoices.filter(i => i.supplierId === party.id).map(i => ({ date: i.date, createdAt: i.createdAt || '', amount: i.total }));
+  docs.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.createdAt.localeCompare(b.createdAt));
+  const opening = party.openingBalance || 0;
+  const openingDebit = owedToUs ? Math.max(opening, 0) : Math.max(-opening, 0);
+  const totalDebits = openingDebit + sum(docs.map(d => d.amount));
+  let credit = Math.max(0, totalDebits - Math.abs(balance)); // اللي اتسدد فعلاً
+  credit -= openingDebit;                                     // الرصيد الافتتاحي هو الأقدم
+  if (credit < -EPSILON) return undefined;                    // لسه جزء من الافتتاحي عليه فلوس
+  for (const d of docs) {
+    if (d.amount <= EPSILON) continue;
+    if (credit >= d.amount - EPSILON) { credit -= d.amount; continue; }
+    return d.date || undefined;
+  }
+  return undefined;
+};
+
 export const getPartyBalances = (state: AppState): BalanceSnapshot => {
   // نجمع أي سجلات قديمة بنفس الاسم قبل التصنيف حتى لا يظهر الطرف مرتين.
   const grouped = new Map<string, { id: string; name: string; phone?: string; balance: number; oldestDueDate?: string }>();
   (state.parties || []).forEach(party => {
     const key = party.name.trim().replace(/\s+/g, ' ').toLowerCase();
     const balance = getPartyBalance(state, party);
-    const dueDates = [
-      ...state.saleInvoices.filter(i => i.customerId === party.id && i.remaining > EPSILON).map(i => i.date),
-      ...state.purchaseInvoices.filter(i => i.supplierId === party.id && i.remaining > EPSILON).map(i => i.date),
-    ].sort();
+    const oldestDate = oldestUnpaidDate(state, party, balance);
     const current = grouped.get(key);
     if (current) {
       current.balance += balance;
       current.phone ||= party.phone;
-      const oldest = dueDates[0];
+      const oldest = oldestDate;
       if (oldest && (!current.oldestDueDate || oldest < current.oldestDueDate)) current.oldestDueDate = oldest;
     } else {
-      grouped.set(key, { id: party.id, name: party.name, phone: party.phone, balance, oldestDueDate: dueDates[0] });
+      grouped.set(key, { id: party.id, name: party.name, phone: party.phone, balance, oldestDueDate: oldestDate });
     }
   });
   const positive = [...grouped.values()].filter(x => x.balance > EPSILON).map(x => ({ ...x, balance: x.balance, type: 'customer' as const }));

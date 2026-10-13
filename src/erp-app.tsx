@@ -185,6 +185,8 @@ export default function ErpApp() {
             }}
             preselectedStatementId={pendingCustomerStatementId || pendingSupplierStatementId}
             onPreselectedStatementHandled={() => { setPendingCustomerStatementId(null); setPendingSupplierStatementId(null); }}
+            returnToDebtsOnClose={backPage === "debts"}
+            onReturnToDebts={goBack}
           />
         );
 

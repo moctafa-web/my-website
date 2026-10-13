@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, initializeAuth, indexedDBLocalPersistence, browserLocalPersistence } from 'firebase/auth';
 
 // نفس مشروع Firebase المستخدم في النسخة الأصلية.
 // هذه القيم public client config بطبيعتها؛ الحماية الحقيقية تكون من خلال
@@ -18,5 +18,17 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
-export const auth = getAuth(app);
+// تسجيل الدخول بإيميل وباسورد بس، فمش محتاجين popup/redirect resolver.
+// getAuth() العادي بيحمّل iframe من authDomain قبل ما يقول "في مستخدم ولا لا"،
+// وده اللي كان بيطوّل شاشة "جاري التحقق من تسجيل الدخول". initializeAuth بنفس نوع التخزين
+// (IndexedDB ثم localStorage) فالجلسات الحالية بتفضل شغالة من غير ما حد يسجّل دخول تاني.
+const createAuth = () => {
+  if (typeof window === 'undefined') return getAuth(app);
+  try {
+    return initializeAuth(app, { persistence: [indexedDBLocalPersistence, browserLocalPersistence] });
+  } catch {
+    return getAuth(app); // اتعمل قبل كده (مثلاً HMR)
+  }
+};
+export const auth = createAuth();
 export { firebaseConfig };

@@ -26,6 +26,9 @@ interface Props {
   onOpenInvoice?: (type: 'sale' | 'purchase', id: string, partyId?: string) => void;
   preselectedStatementId?: string | null;
   onPreselectedStatementHandled?: () => void;
+  // لو الكشف اتفتح من دفتر الديون: قفل الكشف يرجّعنا للدفتر بدل ما نفضل في الأطراف
+  returnToDebtsOnClose?: boolean;
+  onReturnToDebts?: () => void;
 }
 
 type Filter = 'all' | 'owing' | 'owed';
@@ -46,7 +49,7 @@ type StatementRow = {
   dup?: number;
 };
 
-export default function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onMergeParties, onAddPayment, onDeletePayment, onUpdatePayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled }: Props) {
+export default function Parties({ parties, saleInvoices, purchaseInvoices, payments, onAddParty, onUpdateParty, onDeleteParty, onMergeParties, onAddPayment, onDeletePayment, onUpdatePayment, onUpdatePaymentDate, onUpdateSaleInvoiceDate, onUpdatePurchaseInvoiceDate, onNavigateToSales, onNavigateToPurchases, onOpenInvoice, preselectedStatementId, onPreselectedStatementHandled, returnToDebtsOnClose, onReturnToDebts }: Props) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [showForm, setShowForm] = useState(false);
@@ -82,6 +85,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   const [dateTo, setDateTo] = useState('');
   const [form, setForm] = useState({ name:'', phone:'', email:'', address:'', customer:true, supplier:true, openingBalance:'', notes:'' });
 
+  const closeStatement = () => { setView(null); if (returnToDebtsOnClose && onReturnToDebts) onReturnToDebts(); };
   const balance = (p: Party) => calculatePartyBalance({ saleInvoices, purchaseInvoices, payments }, p);
 
   useEffect(() => {
@@ -318,7 +322,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
       <button onClick={saveEditPayment} disabled={!(Number(editAmount)>0)} className="btn-primary w-full mt-4 disabled:opacity-50">💾 حفظ التعديل</button>
     </div></div>}
 
-    {view&&<div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 overflow-auto" onClick={()=>setView(null)}><div className="w-full max-w-5xl bg-surface border border-border rounded-2xl p-5 mt-4" onClick={e=>e.stopPropagation()}><div className="flex flex-wrap justify-between items-center gap-3"><div><h3 className="text-xl font-bold text-white">كشف حساب — {view.name}</h3><div className="text-sm text-muted mt-1">{view.phone||''}</div></div><div className="flex gap-2"><button onClick={copyStatement} className="btn-secondary flex items-center gap-1">{copied?<Check size={15}/>:<Copy size={15}/>} {copied?'تم النسخ':'نسخ لواتساب'}</button><button onClick={printStatement} className="btn-secondary flex items-center gap-1" title="اختار Save as PDF من نافذة الطباعة"><Printer size={15}/> طباعة / PDF</button><button onClick={excelStatement} className="btn-secondary flex items-center gap-1"><FileSpreadsheet size={15}/> Excel</button><button onClick={()=>setView(null)} className="p-2"><X size={18}/></button></div></div>
+    {view&&<div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 overflow-auto" onClick={()=>closeStatement()}><div className="w-full max-w-5xl bg-surface border border-border rounded-2xl p-5 mt-4" onClick={e=>e.stopPropagation()}><div className="flex flex-wrap justify-between items-center gap-3"><div><h3 className="text-xl font-bold text-white">كشف حساب — {view.name}</h3><div className="text-sm text-muted mt-1">{view.phone||''}</div></div><div className="flex gap-2"><button onClick={copyStatement} className="btn-secondary flex items-center gap-1">{copied?<Check size={15}/>:<Copy size={15}/>} {copied?'تم النسخ':'نسخ لواتساب'}</button><button onClick={printStatement} className="btn-secondary flex items-center gap-1" title="اختار Save as PDF من نافذة الطباعة"><Printer size={15}/> طباعة / PDF</button><button onClick={excelStatement} className="btn-secondary flex items-center gap-1"><FileSpreadsheet size={15}/> Excel</button><button onClick={()=>closeStatement()} className="p-2"><X size={18}/></button></div></div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 my-5"><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">الرصيد الافتتاحي</div><div className="font-black text-white">{formatMoney(openingForPeriod)}</div></div><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">حركة مدين</div><div className="font-bold text-white">{formatMoney(periodDebit)}</div></div><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">حركة دائن</div><div className="font-bold text-white">{formatMoney(periodCredit)}</div></div><div className="bg-elevated rounded-xl p-3"><div className="text-xs text-muted">الرصيد الجاري</div><div className={`font-black ${currentBalance>=0?'text-red-300':'text-green-300'}`}>{formatMoney(Math.abs(currentBalance))} {currentBalance>=0?'لنا':'له'}</div></div></div>
       <div className="flex flex-wrap gap-2 items-center mb-4"><span className="text-xs text-muted">الفترة:</span><input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="input-dark"/><span className="text-gray-500">إلى</span><input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="input-dark"/><button onClick={()=>{setDateFrom('');setDateTo('')}} className="btn-secondary text-xs">كل الفترة</button><button onClick={()=>openPayment(view)} className="btn-primary text-xs">💰 تسجيل دفعة</button></div>
       {dupRowsCount > 0 && <div className="mb-3 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">⚠️ فيه {dupRowsCount} دفعات متطابقة (نفس الاتجاه ونفس المبلغ في نفس اليوم) ومعلّمة بالأصفر. راجعها: لو واحدة منها اتسجلت بالغلط امسح الزيادة، ولو حقيقية سيبها.</div>}
