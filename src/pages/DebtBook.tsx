@@ -58,7 +58,9 @@ export default function DebtBook({ state, onAddPayment, onOpenStatement }: Props
     return sorted;
   }, [list, search, sort, lateOnly]);
 
-  const maxBalance = Math.max(1, ...rows.map(r => r.balance));
+  // النسبة من إجمالي القائمة كلها (مش من أكبر تاجر): لو الإجمالي 100 وتاجر عليه 50 يبقى البار 50%
+  const pct = (v: number) => (total > 0 ? Math.min(100, (v / total) * 100) : 0);
+  const pctLabel = (v: number) => { const x = pct(v); return x > 0 && x < 1 ? '<1%' : `${Math.round(x)}%`; };
   const shownTotal = rows.reduce((s, r) => s + r.balance, 0);
   const isGreen = tab === 'owing';
   const fmt = (n: number) => n.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
@@ -191,8 +193,11 @@ export default function DebtBook({ state, onAddPayment, onOpenStatement }: Props
                 </div>
                 <div className="col-span-2 sm:col-span-1 sm:text-center">
                   <div className={`text-base font-black ${isGreen ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(r.balance)}</div>
-                  <div className="h-1 rounded-full bg-white/5 mt-1 overflow-hidden">
-                    <div className={`h-full ${isGreen ? 'bg-green-500/70' : 'bg-red-500/70'}`} style={{ width: `${Math.max(3, (r.balance / maxBalance) * 100)}%` }} />
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <div className="h-1.5 flex-1 rounded-full bg-white/5 overflow-hidden">
+                      <div className={`h-full ${isGreen ? 'bg-green-500/70' : 'bg-red-500/70'}`} style={{ width: `${pct(r.balance)}%` }} />
+                    </div>
+                    <span className="text-[10px] text-gray-400 w-8 text-left">{pctLabel(r.balance)}</span>
                   </div>
                 </div>
                 <div className="sm:text-center">
