@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ClipboardCheck, Copy, FileSpreadsheet, Printer, RefreshCw, Save, ScanLine, Trash2, XCircle } from 'lucide-react';
 import { Product, SerialItem, DailyInventoryScan, DailyInventoryScanLine } from '../types';
 import { generateId, getTodayStr } from '../utils/helpers';
@@ -40,12 +40,60 @@ export default function DailyInventoryScanner({ products: _products, serials, se
 
   useEffect(() => setVisibleSessions(sessions || []), [sessions]);
 
+  // ===== حفظ تلقائي للمسودة =====
+  // أي قراءة جديدة بتتحفظ في Firebase (بعد ثانية ونص من آخر قراءة) كمسودة، فتقدر تقفل الصفحة
+  // أو تنتقل لمكان تاني وتكمّل نفس الجرد بعدين من «آخر جلسات الجرد».
+  const [autoSaved, setAutoSaved] = useState('');
+  const lastSavedLinesRef = useRef<DailyInventoryScanLine[] | null>(null);
+  const persistedIdsRef = useRef<Set<string>>(new Set());
+  const latestRef = useRef<{ session: DailyInventoryScan | null; date: string }>({ session: null, date });
+  const handlersRef = useRef({ onAddSession, onUpdateSession, sessions });
+  handlersRef.current = { onAddSession, onUpdateSession, sessions };
+  latestRef.current = { session, date };
+
+  const flushDraft = () => {
+    const { session: cur, date: curDate } = latestRef.current;
+    if (!cur || cur.lines === lastSavedLinesRef.current) return;
+    const known = persistedIdsRef.current.has(cur.id) || handlersRef.current.sessions.some(x => x.id === cur.id);
+    if (cur.lines.length === 0 && !known) return; // مفيش حاجة تتحفظ لسه
+    const toSave: DailyInventoryScan = { ...cur, date: curDate };
+    if (known) handlersRef.current.onUpdateSession(toSave); else handlersRef.current.onAddSession(toSave);
+    persistedIdsRef.current.add(cur.id);
+    lastSavedLinesRef.current = cur.lines;
+    setVisibleSessions(prev => [toSave, ...prev.filter(x => x.id !== toSave.id)]);
+    setAutoSaved(new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }));
+  };
+
+  useEffect(() => {
+    if (!session || session.lines === lastSavedLinesRef.current) return;
+    const t = window.setTimeout(flushDraft, 1500);
+    return () => window.clearTimeout(t);
+     
+  }, [session]);
+
+  // لو الصفحة اتقفلت/اتبدّلت/التطبيق راح في الخلفية قبل ما الحفظ التلقائي يخلص، نحفظ فوراً
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flushDraft(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flushDraft);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flushDraft);
+      flushDraft();
+    };
+     
+  }, []);
+
   const refreshSessions = async () => {
     setRefreshing(true);
     try {
       const fresh = await loadCollection<DailyInventoryScan>('dailyInventoryScans');
       fresh.sort((a, b) => `${b.date}-${b.completedAt || b.startedAt || ''}`.localeCompare(`${a.date}-${a.completedAt || a.startedAt || ''}`));
-      setVisibleSessions(fresh);
+      // اللي لسه كاتبينه من هنا ممكن ما يكونش وصل لقراءة Firebase، فنفضّل نسخة الحالة المحلية
+      const local = handlersRef.current.sessions;
+      const merged = fresh.map(f => (persistedIdsRef.current.has(f.id) ? local.find(l => l.id === f.id) || f : f));
+      local.forEach(l => { if (!merged.some(m => m.id === l.id)) merged.push(l); });
+      setVisibleSessions(merged);
     } catch (error) {
       console.error('[Firebase] refresh daily inventory scans failed:', error);
       setFeedback({ id: Date.now(), type: 'error', message: '⚠️ تعذر تحديث جلسات الجرد من Firebase' });
@@ -62,20 +110,29 @@ export default function DailyInventoryScanner({ products: _products, serials, se
   }, [session]);
 
   const start = () => {
+    const hasDraft = visibleSessions.some(x => x.status === 'draft' && x.lines.length > 0);
+    if (hasDraft && !window.confirm('فيه جرد لسه ما اتقفلش. تبدأ جرد جديد بدله؟ (الجرد القديم هيفضل محفوظ في القائمة وتقدر تكمّله)')) return;
     const freshDate = getTodayStr();
-    setSession({ id: `daily-count-${generateId()}`, date: freshDate, status: 'draft', lines: [], startedAt: new Date().toISOString() });
+    const fresh: DailyInventoryScan = { id: `daily-count-${generateId()}`, date: freshDate, status: 'draft', lines: [], startedAt: new Date().toISOString() };
+    lastSavedLinesRef.current = fresh.lines;
+    setSession(fresh);
     setDate(freshDate);
     setShowReport(false);
     setFeedback(null);
     setScannerInput('');
+    setAutoSaved('');
   };
 
   const openSession = (saved: DailyInventoryScan) => {
-    setSession({ ...saved, lines: [...(saved.lines || [])] });
+    const opened = { ...saved, lines: [...(saved.lines || [])] };
+    lastSavedLinesRef.current = opened.lines;
+    persistedIdsRef.current.add(saved.id);
+    setSession(opened);
     setDate(saved.date);
-    setShowReport(true);
-    setFeedback(null);
+    setShowReport(saved.status === 'completed'); // المسودة بتفتح على شاشة المسح علشان تكمّل
+    setFeedback(saved.status === 'draft' ? { id: Date.now(), type: 'success', message: `▶ كملنا الجرد من حيث وقفت (${opened.lines.length} قراءة)` } : null);
     setScannerInput('');
+    setAutoSaved('');
   };
 
   const processCode = (raw: string) => {
@@ -108,7 +165,7 @@ export default function DailyInventoryScanner({ products: _products, serials, se
         const raw = key ? row[key] : Object.values(row).find(v => String(v ?? '').trim());
         values.push(...String(raw ?? '').split(/[\n,;\t]+/).map(v => v.trim()).filter(Boolean));
       }
-      let nextLines = [...session.lines];
+      const nextLines = [...session.lines];
       for (const value of values) nextLines.push(classifyLine(value, serials, nextLines));
       const next = { ...session, lines: nextLines, status: session.status === 'completed' ? 'draft' as const : session.status };
       setSession(next);
@@ -131,6 +188,8 @@ export default function DailyInventoryScanner({ products: _products, serials, se
     const completed: DailyInventoryScan = { ...session, date, status: 'completed', completedAt: new Date().toISOString() };
     if ((visibleSessions || []).some(s => s.id === completed.id)) onUpdateSession(completed);
     else onAddSession(completed);
+    lastSavedLinesRef.current = completed.lines;
+    persistedIdsRef.current.add(completed.id);
     setSession(completed);
     setVisibleSessions(prev => [completed, ...prev.filter(s => s.id !== completed.id)]);
     setShowReport(true);
@@ -138,12 +197,17 @@ export default function DailyInventoryScanner({ products: _products, serials, se
   };
 
   const closeSession = () => {
+    flushDraft();
     setSession(null);
     setShowReport(false);
     setFeedback(null);
     setScannerInput('');
     void refreshSessions();
   };
+
+  const latestDraft = useMemo(() => visibleSessions
+    .filter(x => x.status === 'draft' && (x.lines?.length || 0) > 0)
+    .sort((a, b) => `${b.date}-${b.startedAt || ''}`.localeCompare(`${a.date}-${a.startedAt || ''}`))[0], [visibleSessions]);
 
   const scannedIds = new Set((session?.lines || []).map(l => l.serialId).filter(Boolean) as string[]);
   const expectedSerials = serials.filter(s => s.status === 'available');
@@ -212,13 +276,14 @@ export default function DailyInventoryScanner({ products: _products, serials, se
     </div>
 
     {!session ? <>
+      {latestDraft && <div className="card p-4 border border-amber-500/40 bg-amber-900/10 flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div className="font-bold text-amber-200">⏸ عندك جرد لسه ما اتقفلش</div><div className="text-xs text-muted mt-1">{latestDraft.date} • {latestDraft.lines.length} قراءة متسجلة — كمّل من حيث وقفت من غير ما تبدأ من الأول.</div></div><button onClick={() => openSession(latestDraft)} className="btn-primary flex items-center gap-2"><ScanLine size={16}/> كمّل الجرد</button></div>}
       <div className="card p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"><div><div className="font-bold">ابدأ جلسة جرد اليوم</div><div className="text-xs text-muted mt-1">يمكنك فتح أي جلسة محفوظة وتعديلها ثم إعادة حفظها.</div></div><button onClick={start} className="btn-primary flex items-center gap-2"><ScanLine size={16}/> بدء الجرد</button></div>
       <div className="card overflow-hidden"><div className="p-3 border-b border-border font-bold">آخر جلسات الجرد</div>
-        {visibleSessions.slice().sort((a,b)=>`${b.date}-${b.completedAt||b.startedAt||''}`.localeCompare(`${a.date}-${a.completedAt||a.startedAt||''}`)).slice(0,20).map(s=><div key={s.id} className="p-3 border-b border-border/60 flex items-center justify-between gap-3"><div><div className="font-medium">{s.date}</div><div className="text-xs text-muted">{s.lines.filter(l=>l.result==='matched').length} مطابق • {s.lines.filter(l=>l.result!=='matched').length} مشكلة</div></div><div className="flex items-center gap-2"><span className="text-xs text-muted">{s.status==='completed'?'مكتمل':'مسودة'}</span><button onClick={()=>openSession(s)} className="btn-secondary text-xs">فتح / تعديل</button></div></div>)}
+        {visibleSessions.slice().sort((a,b)=>`${b.date}-${b.completedAt||b.startedAt||''}`.localeCompare(`${a.date}-${a.completedAt||a.startedAt||''}`)).slice(0,20).map(s=><div key={s.id} className="p-3 border-b border-border/60 flex items-center justify-between gap-3"><div><div className="font-medium">{s.date}</div><div className="text-xs text-muted">{s.lines.filter(l=>l.result==='matched').length} مطابق • {s.lines.filter(l=>l.result!=='matched').length} مشكلة</div></div><div className="flex items-center gap-2">{s.status==='completed'?<span className="text-xs text-muted">مكتمل</span>:<span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40">⏸ مسودة</span>}<button onClick={()=>openSession(s)} className={s.status==='completed'?'btn-secondary text-xs':'btn-primary text-xs'}>{s.status==='completed'?'فتح / تعديل':'كمّل الجرد'}</button></div></div>)}
         {!visibleSessions.length&&<div className="p-8 text-center text-muted">لا يوجد جرد يومي سابق.</div>}
       </div>
     </> : <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2"><button onClick={closeSession} className="btn-secondary">← رجوع للجلسات</button><div className="text-sm text-muted">جلسة {date} {session.status==='completed' ? '• محفوظة' : '• قيد التعديل'}</div></div>
+      <div className="flex items-center justify-between gap-2"><button onClick={closeSession} className="btn-secondary">← رجوع للجلسات</button><div className="text-sm text-muted">جلسة {date} {session.status==='completed' ? '• محفوظة' : '• قيد التعديل'}{autoSaved && session.status !== 'completed' ? ` • 💾 اتحفظ تلقائي ${autoSaved}` : ''}</div></div>
       <div className="grid grid-cols-4 gap-2"><div className="card p-3"><div className="text-xs text-muted">مطابق</div><div className="text-xl font-bold text-emerald-300">{summary.matched}</div></div><div className="card p-3"><div className="text-xs text-muted">ناقص</div><div className="text-xl font-bold text-red-300">{summary.missing}</div></div><div className="card p-3"><div className="text-xs text-muted">زيادة / غير موجود</div><div className="text-xl font-bold text-orange-300">{summary.extra}</div></div><div className="card p-3"><div className="text-xs text-muted">إجمالي القراءات</div><div className="text-xl font-bold">{summary.scanned}</div></div></div>
       <div className="card p-4 flex flex-col md:flex-row gap-2"><div className="card p-3 flex-1 border border-emerald-700/30"><div className="text-sm font-bold">🔗 السكانر اللاسلكي</div><div className="text-xs text-muted mt-1">وصل Deli S228W بالموبايل أو اللابتوب بوضع Keyboard/HID، ثم اضغط داخل الخانة مرة واحدة.</div><input autoFocus value={scannerInput} onChange={e=>setScannerInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();processCode(scannerInput);setScannerInput('')}}} placeholder="جاهز لاستقبال Serial / IMEI من السكانر..." className="input-dark mt-2 w-full"/></div><label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer"><FileSpreadsheet size={18}/> استيراد Excel<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importExcel(f);e.currentTarget.value=''}}/></label><input value={manual} onChange={e=>setManual(e.target.value)} placeholder="إدخال يدوي اختياري Serial / IMEI" className="input-dark flex-1" onKeyDown={e=>{if(e.key==='Enter'){processCode(manual);setManual('')}}}/><button onClick={save} className="btn-secondary flex items-center gap-2"><Save size={16}/> حفظ الجرد</button></div>
       {feedback && <div className={`text-xs ${feedback.type==='success'?'text-emerald-300':'text-red-300'}`}>{feedback.message}</div>}
