@@ -20,7 +20,7 @@ export const StatementService = {
     const rows: StatementRow[] = [
       ...customerInvoices.map(inv => ({
         date: normalizeDateValue(inv.date),
-        desc: `فاتورة ${inv.invoiceNumber}`,
+        desc: `فاتورة ${inv.invoiceNumber}${(inv as { returned?: boolean }).returned ? ' ↩ مرتجع' : ''}`,
         debit: inv.total,
         credit: 0,
         type: 'invoice' as const,
@@ -219,7 +219,7 @@ export const StatementService = {
     const rows: StatementRow[] = [
       ...sales.map(inv => ({
         date: normalizeDateValue(inv.date),
-        desc: `فاتورة بيع ${inv.invoiceNumber}`,
+        desc: `فاتورة بيع ${inv.invoiceNumber}${(inv as { returned?: boolean }).returned ? ' ↩ مرتجع' : ''}`,
         debit: inv.total,
         credit: 0,
         type: 'invoice' as const,
@@ -228,7 +228,7 @@ export const StatementService = {
       })),
       ...purchases.map(inv => ({
         date: normalizeDateValue(inv.date),
-        desc: `فاتورة شراء ${inv.invoiceNumber}`,
+        desc: `فاتورة شراء ${inv.invoiceNumber}${(inv as { returned?: boolean }).returned ? ' ↩ مرتجع' : ''}`,
         debit: 0,
         credit: inv.total,
         type: 'invoice' as const,

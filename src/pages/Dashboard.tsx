@@ -394,7 +394,7 @@ const pendingSerials = state.serials
 
         {/* دفتر الديون */}
         <button
-          onClick={() => setShowDebtBook(true)}
+          onClick={() => onNavigate('debts')}
           className="bg-gradient-to-br from-amber-900/30 to-orange-900/20
                      border border-amber-600/30 rounded-2xl p-5 text-right
                      hover:border-amber-500/50 hover:scale-[1.02] transition-all group"

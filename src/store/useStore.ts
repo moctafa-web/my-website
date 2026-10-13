@@ -831,6 +831,8 @@ export function useStore() {
         saveToFirebase('saleInvoices', invoice.id, invoice);
         return newState;
       }
+      // فاتورة المرتجع مقفولة: تعديلها كان هيرجّع يخصم من المخزون تاني. لازم الأول نلغي المرتجع أو نعمل فاتورة جديدة.
+      if (oldInvoice.returned) return prev;
 
       let newState = { ...prev };
       const changedCustomers = new Map<string, Customer>();
@@ -997,13 +999,19 @@ export function useStore() {
       const removedSerialIds: string[] = [];
       const restoredProducts: Product[] = [];
 
-      invoice.items.forEach(item => {
+      // لو الفاتورة مرتجع، المخزون اتعدّل وقت المرتجع — ممنوع نرجّعه تاني هنا (كان هيتكرر).
+      (invoice.returned ? [] : invoice.items).forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product?.productType === 'serial') {
           (item.serials || []).forEach(sl => {
             const serialRecord = newState.serials.find(s =>
               normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) &&
               s.saleInvoiceId === invoiceId
+            ) || newState.serials.find(s =>
+              // احتياطي: سيريال متعلّم "مباع" بس مربوط بفاتورة مش موجودة — بنرجّعه برضه عشان ما يفضلش عالق
+              normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) &&
+              s.status === 'sold' &&
+              (!s.saleInvoiceId || !newState.saleInvoices.some(i => i.id === s.saleInvoiceId))
             );
             if (!serialRecord) return;
 
@@ -1053,10 +1061,11 @@ export function useStore() {
         totalPaid: salePartyPaidTotal,
       } : s);
 
-      if (invoice.paid > 0) {
+      const effectivePaid = invoice.returned ? (invoice.returnedPaid || 0) : invoice.paid;
+      if (effectivePaid > 0) {
         const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
-        newState.cashBalance = treasury === 'cash' ? newState.cashBalance - invoice.paid : newState.cashBalance;
-        newState.bankBalance = treasury === 'bank' ? newState.bankBalance - invoice.paid : newState.bankBalance;
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance - effectivePaid : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance - effectivePaid : newState.bankBalance;
       }
 
       const removedTreasuryIds = newState.treasuryTransactions
@@ -1169,6 +1178,7 @@ export function useStore() {
         saveToFirebase('purchaseInvoices', invoice.id, invoice);
         return newState;
       }
+      if (oldInvoice.returned) return prev;
 
       const newState = { ...prev, purchaseInvoices: prev.purchaseInvoices.map(i => i.id === invoice.id ? invoice : i) };
       const oldAutoPayment = newState.payments.find(p => p.id === `paid_${oldInvoice.id}`);
@@ -1332,7 +1342,8 @@ export function useStore() {
       const newState = { ...prev, purchaseInvoices: prev.purchaseInvoices.filter(i => i.id !== invoiceId) };
       const updatedProducts: Product[] = [];
 
-      invoice.items.forEach(item => {
+      // لو فاتورة الشراء مرتجع، المخزون اتخصم وقت المرتجع — ما نخصمش تاني.
+      (invoice.returned ? [] : invoice.items).forEach(item => {
         const product = newState.products.find(p => p.id === item.productId);
         if (product && product.productType === 'normal') {
           newState.products = newState.products.map(p => {
@@ -1397,10 +1408,11 @@ export function useStore() {
         totalPaid: purchasePartyPaidTotal,
       } : c);
 
-      if (invoice.paid > 0) {
+      const effectivePurchasePaid = invoice.returned ? (invoice.returnedPaid || 0) : invoice.paid;
+      if (effectivePurchasePaid > 0) {
         const treasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
-        newState.cashBalance = treasury === 'cash' ? newState.cashBalance + invoice.paid : newState.cashBalance;
-        newState.bankBalance = treasury === 'bank' ? newState.bankBalance + invoice.paid : newState.bankBalance;
+        newState.cashBalance = treasury === 'cash' ? newState.cashBalance + effectivePurchasePaid : newState.cashBalance;
+        newState.bankBalance = treasury === 'bank' ? newState.bankBalance + effectivePurchasePaid : newState.bankBalance;
       }
       const removedTreasuryIds = newState.treasuryTransactions
         .filter(t => t.referenceId === invoiceId)
@@ -1423,6 +1435,178 @@ export function useStore() {
 
       return newState;
     });
+  }, []);
+
+  // ==================== مرتجع الفواتير ====================
+  // مرتجع بيع: الأجهزة/الكميات ترجع للمخزون وتتباع تاني، وإجمالي الفاتورة يتصفّر (الحساب والتقارير).
+  // اللي العميل دفعه بيفضل في الخزينة وبيظهر كرصيد للعميل — ترجّعه له بدفعة خارجة من كشف الحساب.
+  const returnSaleInvoice = useCallback((invoiceId: string): { ok: boolean; message: string } => {
+    const cur = stateRef.current;
+    const inv = cur.saleInvoices.find(i => i.id === invoiceId);
+    if (!inv) return { ok: false, message: 'الفاتورة مش موجودة' };
+    if (inv.returned) return { ok: false, message: 'الفاتورة دي متسجلة مرتجع بالفعل' };
+
+    // تحقق قبل التنفيذ: كل سيريال لازم نلاقيه
+    const missing: string[] = [];
+    inv.items.forEach(item => {
+      const product = cur.products.find(p => p.id === item.productId);
+      if (product?.productType === 'serial') {
+        (item.serials || []).forEach(sl => {
+          const rec = cur.serials.find(s => normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) && s.saleInvoiceId === invoiceId);
+          if (!rec) missing.push(sl.serial);
+        });
+      }
+    });
+    if (missing.length > 0) {
+      return { ok: false, message: `مش لاقي السيريالات دي مرتبطة بالفاتورة (يمكن اتباعت أو اتنقلت): ${missing.slice(0, 5).join('، ')}${missing.length > 5 ? '...' : ''}` };
+    }
+
+    setState(prev => {
+      const invoice = prev.saleInvoices.find(i => i.id === invoiceId);
+      if (!invoice || invoice.returned) return prev;
+      const newState = { ...prev };
+      const changedSerials: SerialItem[] = [];
+      const changedProducts: Product[] = [];
+
+      invoice.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+        if (product?.productType === 'serial') {
+          (item.serials || []).forEach(sl => {
+            const rec = newState.serials.find(s => normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) && s.saleInvoiceId === invoiceId);
+            if (!rec) return;
+            const updated: SerialItem = { ...rec, status: 'available', saleInvoiceId: undefined, salePrice: undefined };
+            newState.serials = newState.serials.map(s => s.id === rec.id ? updated : s);
+            changedSerials.push(updated);
+          });
+        } else {
+          newState.products = newState.products.map(p => {
+            if (p.id !== item.productId) return p;
+            const updated = { ...p, stock: p.stock + item.quantity };
+            changedProducts.push(updated);
+            return updated;
+          });
+        }
+      });
+
+      const returnedInvoice: SaleInvoice = {
+        ...invoice,
+        returned: true,
+        returnedAt: new Date().toISOString(),
+        returnedTotal: invoice.total,
+        returnedSubtotal: invoice.subtotal,
+        returnedPaid: invoice.paid,
+        returnedDiscount: invoice.discount,
+        subtotal: 0, taxTotal: 0, discount: 0, total: 0, paid: 0, remaining: 0,
+        status: 'canceled',
+      };
+      newState.saleInvoices = newState.saleInvoices.map(i => i.id === invoiceId ? returnedInvoice : i);
+
+      // الدفعة والخزينة بيفضلوا زي ما هما (الفلوس فعلاً دخلت). الحساب بيتعدل لوحده لأن إجمالي الفاتورة بقى صفر.
+      const partyId = invoice.customerId;
+      const salesTotal = newState.saleInvoices.filter(i => i.customerId === partyId).reduce((sum, i) => sum + i.total, 0);
+      const purchasesTotal = newState.purchaseInvoices.filter(i => i.supplierId === partyId).reduce((sum, i) => sum + i.total, 0);
+      const paidTotal = newState.payments.filter(p => p.referenceId === partyId).reduce((sum, p) => sum + p.amount, 0);
+      newState.customers = newState.customers.map(c => c.id === partyId ? { ...c, totalInvoices: salesTotal + purchasesTotal, totalPaid: paidTotal } : c);
+      newState.suppliers = newState.suppliers.map(sp => sp.id === partyId ? { ...sp, totalInvoices: salesTotal + purchasesTotal, totalPaid: paidTotal } : sp);
+
+      // الدفعة اللي كانت مربوطة بالفاتورة بقت رصيد: نوزّعها على فواتير العميل التانية الأقدم أولاً
+      const before = newState.saleInvoices;
+      newState.saleInvoices = reconcilePartyInvoicePayments(newState.saleInvoices, newState.purchaseInvoices, newState.payments, partyId, 'sale').sales;
+      newState.saleInvoices.forEach((i, idx) => { if (i !== before[idx] && i.id !== invoiceId) saveToFirebase('saleInvoices', i.id, i); });
+
+      saveToFirebase('saleInvoices', invoiceId, returnedInvoice);
+      changedSerials.forEach(x => saveToFirebase('serials', x.id, x));
+      changedProducts.forEach(x => saveToFirebase('products', x.id, x));
+      newState.customers.filter(c => c.id === partyId).forEach(c => saveToFirebase('customers', c.id, c));
+      newState.suppliers.filter(sp => sp.id === partyId).forEach(sp => saveToFirebase('suppliers', sp.id, sp));
+      return newState;
+    });
+    return { ok: true, message: 'تم تسجيل الفاتورة كمرتجع وإرجاع الأصناف للمخزون' };
+  }, []);
+
+  // مرتجع شراء (رجّعنا البضاعة للمورد): الأجهزة تطلع من المخزون، ولازم تكون كلها لسه موجودة (مش مباعة).
+  const returnPurchaseInvoice = useCallback((invoiceId: string): { ok: boolean; message: string } => {
+    const cur = stateRef.current;
+    const inv = cur.purchaseInvoices.find(i => i.id === invoiceId);
+    if (!inv) return { ok: false, message: 'الفاتورة مش موجودة' };
+    if (inv.returned) return { ok: false, message: 'الفاتورة دي متسجلة مرتجع بالفعل' };
+
+    const blocked: string[] = [];
+    inv.items.forEach(item => {
+      const product = cur.products.find(p => p.id === item.productId);
+      if (product?.productType === 'serial') {
+        (item.serials || []).forEach(sl => {
+          const rec = cur.serials.find(s => normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) && s.purchaseInvoiceId === invoiceId);
+          if (!rec) blocked.push(`${sl.serial} (مش موجود)`);
+          else if (rec.status !== 'available') blocked.push(`${sl.serial} (${rec.status === 'sold' ? 'اتباع' : 'مش في المخزون'})`);
+        });
+      } else if (product && product.stock < item.quantity) {
+        blocked.push(`${product.name} (المتاح ${product.stock} أقل من ${item.quantity})`);
+      }
+    });
+    if (blocked.length > 0) {
+      return { ok: false, message: `مينفعش نرجّع الفاتورة دي للمورد لأن الأصناف دي مش موجودة بالمخزون: ${blocked.slice(0, 5).join('، ')}${blocked.length > 5 ? '...' : ''}` };
+    }
+
+    setState(prev => {
+      const invoice = prev.purchaseInvoices.find(i => i.id === invoiceId);
+      if (!invoice || invoice.returned) return prev;
+      const newState = { ...prev };
+      const changedSerials: SerialItem[] = [];
+      const changedProducts: Product[] = [];
+
+      invoice.items.forEach(item => {
+        const product = newState.products.find(p => p.id === item.productId);
+        if (product?.productType === 'serial') {
+          (item.serials || []).forEach(sl => {
+            const rec = newState.serials.find(s => normalizeForCompare(s.serial) === normalizeForCompare(sl.serial) && s.purchaseInvoiceId === invoiceId);
+            if (!rec) return;
+            const updated: SerialItem = { ...rec, status: 'returned' };
+            newState.serials = newState.serials.map(s => s.id === rec.id ? updated : s);
+            changedSerials.push(updated);
+          });
+        } else {
+          newState.products = newState.products.map(p => {
+            if (p.id !== item.productId) return p;
+            const updated = { ...p, stock: Math.max(0, p.stock - item.quantity) };
+            changedProducts.push(updated);
+            return updated;
+          });
+        }
+      });
+
+      const returnedInvoice: PurchaseInvoice = {
+        ...invoice,
+        returned: true,
+        returnedAt: new Date().toISOString(),
+        returnedTotal: invoice.total,
+        returnedSubtotal: invoice.subtotal,
+        returnedPaid: invoice.paid,
+        returnedDiscount: invoice.discount,
+        subtotal: 0, taxTotal: 0, discount: 0, total: 0, paid: 0, remaining: 0,
+        status: 'canceled',
+      };
+      newState.purchaseInvoices = newState.purchaseInvoices.map(i => i.id === invoiceId ? returnedInvoice : i);
+
+      const partyId = invoice.supplierId;
+      const salesTotal = newState.saleInvoices.filter(i => i.customerId === partyId).reduce((sum, i) => sum + i.total, 0);
+      const purchasesTotal = newState.purchaseInvoices.filter(i => i.supplierId === partyId).reduce((sum, i) => sum + i.total, 0);
+      const paidTotal = newState.payments.filter(p => p.referenceId === partyId).reduce((sum, p) => sum + p.amount, 0);
+      newState.customers = newState.customers.map(c => c.id === partyId ? { ...c, totalInvoices: salesTotal + purchasesTotal, totalPaid: paidTotal } : c);
+      newState.suppliers = newState.suppliers.map(sp => sp.id === partyId ? { ...sp, totalInvoices: salesTotal + purchasesTotal, totalPaid: paidTotal } : sp);
+
+      const before = newState.purchaseInvoices;
+      newState.purchaseInvoices = reconcilePartyInvoicePayments(newState.saleInvoices, newState.purchaseInvoices, newState.payments, partyId, 'purchase').purchases;
+      newState.purchaseInvoices.forEach((i, idx) => { if (i !== before[idx] && i.id !== invoiceId) saveToFirebase('purchaseInvoices', i.id, i); });
+
+      saveToFirebase('purchaseInvoices', invoiceId, returnedInvoice);
+      changedSerials.forEach(x => saveToFirebase('serials', x.id, x));
+      changedProducts.forEach(x => saveToFirebase('products', x.id, x));
+      newState.customers.filter(c => c.id === partyId).forEach(c => saveToFirebase('customers', c.id, c));
+      newState.suppliers.filter(sp => sp.id === partyId).forEach(sp => saveToFirebase('suppliers', sp.id, sp));
+      return newState;
+    });
+    return { ok: true, message: 'تم تسجيل الفاتورة كمرتجع للمورد وخصم الأصناف من المخزون' };
   }, []);
 
   // ==================== PAYMENTS (FIFO) ====================
@@ -2604,8 +2788,8 @@ export function useStore() {
     addParty, updateParty, deleteParty, mergeParties,
     addCustomer, updateCustomer, deleteCustomer,
     addSupplier, updateSupplier, deleteSupplier,
-    addSaleInvoice, updateSaleInvoice, deleteSaleInvoice,
-    addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice,
+    addSaleInvoice, updateSaleInvoice, deleteSaleInvoice, returnSaleInvoice,
+    addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice, returnPurchaseInvoice,
     completePendingPurchase,
     addPayment, deletePayment, updatePayment,
     updatePaymentDate, updateSaleInvoiceDate, updatePurchaseInvoiceDate,

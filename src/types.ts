@@ -136,6 +136,15 @@ export interface SaleInvoice {
   instapayPerson?: string;
   notes?: string;
   createdAt: string;
+  // ===== مرتجع =====
+  // لما الفاتورة تتحول لمرتجع: المخزون بيتعدّل، وإجماليها بيتصفّر (عشان الحساب والتقارير)،
+  // والقيم الأصلية بتتحفظ هنا للعرض والتتبع.
+  returned?: boolean;
+  returnedAt?: string;
+  returnedTotal?: number;
+  returnedSubtotal?: number;
+  returnedPaid?: number;
+  returnedDiscount?: number;
 }
 
 // ==================== PURCHASE INVOICE ====================
@@ -157,6 +166,15 @@ export interface PurchaseInvoice {
   paymentMethod: PaymentMethod;
   notes?: string;
   createdAt: string;
+  // ===== مرتجع =====
+  // لما الفاتورة تتحول لمرتجع: المخزون بيتعدّل، وإجماليها بيتصفّر (عشان الحساب والتقارير)،
+  // والقيم الأصلية بتتحفظ هنا للعرض والتتبع.
+  returned?: boolean;
+  returnedAt?: string;
+  returnedTotal?: number;
+  returnedSubtotal?: number;
+  returnedPaid?: number;
+  returnedDiscount?: number;
 }
 
 // ==================== PAYMENT DETAILS ====================

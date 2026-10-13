@@ -210,7 +210,7 @@ export default function Finance({
     // ربح المبيعات = سعر البيع - التكلفة للمنتجات المباعة في الشهر
     let salesProfit = 0;
     saleInvoices
-      .filter(inv => isInMonth(inv.date))
+      .filter(inv => !inv.returned && isInMonth(inv.date))
       .forEach(inv => {
         inv.items.forEach(item => {
           const itemProfit = item.total - ((item.costPrice || 0) * item.quantity);

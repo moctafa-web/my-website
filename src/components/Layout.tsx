@@ -34,6 +34,7 @@ const navItems: NavItem[] = [
   { id: "inventory", label: "المخزون", icon: <Package size={18} /> },
   { id: "products", label: "المنتجات", icon: <Boxes size={18} /> },
   { id: "parties", label: "الأطراف والحسابات", icon: <Users size={18} /> },
+  { id: "debts", label: "دفتر الديون", icon: <Banknote size={18} /> },
   { id: "noon", label: "نون / أمازون", icon: <Store size={18} /> },
   { id: "finance", label: "المالية", icon: <DollarSign size={18} /> },
   { id: "expenses", label: "المصروفات", icon: <CreditCard size={18} /> },

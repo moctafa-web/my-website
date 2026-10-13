@@ -37,12 +37,12 @@ export default function InventoryLedger({ products, serials, purchaseInvoices, s
   const [date, setDate] = useState('');
   const rows = useMemo<LedgerRow[]>(() => {
     const out: LedgerRow[] = [];
-    purchaseInvoices.forEach(inv => inv.items.forEach(item => out.push({
+    purchaseInvoices.filter(inv => !inv.returned).forEach(inv => inv.items.forEach(item => out.push({
       id: `p-${inv.id}-${item.id}`, date: inv.date, kind: 'purchase', productId: item.productId, productName: item.productName,
       quantity: item.quantity, unitValue: item.unitPrice, value: item.total, reference: inv.invoiceNumber, party: inv.supplierName,
       serials: item.serials?.map(s => s.serial),
     })));
-    saleInvoices.filter(inv => inv.status !== 'canceled').forEach(inv => inv.items.forEach(item => out.push({
+    saleInvoices.filter(inv => inv.status !== 'canceled' && !inv.returned).forEach(inv => inv.items.forEach(item => out.push({
       id: `s-${inv.id}-${item.id}`, date: inv.date, kind: 'sale', productId: item.productId, productName: item.productName,
       quantity: item.quantity, unitValue: item.unitPrice, value: item.total, reference: inv.invoiceNumber, party: inv.customerName,
       serials: item.serials?.map(s => s.serial),

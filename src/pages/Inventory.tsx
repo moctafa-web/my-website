@@ -190,7 +190,7 @@ export default function Inventory({
 
   const getSoldCount = (p: Product) => {
     if (p.productType === 'serial') return getSoldSerials(p.id).length;
-    return saleInvoices.reduce((sum, inv) =>
+    return saleInvoices.filter(inv => !inv.returned).reduce((sum, inv) =>
       sum + inv.items.filter(item => item.productId === p.id).reduce((s, item) => s + item.quantity, 0), 0);
   };
 

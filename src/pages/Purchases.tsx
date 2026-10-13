@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download, Undo2 } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import * as XLSX from 'xlsx';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
@@ -21,6 +21,9 @@ interface Props {
   onAddSerials: (serials: SerialItem[]) => void;
   onUpdatePurchaseInvoice: (inv: PurchaseInvoice) => void;
   onDeletePurchaseInvoice: (invoiceId: string) => void;
+  onReturnPurchaseInvoice?: (invoiceId: string) => { ok: boolean; message: string };
+  /** لو الفاتورة اتفتحت من كشف حساب: بيرجّعك لنفس الكشف */
+  onBackToStatement?: (() => void) | null;
   onCompletePendingPurchase?: (
     serialId: string,
     newCostPrice: number,
@@ -56,7 +59,7 @@ interface PurchItem {
 export default function Purchases({
   purchaseInvoices, suppliers, customers = [], products, serials, brands, settings,
   onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials,
-  onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onCompletePendingPurchase,
+  onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onReturnPurchaseInvoice, onBackToStatement, onCompletePendingPurchase,
   preselectedSupplierId, onPreselectedHandled,
   preselectedPendingSerialId, onPreselectedPendingSerialHandled,
   preselectedDateFilter, onPreselectedDateFilterHandled,
@@ -66,6 +69,8 @@ export default function Purchases({
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
+  const [confirmReturnInvoice, setConfirmReturnInvoice] = useState<PurchaseInvoice | null>(null);
+  const [returnResult, setReturnResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<PurchaseInvoice | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<PurchaseInvoice | null>(null);
   const [addSupplierModal, setAddSupplierModal] = useState(false);
@@ -764,6 +769,8 @@ export default function Purchases({
       onUpdatePurchaseInvoice(updatedInvoice);
       resetForm();
       setShowForm(false);
+      // لو الفاتورة اتفتحت من كشف حساب، نرجع للكشف بعد الحفظ
+      if (onBackToStatement) onBackToStatement();
       return;
     }
 
@@ -834,6 +841,14 @@ export default function Purchases({
     setDuplicateSerialWarning(null);
     setValidationError(null);
     setItemSearch({});
+  };
+
+  const handleReturnInvoice = () => {
+    if (!confirmReturnInvoice || !onReturnPurchaseInvoice) return;
+    const res = onReturnPurchaseInvoice(confirmReturnInvoice.id);
+    setConfirmReturnInvoice(null);
+    setReturnResult(res);
+    if (res.ok) setViewInvoice(null);
   };
 
   const handleDeleteInvoice = () => {
@@ -998,18 +1013,23 @@ export default function Purchases({
                 <td className="py-3 px-4 font-mono text-blue-400 text-sm">{inv.invoiceNumber}</td>
                 <td className="py-3 px-4 text-white">{inv.supplierName}</td>
                 <td className="py-3 px-4 text-center text-gray-400 text-xs">{inv.date}</td>
-                <td className="py-3 px-4 text-center font-bold text-white">{formatCurrency(inv.total)}</td>
-                <td className="py-3 px-4 text-center text-green-400">{formatCurrency(inv.paid)}</td>
+                <td className="py-3 px-4 text-center font-bold text-white">{inv.returned ? <span className="text-gray-500 line-through font-normal">{formatCurrency(inv.returnedTotal || 0)}</span> : formatCurrency(inv.total)}</td>
+                <td className="py-3 px-4 text-center text-green-400">{formatCurrency(inv.returned ? (inv.returnedPaid || 0) : inv.paid)}</td>
                 <td className="py-3 px-4 text-center">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(inv.status)}`}>
-                    {statusLabel(inv.status)}
-                  </span>
+                  {inv.returned ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">↩ مرتجع</span>
+                  ) : (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(inv.status)}`}>
+                      {statusLabel(inv.status)}
+                    </span>
+                  )}
                 </td>
                 <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
                   <div className="flex gap-1 justify-end">
                     <button onClick={() => setViewInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-violet-400" title="عرض"><Eye size={14} /></button>
                     <button onClick={() => printInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-400" title="طباعة"><Printer size={14} /></button>
-                    <button onClick={() => openEditForm(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400" title="تعديل"><Edit size={14} /></button>
+                    {!inv.returned && <button onClick={() => openEditForm(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400" title="تعديل"><Edit size={14} /></button>}
+                    {!inv.returned && onReturnPurchaseInvoice && <button onClick={() => setConfirmReturnInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-fuchsia-400" title="مرتجع للمورد"><Undo2 size={14} /></button>}
                     <button onClick={() => setConfirmDeleteInvoice(inv)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400" title="حذف"><Trash2 size={14} /></button>
                   </div>
                 </td>
@@ -1312,7 +1332,7 @@ export default function Purchases({
               <button onClick={handleSave} className="btn-primary flex-1">
                 💾 {editingInvoice ? 'حفظ التعديلات' : 'حفظ الفاتورة'}
               </button>
-              <button onClick={() => { setShowForm(false); resetForm(); }} className="btn-secondary px-4">إلغاء</button>
+              <button onClick={() => { const back = !!editingInvoice && onBackToStatement; setShowForm(false); resetForm(); if (back) onBackToStatement!(); }} className="btn-secondary px-4">{editingInvoice && onBackToStatement ? '↩ إلغاء ورجوع للكشف' : 'إلغاء'}</button>
             </div>
           </div>
         </div>
@@ -1511,11 +1531,25 @@ export default function Purchases({
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📄 {viewInvoice.invoiceNumber}</h2>
-              <div className="flex gap-2">
-                <button onClick={() => { openEditForm(viewInvoice); setViewInvoice(null); }}
-                  className="btn-secondary flex items-center gap-1 text-sm">
-                  <Edit size={14} /> تعديل
-                </button>
+              <div className="flex gap-2 flex-wrap justify-end">
+                {onBackToStatement && (
+                  <button onClick={() => { setViewInvoice(null); onBackToStatement(); }}
+                    className="btn-secondary flex items-center gap-1 text-sm" title="الرجوع لكشف الحساب">
+                    ↩ رجوع للكشف
+                  </button>
+                )}
+                {!viewInvoice.returned && (
+                  <button onClick={() => { openEditForm(viewInvoice); setViewInvoice(null); }}
+                    className="btn-secondary flex items-center gap-1 text-sm">
+                    <Edit size={14} /> تعديل
+                  </button>
+                )}
+                {!viewInvoice.returned && onReturnPurchaseInvoice && (
+                  <button onClick={() => setConfirmReturnInvoice(viewInvoice)}
+                    className="btn-secondary flex items-center gap-1 text-sm text-fuchsia-300">
+                    <Undo2 size={14} /> مرتجع
+                  </button>
+                )}
                 <button onClick={() => printInvoice(viewInvoice)}
                   className="btn-secondary flex items-center gap-1 text-sm">
                   <Printer size={14} /> طباعة
@@ -1531,8 +1565,8 @@ export default function Purchases({
               <div><div className="text-xs text-gray-500">طريقة الدفع</div><div className="text-gray-300">{paymentMethodLabel(viewInvoice.paymentMethod)}</div></div>
               <div>
                 <div className="text-xs text-gray-500">الحالة</div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(viewInvoice.status)}`}>
-                  {statusLabel(viewInvoice.status)}
+                <span className={`text-xs px-2 py-0.5 rounded-full ${viewInvoice.returned ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30' : statusColor(viewInvoice.status)}`}>
+                  {viewInvoice.returned ? '↩ مرتجع' : statusLabel(viewInvoice.status)}
                 </span>
               </div>
             </div>
@@ -1651,6 +1685,39 @@ export default function Purchases({
       )}
 
       {/* مودال تأكيد الحذف */}
+      {confirmReturnInvoice && (
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+          <div className="bg-elevated border border-fuchsia-700/40 rounded-2xl p-5 w-full max-w-sm">
+            <h3 className="font-bold text-white mb-2">↩ مرتجع للمورد</h3>
+            <p className="text-gray-400 text-sm mb-3">
+              فاتورة <span className="text-white font-medium font-mono">{confirmReturnInvoice.invoiceNumber}</span> — {confirmReturnInvoice.supplierName}
+            </p>
+            <ul className="text-xs text-gray-300 space-y-1 mb-4 list-disc pr-4">
+              <li>الأجهزة والكميات هتتخصم من المخزون (لازم تكون كلها لسه موجودة ومش مباعة).</li>
+              <li>إجمالي الفاتورة ({formatCurrency(confirmReturnInvoice.total)}) هيتشال من حساب المورد.</li>
+              {confirmReturnInvoice.paid > 0 && <li>اللي اتدفع للمورد ({formatCurrency(confirmReturnInvoice.paid)}) هيفضل رصيد لينا عنده — اسجّل استلامه بدفعة واردة من كشف الحساب.</li>}
+              <li>الفاتورة هتفضل ظاهرة بعلامة «مرتجع» ومش هتتعدّل بعد كده.</li>
+            </ul>
+            <div className="flex gap-2">
+              <button onClick={handleReturnInvoice}
+                className="flex-1 py-2 rounded-xl bg-fuchsia-700/30 border border-fuchsia-500/50 text-fuchsia-200 hover:bg-fuchsia-700/50 text-sm font-medium">
+                ↩ تأكيد المرتجع
+              </button>
+              <button onClick={() => setConfirmReturnInvoice(null)} className="btn-secondary flex-1">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {returnResult && (
+        <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4" onClick={() => setReturnResult(null)}>
+          <div className={`bg-elevated border rounded-2xl p-5 w-full max-w-sm ${returnResult.ok ? 'border-green-600/40' : 'border-red-600/40'}`} onClick={e => e.stopPropagation()}>
+            <p className={`text-sm mb-4 ${returnResult.ok ? 'text-green-300' : 'text-red-300'}`}>{returnResult.ok ? '✅ ' : '⚠️ '}{returnResult.message}</p>
+            <button onClick={() => setReturnResult(null)} className="btn-secondary w-full">تمام</button>
+          </div>
+        </div>
+      )}
+
       {confirmDeleteInvoice && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
           <div className="bg-elevated border border-red-700/40 rounded-2xl p-5 w-full max-w-sm">
@@ -1661,6 +1728,11 @@ export default function Purchases({
               <br />
               سيتم خصم الكمية من المخزون وحذف السيريالات المرتبطة وتصحيح رصيد المورد والخزينة تلقائيًا.
             </p>
+            {!confirmDeleteInvoice.returned && onReturnPurchaseInvoice && (
+              <p className="text-xs text-fuchsia-300/90 bg-fuchsia-900/10 border border-fuchsia-500/20 rounded-lg p-2 mb-4">
+                💡 لو رجّعت البضاعة للمورد، استخدم زرار «مرتجع» بدل الحذف — بيخصمها من المخزون ويحتفظ بسجل الفاتورة.
+              </p>
+            )}
             <div className="flex gap-2">
               <button onClick={handleDeleteInvoice}
                 className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">

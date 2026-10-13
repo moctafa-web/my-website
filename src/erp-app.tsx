@@ -19,6 +19,7 @@ import Settings from "./pages/Settings";
 import DailyJournal from "./pages/DailyJournal";
 import HealthCheck from "./pages/HealthCheck";
 import PendingPurchasePrices from "./pages/PendingPurchasePrices";
+import DebtBook from "./pages/DebtBook";
 import { useStore } from "./store/useStore";
 import { getTodayStr } from "./utils/helpers";
 import { useAuth } from "./auth";
@@ -80,6 +81,8 @@ export default function ErpApp() {
   }, []);
 
   const goBack = () => { if (backStack.current.length) window.history.back(); };
+  // الفاتورة اتفتحت من كشف حساب؟ (عشان نظهر زرار «رجوع للكشف» جوه الفاتورة)
+  const cameFromStatement = !!backStack.current[backStack.current.length - 1]?.stmtId;
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
   const [pendingSupplierId, setPendingSupplierId] = useState<string | null>(null);
   const [pendingSerialId, setPendingSerialId] = useState<string | null>(null);
@@ -221,6 +224,8 @@ export default function ErpApp() {
             onAddCustomer={store.addCustomer}
             onUpdateSaleInvoice={store.updateSaleInvoice}
             onDeleteSaleInvoice={store.deleteSaleInvoice}
+            onReturnSaleInvoice={store.returnSaleInvoice}
+            onBackToStatement={cameFromStatement ? goBack : null}
             preselectedCustomerId={pendingCustomerId}
             onPreselectedHandled={() => setPendingCustomerId(null)}
             onAddProduct={store.addProduct}
@@ -249,6 +254,8 @@ export default function ErpApp() {
             onAddSerials={store.addSerials}
             onUpdatePurchaseInvoice={store.updatePurchaseInvoice}
             onDeletePurchaseInvoice={store.deletePurchaseInvoice}
+            onReturnPurchaseInvoice={store.returnPurchaseInvoice}
+            onBackToStatement={cameFromStatement ? goBack : null}
             onCompletePendingPurchase={store.completePendingPurchase}
             preselectedSupplierId={pendingSupplierId}
             onPreselectedHandled={() => setPendingSupplierId(null)}
@@ -258,6 +265,18 @@ export default function ErpApp() {
             onPreselectedDateFilterHandled={() => setPendingPurchasesDateFilter(null)}
             preselectedInvoiceId={pendingPurchaseInvoiceId}
             onPreselectedInvoiceHandled={() => setPendingPurchaseInvoiceId(null)}
+          />
+        );
+      case "debts":
+        return (
+          <DebtBook
+            state={state}
+            onAddPayment={store.addPayment}
+            onOpenStatement={(type, id) => {
+              if (type === "customer") setPendingCustomerStatementId(id);
+              else setPendingSupplierStatementId(id);
+              setCurrentPage("parties");
+            }}
           />
         );
       case "pending-prices":

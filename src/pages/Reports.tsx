@@ -36,7 +36,7 @@ export default function Reports({ state }: Props) {
   // Category breakdown
   const categoryData = ['phones', 'tablets', 'laptops', 'accessories', 'other'].map(cat => {
     const catProducts = state.products.filter(p => p.category === cat);
-    const catSales = state.saleInvoices.flatMap(inv => inv.items).filter(item =>
+    const catSales = state.saleInvoices.filter(inv => !inv.returned).flatMap(inv => inv.items).filter(item =>
       catProducts.some(p => p.id === item.productId)
     ).reduce((s, item) => s + item.total, 0);
     return {
@@ -49,7 +49,7 @@ export default function Reports({ state }: Props) {
 
   // ✅ ربح المحل (offline) الصافي = مبيعات - تكلفة المنتجات المباعة فعليًا (costPrice وقت البيع، وليس فقط مبيعات - مشتريات بشكل عام)
   const calcOfflineProfit = (invoices: typeof state.saleInvoices) => {
-    return invoices.reduce((sum, inv) => {
+    return invoices.filter(inv => !inv.returned).reduce((sum, inv) => {
       const invoiceCost = inv.items.reduce((s, item) => {
         if (item.pendingCost) return s; // بيع معلّق بدون تكلفة معروفة بعد - لا يُحسب ربحه حتى تُسجل تكلفته
         const cost = item.costPrice ?? (state.products.find(p => p.id === item.productId)?.costPrice || 0);
@@ -129,7 +129,7 @@ export default function Reports({ state }: Props) {
 
   // Top products
   const productSales: Record<string, { name: string; qty: number; total: number }> = {};
-  state.saleInvoices.forEach(inv => {
+  state.saleInvoices.filter(inv => !inv.returned).forEach(inv => {
     inv.items.forEach(item => {
       if (!productSales[item.productId]) productSales[item.productId] = { name: item.productName, qty: 0, total: 0 };
       productSales[item.productId].qty += item.quantity;

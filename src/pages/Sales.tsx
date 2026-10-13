@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC, printElement } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera, Undo2 } from 'lucide-react';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
 import BarcodeScanner, { DetectedScan } from '../components/BarcodeScanner';
@@ -26,6 +26,9 @@ interface Props {
   onAddCustomer: (c: Customer) => { success: boolean; message?: string } | void;
   onUpdateSaleInvoice: (inv: SaleInvoice) => void;
   onDeleteSaleInvoice: (invoiceId: string) => void;
+  onReturnSaleInvoice?: (invoiceId: string) => { ok: boolean; message: string };
+  /** لو الفاتورة اتفتحت من كشف حساب: بيرجّعك لنفس الكشف */
+  onBackToStatement?: (() => void) | null;
   preselectedCustomerId?: string | null;
   onPreselectedHandled?: () => void;
   onAddProduct?: (p: Product) => { success: boolean; message?: string } | void;
@@ -68,7 +71,7 @@ interface PurchItem {
 
 export default function Sales({
   saleInvoices, customers, products, serials, settings,
-  suppliers = [], onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice, onDeleteSaleInvoice,
+  suppliers = [], onAddSaleInvoice, onAddCustomer, onUpdateSaleInvoice, onDeleteSaleInvoice, onReturnSaleInvoice, onBackToStatement,
   preselectedCustomerId, onPreselectedHandled,
   onAddProduct, onAddSupplier, onAddPurchaseInvoice, onAddSerials,
   preselectedDateFilter, onPreselectedDateFilterHandled,
@@ -78,6 +81,8 @@ export default function Sales({
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<SaleInvoice | null>(null);
+  const [confirmReturnInvoice, setConfirmReturnInvoice] = useState<SaleInvoice | null>(null);
+  const [returnResult, setReturnResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<SaleInvoice | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<SaleInvoice | null>(null);
   const [addCustomerModal, setAddCustomerModal] = useState(false);
@@ -586,6 +591,8 @@ const validateStock = (): string | null => {
       onUpdateSaleInvoice(updatedInvoice);
       resetForm();
       setShowForm(false);
+      // لو الفاتورة اتفتحت من كشف حساب، نرجع للكشف بعد الحفظ
+      if (onBackToStatement) onBackToStatement();
       return;
     }
 
@@ -626,6 +633,14 @@ const validateStock = (): string | null => {
     setNotes(''); setPaymentMethod('cash'); setInstapayPerson(''); setFormDate(getTodayStr());
     setEditingInvoice(null); setDuplicateSerialWarning(null); setItemSearch({});
     setStockError(null);
+  };
+
+  const handleReturnInvoice = () => {
+    if (!confirmReturnInvoice || !onReturnSaleInvoice) return;
+    const res = onReturnSaleInvoice(confirmReturnInvoice.id);
+    setConfirmReturnInvoice(null);
+    setReturnResult(res);
+    if (res.ok) setViewInvoice(null);
   };
 
   const handleDeleteInvoice = () => {
@@ -1135,12 +1150,16 @@ const validateStock = (): string | null => {
                 <td className="py-3 px-4 font-mono text-violet-400 text-sm">{inv.invoiceNumber}</td>
                 <td className="py-3 px-4 text-white">{inv.customerName}</td>
                 <td className="py-3 px-4 text-center text-gray-400 text-xs">{inv.date}</td>
-                <td className="py-3 px-4 text-center font-bold text-white">{formatCurrency(inv.total)}</td>
-                <td className="py-3 px-4 text-center text-green-400">{formatCurrency(inv.paid)}</td>
+                <td className="py-3 px-4 text-center font-bold text-white">{inv.returned ? <span className="text-gray-500 line-through font-normal">{formatCurrency(inv.returnedTotal || 0)}</span> : formatCurrency(inv.total)}</td>
+                <td className="py-3 px-4 text-center text-green-400">{formatCurrency(inv.returned ? (inv.returnedPaid || 0) : inv.paid)}</td>
                 <td className="py-3 px-4 text-center">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(inv.status)}`}>
-                    {statusLabel(inv.status)}
-                  </span>
+                  {inv.returned ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">↩ مرتجع</span>
+                  ) : (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(inv.status)}`}>
+                      {statusLabel(inv.status)}
+                    </span>
+                  )}
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex gap-1 justify-end">
@@ -1152,10 +1171,18 @@ const validateStock = (): string | null => {
                       className="p-1.5 rounded-lg text-gray-400 hover:text-green-400 hover:bg-green-900/20">
                       <Printer size={14} />
                     </button>
-                    <button onClick={() => openEditForm(inv)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-900/20">
-                      <Edit size={14} />
-                    </button>
+                    {!inv.returned && (
+                      <button onClick={() => openEditForm(inv)} title="تعديل"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-900/20">
+                        <Edit size={14} />
+                      </button>
+                    )}
+                    {!inv.returned && onReturnSaleInvoice && (
+                      <button onClick={() => setConfirmReturnInvoice(inv)} title="مرتجع"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-fuchsia-400 hover:bg-fuchsia-900/20">
+                        <Undo2 size={14} />
+                      </button>
+                    )}
                     <button onClick={() => setConfirmDeleteInvoice(inv)}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-900/20">
                       <Trash2 size={14} />
@@ -1565,8 +1592,8 @@ const validateStock = (): string | null => {
               <button onClick={handleSave} className="btn-primary flex-1">
                 {editingInvoice ? '💾 حفظ التعديلات' : '💾 حفظ الفاتورة'}
               </button>
-              <button onClick={() => { setShowForm(false); resetForm(); }} className="btn-secondary px-4">
-                إلغاء
+              <button onClick={() => { const back = !!editingInvoice && onBackToStatement; setShowForm(false); resetForm(); if (back) onBackToStatement!(); }} className="btn-secondary px-4">
+                {editingInvoice && onBackToStatement ? '↩ إلغاء ورجوع للكشف' : 'إلغاء'}
               </button>
             </div>
           </div>
@@ -1579,7 +1606,25 @@ const validateStock = (): string | null => {
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📄 {viewInvoice.invoiceNumber}</h2>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap justify-end">
+                {onBackToStatement && (
+                  <button onClick={() => { setViewInvoice(null); onBackToStatement(); }}
+                    className="btn-secondary flex items-center gap-1 text-sm" title="الرجوع لكشف الحساب">
+                    ↩ رجوع للكشف
+                  </button>
+                )}
+                {!viewInvoice.returned && (
+                  <button onClick={() => { const inv = viewInvoice; setViewInvoice(null); openEditForm(inv); }}
+                    className="btn-secondary flex items-center gap-1 text-sm">
+                    <Edit size={14} /> تعديل
+                  </button>
+                )}
+                {!viewInvoice.returned && onReturnSaleInvoice && (
+                  <button onClick={() => setConfirmReturnInvoice(viewInvoice)}
+                    className="btn-secondary flex items-center gap-1 text-sm text-fuchsia-300">
+                    <Undo2 size={14} /> مرتجع
+                  </button>
+                )}
                 <button onClick={() => printInvoice(viewInvoice)}
                   className="btn-secondary flex items-center gap-1 text-sm">
                   <Printer size={14} /> طباعة
@@ -1596,8 +1641,8 @@ const validateStock = (): string | null => {
               <div><div className="text-xs text-gray-500">طريقة الدفع</div><div className="font-bold text-white">{paymentMethodLabel(viewInvoice.paymentMethod)}</div></div>
               <div>
                 <div className="text-xs text-gray-500">الحالة</div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor(viewInvoice.status)}`}>
-                  {statusLabel(viewInvoice.status)}
+                <span className={`text-xs px-2 py-0.5 rounded-full ${viewInvoice.returned ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30' : statusColor(viewInvoice.status)}`}>
+                  {viewInvoice.returned ? '↩ مرتجع' : statusLabel(viewInvoice.status)}
                 </span>
               </div>
             </div>
@@ -1676,6 +1721,40 @@ const validateStock = (): string | null => {
         </div>
       )}
 
+      {/* Return Confirm */}
+      {confirmReturnInvoice && (
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+          <div className="bg-elevated border border-fuchsia-700/40 rounded-2xl p-5 w-full max-w-sm">
+            <h3 className="font-bold text-white mb-2">↩ تسجيل الفاتورة كمرتجع</h3>
+            <p className="text-gray-400 text-sm mb-3">
+              فاتورة <span className="text-white font-medium font-mono">{confirmReturnInvoice.invoiceNumber}</span> — {confirmReturnInvoice.customerName}
+            </p>
+            <ul className="text-xs text-gray-300 space-y-1 mb-4 list-disc pr-4">
+              <li>الأجهزة والكميات هترجع للمخزون وتتباع تاني.</li>
+              <li>إجمالي الفاتورة ({formatCurrency(confirmReturnInvoice.total)}) هيتشال من حساب العميل ومن المبيعات والأرباح.</li>
+              {confirmReturnInvoice.paid > 0 && <li>اللي العميل دفعه ({formatCurrency(confirmReturnInvoice.paid)}) هيفضل رصيد ليه — رجّعه له بدفعة خارجة من كشف الحساب.</li>}
+              <li>الفاتورة هتفضل ظاهرة بعلامة «مرتجع» ومش هتتعدّل بعد كده.</li>
+            </ul>
+            <div className="flex gap-2">
+              <button onClick={handleReturnInvoice}
+                className="flex-1 py-2 rounded-xl bg-fuchsia-700/30 border border-fuchsia-500/50 text-fuchsia-200 hover:bg-fuchsia-700/50 text-sm font-medium">
+                ↩ تأكيد المرتجع
+              </button>
+              <button onClick={() => setConfirmReturnInvoice(null)} className="btn-secondary flex-1">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {returnResult && (
+        <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4" onClick={() => setReturnResult(null)}>
+          <div className={`bg-elevated border rounded-2xl p-5 w-full max-w-sm ${returnResult.ok ? 'border-green-600/40' : 'border-red-600/40'}`} onClick={e => e.stopPropagation()}>
+            <p className={`text-sm mb-4 ${returnResult.ok ? 'text-green-300' : 'text-red-300'}`}>{returnResult.ok ? '✅ ' : '⚠️ '}{returnResult.message}</p>
+            <button onClick={() => setReturnResult(null)} className="btn-secondary w-full">تمام</button>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirm */}
       {confirmDeleteInvoice && (
         <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
@@ -1686,6 +1765,11 @@ const validateStock = (): string | null => {
               <span className="text-white font-medium font-mono">{confirmDeleteInvoice.invoiceNumber}</span>؟
               سيتم إرجاع السيريالات وتصحيح رصيد العميل والخزينة تلقائياً.
             </p>
+            {!confirmDeleteInvoice.returned && onReturnSaleInvoice && (
+              <p className="text-xs text-fuchsia-300/90 bg-fuchsia-900/10 border border-fuchsia-500/20 rounded-lg p-2 mb-4">
+                💡 لو الجهاز رجع من العميل، استخدم زرار «مرتجع» بدل الحذف — بيرجّع الجهاز للمخزون ويحتفظ بسجل الفاتورة.
+              </p>
+            )}
             <div className="flex gap-2">
               <button onClick={handleDeleteInvoice}
                 className="flex-1 py-2 rounded-xl bg-red-700/30 border border-red-500/50 text-red-300 hover:bg-red-700/50 text-sm font-medium">
