@@ -20,6 +20,8 @@ import DailyJournal from "./pages/DailyJournal";
 import HealthCheck from "./pages/HealthCheck";
 import PendingPurchasePrices from "./pages/PendingPurchasePrices";
 import DebtBook from "./pages/DebtBook";
+import { buildInventorySnapshot, localDateStr, snapshotSignature, trimSnapshotForStorage } from "./utils/inventoryArchive";
+import { saveToFirebase } from "./services/firebasePersistence";
 import { useStore } from "./store/useStore";
 import { getTodayStr } from "./utils/helpers";
 import { useAuth } from "./auth";
@@ -106,6 +108,24 @@ export default function ErpApp() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // ===== أرشيف المخزون اليومي =====
+  // بنحفظ لقطة المخزون الحالي في Firebase (مستند لكل يوم) بعد أي تغيير في المخزون بـ 20 ثانية.
+  // آخر لقطة في اليوم = مخزون نهاية اليوم، وبتتقفل لوحدها لما اليوم يتغيّر.
+  const archiveSigRef = useRef<{ date: string; sig: string } | null>(null);
+  const archiveReady = !!user && !isLoading && !loadError;
+  useEffect(() => {
+    if (!archiveReady) return;
+    const timer = window.setTimeout(() => {
+      const date = localDateStr();
+      const snap = buildInventorySnapshot(state.products, state.serials, date);
+      const sig = snapshotSignature(snap);
+      if (archiveSigRef.current && archiveSigRef.current.date === date && archiveSigRef.current.sig === sig) return;
+      archiveSigRef.current = { date, sig };
+      void saveToFirebase("inventorySnapshots", date, trimSnapshotForStorage(snap));
+    }, 20000);
+    return () => window.clearTimeout(timer);
+  }, [archiveReady, state.products, state.serials]);
 
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-[#0f0f1a] text-gray-300">جاري التحقق من تسجيل الدخول...</div>;

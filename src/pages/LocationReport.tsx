@@ -14,8 +14,8 @@ export default function LocationReport({ products, serials }: LocationReportProp
 
   // حساب المنتجات حسب الموقع
   const locationStats = useMemo(() => {
-    const warehouseProducts = products.filter(p => (p.location === 'warehouse' || !p.location) && (productTypeFilter === 'all' || p.productType === productTypeFilter));
-    const storeProducts = products.filter(p => p.location === 'store' && (productTypeFilter === 'all' || p.productType === productTypeFilter));
+    const warehouseProducts = products.filter(p => (p.stock || 0) > 0 && (p.location === 'warehouse' || !p.location) && (productTypeFilter === 'all' || p.productType === productTypeFilter));
+    const storeProducts = products.filter(p => (p.stock || 0) > 0 && p.location === 'store' && (productTypeFilter === 'all' || p.productType === productTypeFilter));
 
     const warehouseSerials = serials.filter(s => (s.location === 'warehouse' || !s.location) && s.status === 'available');
     const storeSerials = serials.filter(s => s.location === 'store' && s.status === 'available');
@@ -49,7 +49,7 @@ export default function LocationReport({ products, serials }: LocationReportProp
       <div className="bg-elevated border border-violet-900/30 rounded-2xl p-4 space-y-3">
         <h3 className="font-bold text-white flex items-center gap-2">
           {title}
-          <span className="text-sm text-gray-400">({data.totalItems} منتج)</span>
+          <span className="text-sm text-gray-400">({data.totalItems} قطعة • {data.products.length} منتج)</span>
         </h3>
 
         {/* إحصائيات سريعة */}
@@ -95,7 +95,7 @@ export default function LocationReport({ products, serials }: LocationReportProp
             </table>
           </div>
         ) : (
-          <div className="text-center text-gray-500 py-4">لا توجد منتجات</div>
+          <div className="text-center text-gray-500 py-4">لا توجد منتجات في المخزون هنا</div>
         )}
 
         {/* المنتجات بالسيريال */}
