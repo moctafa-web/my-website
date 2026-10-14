@@ -100,14 +100,14 @@ export default function DebtBook({ state, onAddPayment, onOpenStatement }: Props
 
   const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
   const printList = () => {
-    const body = rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.phone || '-')}</td><td style="font-weight:bold">${fmt(r.balance)} ج.م</td></tr>`).join('');
+    const body = rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td style="font-weight:bold">${fmt(r.balance)} ج.م</td></tr>`).join('');
     printElement(`<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;padding:8mm">
       <h2 style="margin:0 0 4px">📒 دفتر الديون — ${title}</h2>
       <div style="color:#666;font-size:12px;margin-bottom:10px">${new Date().toLocaleDateString('ar-EG')}</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px" border="1" cellpadding="6">
-        <thead><tr style="background:#eee"><th>#</th><th>الاسم</th><th>الهاتف</th><th>المبلغ</th></tr></thead>
+        <thead><tr style="background:#eee"><th>#</th><th>الاسم</th><th>المبلغ</th></tr></thead>
         <tbody>${body}</tbody>
-        <tfoot><tr style="font-weight:bold"><td colspan="3">الإجمالي</td><td>${fmt(shownTotal)} ج.م</td></tr></tfoot>
+        <tfoot><tr style="font-weight:bold"><td colspan="2">الإجمالي</td><td>${fmt(shownTotal)} ج.م</td></tr></tfoot>
       </table></div>`, `دفتر الديون - ${title}`);
   };
 
