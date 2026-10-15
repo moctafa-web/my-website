@@ -22,6 +22,7 @@ interface Props {
   customers?: Customer[];
   settings?: AppSettings;
   onUpdateProduct?: (p: Product) => void;
+  onUpdateSerial?: (s: SerialItem) => void;
   onDeleteProduct?: (id: string) => void;
   weeklyInventoryCounts?: WeeklyInventoryCount[];
   onAddCount?: (count: WeeklyInventoryCount) => void;
@@ -47,7 +48,7 @@ interface UnifiedSuggestion {
 }
 
 export default function Inventory({
-  products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onDeleteProduct,
+  products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onUpdateSerial, onDeleteProduct,
   weeklyInventoryCounts = [], onAddCount, onUpdateCount, onApproveCount,
   stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan,
 }: Props) {
@@ -597,6 +598,24 @@ export default function Inventory({
                 </button>
               </div>
 
+              {serial.status === 'available' && sale && !sale.returned && onUpdateSerial && (
+                <div className="bg-red-900/20 border border-red-700/40 rounded-xl p-3 text-sm flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-red-300">
+                    ⚠️ تناقض: الجهاز ظاهر «متاح» لكنه مربوط بفاتورة بيع {sale.invoiceNumber} ({sale.customerName}).
+                    لو الجهاز اتباع فعلاً اضغط تصحيح عشان يتشال من المخزون.
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm(`تأكيد: الجهاز ${serial.serial} اتباع فعلاً في ${sale.invoiceNumber}؟ هيتشال من المخزون.`)) return;
+                      const fixed: SerialItem = { ...serial, status: 'sold', salePrice: serial.salePrice ?? salePrice, noonOrderId: undefined };
+                      onUpdateSerial(fixed);
+                      setUnifiedResult({ ...unifiedResult, data: fixed });
+                    }}
+                    className="btn-primary text-xs"
+                  >تصحيح: اعتبره مباع</button>
+                </div>
+              )}
+
               {(serial.imei1 || serial.imei2) && (
                 <div className="flex gap-4 text-xs text-gray-400 font-mono bg-surface px-3 py-2 rounded-xl">
                   {serial.imei1 && <span>IMEI1: <span className="text-gray-300">{serial.imei1}</span></span>}
@@ -757,7 +776,8 @@ export default function Inventory({
 
           // كشف الفجوات: سيريالات بدون فاتورة شراء أو بدون فاتورة بيع رغم انها "مباعة"
           const gapSerials = productSerials.filter(s =>
-            !s.purchaseInvoiceId || (s.status === 'sold' && !s.saleInvoiceId) || (s.status === 'transferred' && !s.noonOrderId)
+            !s.purchaseInvoiceId || (s.status === 'sold' && !s.saleInvoiceId) || (s.status === 'transferred' && !s.noonOrderId) ||
+            (s.status === 'available' && !!s.saleInvoiceId)
           );
 
           return (
@@ -809,7 +829,8 @@ export default function Inventory({
                         <span className="text-red-400">
                           {!s.purchaseInvoiceId ? 'بدون ف��تورة شراء' :
                            s.status === 'sold' && !s.saleInvoiceId ? 'مباع بدون فاتورة بيع' :
-                           s.status === 'transferred' && !s.noonOrderId ? 'محوّل بدون أوردر' : ''}
+                           s.status === 'transferred' && !s.noonOrderId ? 'محوّل بدون أوردر' :
+                           s.status === 'available' && s.saleInvoiceId ? 'متاح لكنه مربوط بفاتورة بيع' : ''}
                         </span>
                       </div>
                     ))}

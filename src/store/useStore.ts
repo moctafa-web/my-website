@@ -2027,7 +2027,8 @@ export function useStore() {
             const serialRecord = item.serial
               ? newState.serials.find(s => s.serial === item.serial)
               : newState.serials.find(s => s.productId === item.productId && s.status === 'transferred' && s.noonOrderId === order.id);
-            if (serialRecord) {
+            // حماية: ما نرجّعش للمخزون غير جهاز لسه محوّل لنفس الأوردر (لو اتباع بفاتورة بعدها يفضل مباع)
+            if (serialRecord && serialRecord.status === 'transferred' && (!serialRecord.noonOrderId || serialRecord.noonOrderId === order.id)) {
               newState.serials = newState.serials.map(s => {
                 if (s.id === serialRecord.id) {
                   const updated = { ...s, status: 'available' as const, noonOrderId: undefined };
@@ -2180,7 +2181,8 @@ export function useStore() {
               const rec = item.serial
                 ? newState.serials.find(sr => sr.serial === item.serial)
                 : newState.serials.find(sr => sr.productId === item.productId && sr.noonOrderId === order.id);
-              if (rec) {
+              // حماية: المرتجع يرجّع للمخزون بس الجهاز اللي لسه محوّل لنفس الأوردر
+              if (rec && rec.status === 'transferred' && (!rec.noonOrderId || rec.noonOrderId === order.id)) {
                 newState.serials = newState.serials.map(sr => {
                   if (sr.id !== rec.id) return sr;
                   const u = { ...sr, status: 'available' as const, noonOrderId: undefined };

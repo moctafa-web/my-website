@@ -322,6 +322,7 @@ export default function ErpApp() {
             noonOrders={state.noonOrders}
             customers={state.customers}
             onUpdateProduct={store.updateProduct}
+            onUpdateSerial={store.updateSerial}
             weeklyInventoryCounts={state.weeklyInventoryCounts}
             onAddCount={store.addWeeklyInventoryCount}
             onUpdateCount={store.updateWeeklyInventoryCount}
