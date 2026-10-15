@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download, Undo2 } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download, Undo2, ClipboardPaste } from 'lucide-react';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
+import InvoicePasteImport from '../components/InvoicePasteImport';
+import type { PasteGroup } from '../utils/invoicePaste';
 import * as XLSX from 'xlsx';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
@@ -66,6 +68,7 @@ export default function Purchases({
   preselectedInvoiceId, onPreselectedInvoiceHandled,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
@@ -490,6 +493,19 @@ export default function Purchases({
     const newItem = makeEmptyItem();
     setPurchItems(prev => [...prev, newItem]);
     setItemSearch(prev => ({ ...prev, [newItem.id]: '' }));
+  };
+
+  // لصق من إكسيل: بنكتب الأصناف في الفاتورة (بدل أي بنود فاضية) وبعدين تكمل المورد والدفع وتحفظ
+  const applyPaste = (groups: PasteGroup[]) => {
+    const newItems: PurchItem[] = groups.map(g => ({
+      id: generateId(), productId: g.product.id, productName: g.product.name, sku: g.product.sku,
+      quantity: g.quantity, unitPrice: g.price, discount: 0,
+      serials: g.product.productType === 'serial' ? g.serials : [],
+      total: g.quantity * g.price,
+    }));
+    setPurchItems(prev => [...prev.filter(i => i.productId), ...newItems]);
+    setItemSearch(prev => ({ ...prev, ...Object.fromEntries(newItems.map(i => [i.id, i.productName])) }));
+    setValidationError(null);
   };
 
   const existingSerialsSet = new Set(
@@ -1039,6 +1055,16 @@ export default function Purchases({
         </table>
       </div>
 
+      {showPaste && (
+        <InvoicePasteImport
+          mode="purchase"
+          products={products}
+          checkSerial={(serial) => isDuplicateSerial(serial, '', -1) ? 'السيريال مكرر أو موجود بالفعل في المخزون' : null}
+          onApply={applyPaste}
+          onClose={() => setShowPaste(false)}
+        />
+      )}
+
       {/* ══ مودال فاتورة الشراء ══ */}
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
@@ -1100,9 +1126,14 @@ export default function Purchases({
             <div className="mb-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-white text-sm">المنتجات المشتراة</h3>
-                <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
-                  <Plus size={13} /> إضافة منتج
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowPaste(true)} className="btn-secondary text-xs flex items-center gap-1">
+                    <ClipboardPaste size={13} /> لصق من إكسيل
+                  </button>
+                  <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
+                    <Plus size={13} /> إضافة منتج
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-4">

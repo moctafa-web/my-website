@@ -3,10 +3,12 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SaleInvoice, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand, Supplier, PurchaseInvoice } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, normalizeForCompare, getProductUPCs, productHasUPC, printElement } from '../utils/helpers';
-import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera, Undo2 } from 'lucide-react';
+import { Plus, Search, Printer, Eye, X, Trash2, Edit, ShoppingCart, AlertCircle, Camera, Undo2, ClipboardPaste } from 'lucide-react';
 import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 // ✅ استيراد كومبوننت قارئ الباركود بالكاميرا (ملف مستقل لا علاقة له بـ Firebase/Auth)
 import BarcodeScanner, { DetectedScan } from '../components/BarcodeScanner';
+import InvoicePasteImport from '../components/InvoicePasteImport';
+import type { PasteGroup } from '../utils/invoicePaste';
 
 interface Props {
   saleInvoices: SaleInvoice[];
@@ -94,6 +96,7 @@ export default function Sales({
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustDrop, setShowCustDrop] = useState(false);
   const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
+  const [showPaste, setShowPaste] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [instapayPerson, setInstapayPerson] = useState('');
   const [paid, setPaid] = useState('');
@@ -453,6 +456,25 @@ export default function Sales({
     });
     setItemSearch(prev => ({ ...prev, [itemId]: selectedSerial?.serial || product.name }));
     setShowItemDrop(prev => ({ ...prev, [itemId]: false }));
+    setStockError(null);
+  };
+
+  // لصق من إكسيل: بنكتب الأصناف في الفاتورة (بدل أي بنود فاضية) وبعدين تختار العميل والدفع وتحفظ
+  const applyPaste = (groups: PasteGroup[]) => {
+    const newItems: SaleItem[] = groups.map(g => ({
+      id: generateId(), productId: g.product.id, productName: g.product.name, sku: g.product.sku, description: '',
+      quantity: g.quantity, unitPrice: g.price, discount: 0, discountType: 'percent' as const, taxRate: 0,
+      // لو الـ IMEI فاضي في اللصق ناخده من سجل المخزون
+      serials: g.product.productType === 'serial'
+        ? g.serials.map(sl => {
+            const rec = serials.find(s => s.serial.trim().toLowerCase() === sl.serial.trim().toLowerCase() && s.productId === g.product.id && s.status === 'available');
+            return { serial: sl.serial, imei1: sl.imei1 || rec?.imei1 || '', imei2: sl.imei2 || rec?.imei2 || '' };
+          })
+        : [],
+      total: g.quantity * g.price,
+    }));
+    setSaleItems(prev => [...prev.filter(i => i.productId), ...newItems]);
+    setItemSearch(prev => ({ ...prev, ...Object.fromEntries(newItems.map(i => [i.id, i.productName])) }));
     setStockError(null);
   };
 
@@ -1196,6 +1218,19 @@ const validateStock = (): string | null => {
       </div>
 
       {/* ==================== New/Edit Invoice Modal ==================== */}
+      {showPaste && (
+        <InvoicePasteImport
+          mode="sale"
+          products={products}
+          checkSerial={(serial, product) =>
+            isDuplicateSaleSerial(serial, '', -1) ? 'السيريال مكرر في الفاتورة'
+            : !isValidAvailableSerial(serial, product.id) ? 'السيريال مش متاح في المخزون لهذا المنتج'
+            : null}
+          onApply={applyPaste}
+          onClose={() => setShowPaste(false)}
+        />
+      )}
+
       {showForm && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-4xl my-4">
@@ -1274,9 +1309,14 @@ const validateStock = (): string | null => {
             <div className="mb-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-white text-sm">البنود</h3>
-                <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
-                  <Plus size={13} /> إضافة بند
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowPaste(true)} className="btn-secondary text-xs flex items-center gap-1">
+                    <ClipboardPaste size={13} /> لصق من إكسيل
+                  </button>
+                  <button onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
+                    <Plus size={13} /> إضافة بند
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3">
