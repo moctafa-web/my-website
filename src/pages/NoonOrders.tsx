@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NoonOrder, NoonOrderItem, NoonAdjustment, Product, SerialItem, OrderStatus, OrderPlatform } from '../types';
 import { ADJ_KIND_LABEL, clawbackDone, clawbackPending, deferredCharges, deferredTotal, returnState } from '../utils/noonReturns';
-import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, productMatchesCode, normalizeDateValue } from '../utils/helpers';
+import { formatCurrency, generateId, getTodayStr, statusLabel, statusColor, getProductUPCs, productHasUPC, productMatchesCode, normalizeDateValue, normalizeForCompare } from '../utils/helpers';
 import { parseImportDate } from '../utils/importDate';
 import NoonPasteImport from '../components/NoonPasteImport';
 import { Plus, Search, X, Upload, Download, CheckSquare, Square, Banknote, Edit } from 'lucide-react';
@@ -118,10 +118,26 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   const [returnRestock, setReturnRestock] = useState(true);
   const [settleDate, setSettleDate] = useState(getTodayStr());
 
+  // بحث بالسيريال (جزء منه كفاية، من 3 حروف فأكتر)
+  const serialMatches = (it: NoonOrderItem, q: string) => {
+    const nq = normalizeForCompare(q);
+    return nq.length >= 3 && !!it.serial && normalizeForCompare(it.serial).includes(nq);
+  };
+
+  // تاريخ السيريال: كل الأوردرات اللي ظهر فيها بالترتيب الزمني (بغض النظر عن فلتر الحالة/التاريخ)
+  const serialHistory = useMemo(() => {
+    if (normalizeForCompare(search).length < 3) return [] as { order: NoonOrder; serial: string }[];
+    return noonOrders
+      .flatMap(o => o.items.filter(it => serialMatches(it, search)).map(it => ({ order: o, serial: it.serial as string })))
+      .sort((a, b) => normalizeDateValue(a.order.date).localeCompare(normalizeDateValue(b.order.date)) || a.order.createdAt.localeCompare(b.order.createdAt));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noonOrders, search]);
+
   const filtered = noonOrders.filter(o => {
     const matchSearch = o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
       (o.customerName || '').toLowerCase().includes(search.toLowerCase()) ||
-      o.items.some(it => (it.productName || '').toLowerCase().includes(search.toLowerCase()));
+      o.items.some(it => (it.productName || '').toLowerCase().includes(search.toLowerCase())) ||
+      o.items.some(it => serialMatches(it, search));
     const matchStatus = statusFilter === 'all' || o.status === statusFilter;
     const od = normalizeDateValue(o.date);
     const matchDate = (!dateFrom || od >= dateFrom) && (!dateTo || od <= dateTo);
@@ -753,9 +769,32 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="بحث برقم الأوردر أو اسم المنتج..."
+              placeholder="بحث برقم الأوردر أو اسم المنتج أو السيريال..."
               className="input-dark w-full pr-9" />
           </div>
+
+          {/* تاريخ السيريال: لو خرج أكتر من مرة ورجع */}
+          {serialHistory.length > 0 && (
+            <div className="bg-elevated border border-amber-700/40 rounded-2xl p-4 space-y-2">
+              <div className="text-amber-300 font-bold text-sm">
+                🔎 سجل السيريال في أوردرات نون/أمازون — {serialHistory.length} {serialHistory.length === 1 ? 'مرة' : 'مرات'}
+              </div>
+              <div className="space-y-1.5">
+                {serialHistory.map(({ order: ho, serial }, idx) => (
+                  <div key={ho.id + idx} onClick={() => setViewOrder(ho)}
+                    className="flex items-center gap-3 flex-wrap text-xs bg-white/5 hover:bg-white/10 cursor-pointer rounded-lg px-3 py-2">
+                    <span className="text-gray-500 w-5">{idx + 1}.</span>
+                    <span className="text-gray-400 whitespace-nowrap">{ho.date}</span>
+                    <span className="font-mono text-violet-400">{ho.orderNumber}</span>
+                    <span className="font-mono text-amber-300">{serial}</span>
+                    <span className={`px-1.5 py-0.5 rounded-lg border ${statusColor(ho.status)}`}>{statusLabel(ho.status)}</span>
+                    {ho.status === 'returned' && ho.returnedDate && <span className="text-gray-400">رجع بتاريخ {ho.returnedDate}{ho.returnRestocked ? ' • اتردّ للمخزون' : ' • مش في المخزون'}</span>}
+                  </div>
+                ))}
+              </div>
+              <div className="text-[10px] text-gray-500">الحالة المعروضة هي الحالة الحالية لكل أوردر.</div>
+            </div>
+          )}
 
           {/* Orders Table */}
           <div className="bg-elevated border border-violet-900/30 rounded-2xl overflow-hidden overflow-x-auto">
@@ -803,10 +842,24 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
                   <td className="py-3 px-3 text-white hidden md:table-cell">
                     {o.items.length === 0 ? '-' : (
                       <>
-                        {o.items.slice(0, 2).map((it, i) => (
-                          <div key={i} className="text-sm leading-snug">{it.productName || '-'}</div>
-                        ))}
-                        {o.items.length > 2 && <div className="text-xs text-gray-500">+{o.items.length - 2} أصناف أخرى</div>}
+                        {(() => {
+                          // الأصناف اللي فيها السيريال المبحوث عنه تظهر الأول
+                          const ordered = [...o.items].sort((a, b) => Number(serialMatches(b, search)) - Number(serialMatches(a, search)));
+                          const shown = ordered.slice(0, Math.max(2, ordered.filter(it => serialMatches(it, search)).length));
+                          return (
+                            <>
+                              {shown.map((it, i) => (
+                                <div key={i} className="text-sm leading-snug">
+                                  {it.productName || '-'}
+                                  {it.serial && (
+                                    <div className={`font-mono text-[10px] ${serialMatches(it, search) ? 'text-amber-300 font-bold' : 'text-gray-500'}`}>{it.serial}</div>
+                                  )}
+                                </div>
+                              ))}
+                              {ordered.length > shown.length && <div className="text-xs text-gray-500">+{ordered.length - shown.length} أصناف أخرى</div>}
+                            </>
+                          );
+                        })()}
                       </>
                     )}
                   </td>
