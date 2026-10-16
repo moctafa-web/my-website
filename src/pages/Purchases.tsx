@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
+import { SaleInvoice, NoonOrder, PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
 import { Plus, Search, Printer, Eye, X, Trash2, Edit, AlertCircle, Camera, Upload, Download, Undo2, ClipboardPaste } from 'lucide-react';
@@ -11,6 +11,8 @@ import { useGlobalDropdownDismiss } from '../utils/useGlobalDropdownDismiss';
 
 interface Props {
   purchaseInvoices: PurchaseInvoice[];
+  saleInvoices?: SaleInvoice[];
+  noonOrders?: NoonOrder[];
   suppliers: Supplier[];
   customers?: Customer[];
   products: Product[];
@@ -59,7 +61,7 @@ interface PurchItem {
 }
 
 export default function Purchases({
-  purchaseInvoices, suppliers, customers = [], products, serials, brands, settings,
+  purchaseInvoices, suppliers, customers = [], products, serials, brands, settings, saleInvoices = [], noonOrders = [],
   onAddPurchaseInvoice, onAddSupplier, onAddProduct, onAddSerials,
   onUpdatePurchaseInvoice, onDeletePurchaseInvoice, onReturnPurchaseInvoice, onBackToStatement, onCompletePendingPurchase,
   preselectedSupplierId, onPreselectedHandled,
@@ -747,6 +749,28 @@ export default function Purchases({
       }
     }
 
+    // ممنوع نشيل من فاتورة الشراء جهاز اتباع/اتحوّل لنون: كان بيفضل مربوط بالفاتورتين بدون ما حد يعرف
+    if (editingInvoice) {
+      const keptKeys = new Set(purchItems.flatMap(it => it.serials.map(s => normalizeForCompare(s.serial))).filter(Boolean));
+      const blocked: string[] = [];
+      editingInvoice.items.forEach(it => (it.serials || []).forEach(sl => {
+        const key = normalizeForCompare(sl.serial);
+        if (!key || keptKeys.has(key)) return;
+        const rec = serials.find(s => s.purchaseInvoiceId === editingInvoice.id && normalizeForCompare(s.serial) === key);
+        if (!rec || rec.status === 'available' || rec.status === 'returned') return;
+        const sale = rec.saleInvoiceId ? saleInvoices.find(i => i.id === rec.saleInvoiceId) : undefined;
+        const noon = rec.noonOrderId ? noonOrders.find(o => o.id === rec.noonOrderId) : undefined;
+        const where = sale ? `اتباع في فاتورة ${sale.invoiceNumber} (${sale.customerName})`
+          : noon ? `محوّل لأوردر ${noon.orderNumber}`
+          : 'مباع/محوّل';
+        blocked.push(`${sl.serial} — ${where}`);
+      }));
+      if (blocked.length) {
+        setValidationError(`مينفعش تشيل أجهزة اتباعت من فاتورة الشراء:\n${blocked.join('\n')}\nشيلها الأول من فاتورة البيع أو الأوردر (الجهاز هيرجع للمخزون)، وبعدين شيله من فاتورة الشراء.`);
+        return;
+      }
+    }
+
     const validationMsg = validatePurchaseItems();
     if (validationMsg) {
       setValidationError(validationMsg);
@@ -1355,7 +1379,7 @@ export default function Purchases({
             {validationError && (
               <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-3 py-2 text-sm mt-4 text-red-400 flex items-center gap-2">
                 <AlertCircle size={16} className="shrink-0" />
-                {validationError}
+                <span className="whitespace-pre-line">{validationError}</span>
               </div>
             )}
 

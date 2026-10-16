@@ -270,6 +270,8 @@ export default function ErpApp() {
             serials={state.serials}
             brands={state.brands}
             settings={state.settings}
+            saleInvoices={state.saleInvoices}
+            noonOrders={state.noonOrders}
             onAddPurchaseInvoice={store.addPurchaseInvoice}
             onAddSupplier={store.addSupplier}
             onAddProduct={store.addProduct}
