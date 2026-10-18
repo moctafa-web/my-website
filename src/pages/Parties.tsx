@@ -270,12 +270,33 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
     exportStatementExcel(d);
   };
 
+  // نسخة الواتساب: سطر لكل حركة بدون أعمدة. 🔴 = زوّد على الحساب (مدين)، 🟢 = نزّل من الحساب (دائن)
   const copyStatement = async () => {
     if (!view) return;
-    let running = openingForPeriod;
-    const lines = [`📋 كشف حساب — ${view.name}`, `الرصيد الافتتاحي: ${formatMoney(openingForPeriod)} ج.م`, `الفترة: ${dateFrom||'من البداية'} → ${dateTo||'اليوم'}`, ''];
-    periodRows.forEach(r => { running += r.debit-r.credit; lines.push(`${r.date} — ${r.text}${r.notes?' ('+r.notes+')':''}: مدين ${r.debit?formatMoney(r.debit):'-'} | دائن ${r.credit?formatMoney(r.credit):'-'} | الرصيد ${formatMoney(Math.abs(running))} ${running>=0?'لنا':'له'}`); if (detailLevel !== 'brief') (r.lines||[]).forEach(l => { lines.push(`      • ${detailLineText(l, detailLevel)}`); if (detailLevel === 'full') l.serials.forEach(sn => lines.push(`          ${sn}`)); }); });
-    lines.push('', `الرصيد الجاري: ${formatMoney(Math.abs(currentBalance))} ${currentBalance>=0?'مستحق لنا':'مستحق له'}`);
+    const fmt = (n: number) => Math.round(Math.abs(n)).toLocaleString('en-US'); // أرقام صحيحة بدون قروش
+    const years = new Set(periodRows.map(r => r.date.slice(0, 4)));
+    const shortDate = (d: string) => {
+      const [y, m, dd] = d.split('-');
+      if (!y || !m || !dd) return d;
+      return `${Number(dd)}/${Number(m)}${years.size > 1 ? '/' + y.slice(2) : ''}`;
+    };
+    const lines: string[] = [`📋 كشف حساب — ${view.name}`];
+    if (dateFrom || dateTo) lines.push(`الفترة: ${dateFrom || 'من البداية'} → ${dateTo || 'اليوم'}`);
+    if (Math.round(openingForPeriod) !== 0) lines.push(`📌 رصيد سابق: ${fmt(openingForPeriod)} ${openingForPeriod >= 0 ? '(عليه)' : '(له)'}`);
+    lines.push('');
+    periodRows.forEach(r => {
+      const isInvoice = !!r.reference && (saleInvoices.some(i => i.id === r.reference) || purchaseInvoices.some(i => i.id === r.reference));
+      const mark = r.debit > 0 ? '🔴' : '🟢';
+      const amount = fmt(r.debit > 0 ? r.debit : r.credit);
+      const label = isInvoice
+        ? r.text.replace('فاتورة بيع', 'فاتورة')
+        : `${r.debit > 0 ? 'دفعنا' : 'دفع'} ${paymentMethodLabel(r.method || '')}`;
+      lines.push(`${mark} ${shortDate(r.date)} — ${label} ${isInvoice ? '→' : '←'} ${amount}${r.notes ? ` (${r.notes})` : ''}`);
+      if (detailLevel !== 'brief') (r.lines || []).forEach(l => { lines.push(`      • ${detailLineText(l, detailLevel)}`); if (detailLevel === 'full') l.serials.forEach(sn => lines.push(`          ${sn}`)); });
+    });
+    lines.push('');
+    const rounded = Math.round(currentBalance);
+    lines.push(rounded > 0 ? `💰 المتبقي عليه: ${fmt(rounded)} ج.م` : rounded < 0 ? `💰 المتبقي له عندنا: ${fmt(rounded)} ج.م` : '✅ الحساب مسدد');
     try { await navigator.clipboard.writeText(lines.join('\n')); setCopied(true); setTimeout(()=>setCopied(false),1800); } catch { setError('تعذر نسخ الكشف.'); }
   };
 
