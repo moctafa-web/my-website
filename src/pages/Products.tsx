@@ -6,6 +6,7 @@ import { formatCurrency, generateId, categoryLabel, getTodayStr, generateSKU, ge
 import { Plus, Search, Edit, Trash2, Package, Grid, List, AlignJustify, ChevronDown, QrCode, RefreshCw, Upload, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ProductQRModal from '../components/ProductQRModal';
+import ProductPasteImport from '../components/ProductPasteImport';
 
 const CATEGORIES = ['phones', 'tablets', 'laptops', 'accessories', 'other'];
 const CAT_SUB: Record<string, string[]> = {
@@ -60,6 +61,7 @@ export default function Products({
   const [qrProduct, setQrProduct] = useState<Product | null>(null);
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
   const [importingProducts, setImportingProducts] = useState(false);
+  const [showPasteImport, setShowPasteImport] = useState(false);
   const [importSummary, setImportSummary] = useState<{added:number; skipped:number; errors:string[]} | null>(null);
   const productImportRef = useRef<HTMLInputElement | null>(null);
 
@@ -313,6 +315,7 @@ export default function Products({
           <button onClick={downloadProductTemplate} className="btn-secondary text-sm flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
           <button onClick={() => productImportRef.current?.click()} disabled={importingProducts} className="btn-secondary text-sm flex items-center gap-2"><Upload size={14} /> {importingProducts ? 'جاري الاستيراد...' : 'استيراد Excel'}</button>
           <input ref={productImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportProducts} />
+          <button onClick={() => setShowPasteImport(true)} className="btn-secondary text-sm flex items-center gap-2">📋 لصق من إكسيل</button>
           <button
             onClick={() => setShowJrard(!showJrard)}
             className="btn-secondary text-sm"
@@ -324,6 +327,10 @@ export default function Products({
           </button>
         </div>
       </div>
+
+      {showPasteImport && (
+        <ProductPasteImport products={products} brands={brands} onAddProduct={onAddProduct} onClose={() => setShowPasteImport(false)} />
+      )}
 
       {importSummary && (
         <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4">

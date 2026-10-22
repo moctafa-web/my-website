@@ -5,12 +5,15 @@ import { calculatePartyBalance } from '../store/domains/accounting.store';
 import { Plus, Search, X, Printer, DollarSign, Eye, Trash2, Edit, FilePlus2, Calendar, Upload, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
+import SupplierPasteImport from '../components/SupplierPasteImport';
 
 interface Props {
   suppliers: Supplier[];
   purchaseInvoices: PurchaseInvoice[];
   saleInvoices: SaleInvoice[];
   payments: Payment[];
+  /** كل الحسابات (عملاء + موردين) عشان لصق التجار يكتشف التكرار معاهم كمان */
+  parties?: { name: string; roles?: { customer: boolean; supplier: boolean } }[];
   onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
   onUpdateSupplier: (s: Supplier) => void;
   onDeleteSupplier: (id: string) => void;
@@ -22,7 +25,7 @@ interface Props {
   onPreselectedStatementHandled?: () => void;
 }
 
-export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, payments, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }: Props) {
+export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, payments, parties, onAddSupplier, onUpdateSupplier, onDeleteSupplier, onAddPayment, onUpdatePurchaseInvoice, onNavigateToPurchases, preselectedStatementSupplierId, onPreselectedStatementHandled }: Props) {
   const [viewMode, setViewMode] = useViewMode('suppliers');
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -43,6 +46,7 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [importingSuppliers, setImportingSuppliers] = useState(false);
+  const [showPasteImport, setShowPasteImport] = useState(false);
   const [importSummary, setImportSummary] = useState<{added:number; skipped:number; errors:string[]} | null>(null);
   const supplierImportRef = useRef<HTMLInputElement | null>(null);
 
@@ -318,9 +322,22 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
           <button onClick={downloadSupplierTemplate} className="btn-secondary text-sm flex items-center gap-2"><Download size={14} /> نموذج Excel</button>
           <button onClick={() => supplierImportRef.current?.click()} disabled={importingSuppliers} className="btn-secondary text-sm flex items-center gap-2"><Upload size={14} /> {importingSuppliers ? 'جاري الاستيراد...' : 'استيراد Excel'}</button>
           <input ref={supplierImportRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportSuppliers} />
+          <button onClick={() => setShowPasteImport(true)} className="btn-secondary text-sm flex items-center gap-2">📋 لصق من إكسيل</button>
           <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16} /> مورد جديد</button>
         </div>
       </div>
+      {showPasteImport && (
+        <SupplierPasteImport
+          existing={[
+            ...suppliers.map(s => ({ name: s.name, label: s.type === 'trader' ? 'تاجر' : 'مورد' })),
+            ...(parties || [])
+              .filter(p => !suppliers.some(s => s.name.trim().toLowerCase() === (p.name || '').trim().toLowerCase()))
+              .map(p => ({ name: p.name, label: 'حساب في الأطراف' })),
+          ]}
+          onAddSupplier={onAddSupplier}
+          onClose={() => setShowPasteImport(false)}
+        />
+      )}
       {importSummary && (
         <div className="bg-elevated border border-violet-700/30 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-2"><h3 className="font-bold text-violet-300">نتيجة استيراد الموردين</h3><button onClick={() => setImportSummary(null)} className="text-gray-500 hover:text-white">×</button></div>

@@ -345,6 +345,7 @@ export default function ErpApp() {
             purchaseInvoices={state.purchaseInvoices}
             saleInvoices={state.saleInvoices}
             payments={state.payments}
+            parties={state.parties}
             onAddSupplier={store.addSupplier}
             onUpdateSupplier={store.updateSupplier}
             onDeleteSupplier={store.deleteSupplier}
