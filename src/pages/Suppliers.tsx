@@ -334,7 +334,8 @@ export default function Suppliers({ suppliers, purchaseInvoices, saleInvoices, p
               .filter(p => !suppliers.some(s => s.name.trim().toLowerCase() === (p.name || '').trim().toLowerCase()))
               .map(p => ({ name: p.name, label: 'حساب في الأطراف' })),
           ]}
-          onAddSupplier={onAddSupplier}
+          typeNote="كل تاجر بيتسجل بنوع تاجر ورصيد افتتاحي 0."
+          onAddName={(name) => onAddSupplier({ id: generateId(), name, type: 'trader', openingBalance: 0, totalInvoices: 0, totalPaid: 0, createdAt: new Date().toISOString() })}
           onClose={() => setShowPasteImport(false)}
         />
       )}

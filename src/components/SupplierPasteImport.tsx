@@ -1,16 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { X, ClipboardPaste } from 'lucide-react';
-import { Supplier } from '../types';
-import { generateId } from '../utils/helpers';
 import { ExistingName, classifySupplierRows, parseSupplierPaste } from '../utils/supplierPaste';
 
 interface Props {
   existing: ExistingName[];
-  onAddSupplier: (s: Supplier) => { success: boolean; message?: string } | void;
+  /** بيضيف حساب بالاسم ده؛ الصفحة اللي فاتحة المودال هي اللي بتحدد نوعه */
+  onAddName: (name: string) => { success: boolean; message?: string } | void;
+  /** نص يوضح للمستخدم الحساب هيتسجل بإيه */
+  typeNote: string;
   onClose: () => void;
 }
 
-export default function SupplierPasteImport({ existing, onAddSupplier, onClose }: Props) {
+export default function SupplierPasteImport({ existing, onAddName, typeNote, onClose }: Props) {
   const [text, setText] = useState('');
   const [includeSimilar, setIncludeSimilar] = useState<Set<number>>(new Set());
   const [result, setResult] = useState<{ added: number; failed: string[] } | null>(null);
@@ -29,10 +30,7 @@ export default function SupplierPasteImport({ existing, onAddSupplier, onClose }
     let added = 0;
     const failed: string[] = [];
     toSave.forEach(r => {
-      const res = onAddSupplier({
-        id: generateId(), name: r.name, type: 'trader', openingBalance: 0, totalInvoices: 0, totalPaid: 0,
-        createdAt: new Date().toISOString(),
-      });
+      const res = onAddName(r.name);
       if (res && res.success === false) failed.push(`السطر ${r.line} (${r.name}): ${res.message || 'تعذر الإضافة'}`);
       else added++;
     });
@@ -81,7 +79,7 @@ export default function SupplierPasteImport({ existing, onAddSupplier, onClose }
         ) : (
           <>
             <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-              انسخ عمود أسماء التجار من الإكسيل (Ctrl+C) والصقه هنا — عمود واحد بس. كل تاجر بيتسجل بنوع <b className="text-gray-300">تاجر</b> ورصيد افتتاحي 0.
+              انسخ عمود أسماء التجار من الإكسيل (Ctrl+C) والصقه هنا — عمود واحد بس. <b className="text-gray-300">{typeNote}</b>
               الاسم المكرر بيترفض. الاسم الشبيه (زي «مكتب الغزال» و«الغزال») بيتعلّم بتحذير وبيتخطى، ولو عايزه فعلًا علّم عليه.
             </p>
             <textarea value={text} onChange={e => setText(e.target.value)} rows={6}

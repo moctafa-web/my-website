@@ -4,6 +4,7 @@ import { generateId, getTodayStr, formatMoney, printElement, normalizeDateValue,
 import { Plus, Search, Edit, Pencil, Trash2, Eye, DollarSign, X, Printer, Copy, Check, ShieldCheck, FileSpreadsheet, GitMerge } from 'lucide-react';
 import { buildStatementHtml, exportStatementExcel, detailLineText, ExportInput, DetailLevel, DetailLine } from '../utils/statementExport';
 import { calculatePartyBalance } from '../store/domains/accounting.store';
+import SupplierPasteImport from '../components/SupplierPasteImport';
 
 interface Props {
   parties: Party[];
@@ -76,6 +77,7 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
   const [copied, setCopied] = useState(false);
   // ===== دمج حسابين =====
   const [showMerge, setShowMerge] = useState(false);
+  const [showPasteImport, setShowPasteImport] = useState(false);
   const [mergeA, setMergeA] = useState('');
   const [mergeB, setMergeB] = useState('');
   const [mergeName, setMergeName] = useState('');
@@ -305,9 +307,19 @@ export default function Parties({ parties, saleInvoices, purchaseInvoices, payme
       <div><h2 className="text-xl font-bold text-white">👥 الأطراف والحسابات</h2><p className="text-sm text-gray-500">حساب واحد للشخص أو الشركة مهما كان يتعامل معك كعميل أو مورد</p></div>
       <div className="flex flex-wrap gap-2">
         {onMergeParties && <button onClick={() => openMerge()} className="btn-secondary flex items-center gap-2"><GitMerge size={16}/> دمج حسابين</button>}
+        <button onClick={() => setShowPasteImport(true)} className="btn-secondary flex items-center gap-2">📋 لصق من إكسيل</button>
         <button onClick={openAdd} className="btn-primary flex items-center gap-2"><Plus size={16}/> حساب جديد</button>
       </div>
     </div>
+
+    {showPasteImport && (
+      <SupplierPasteImport
+        existing={parties.map(p => ({ name: p.name, label: p.roles.customer && p.roles.supplier ? 'عميل ومورد' : p.roles.supplier ? 'مورد / تاجر' : 'عميل' }))}
+        typeNote="كل اسم بيتسجل كحساب جديد (عميل ومورد/تاجر زي الإضافة العادية) ورصيد افتتاحي 0."
+        onAddName={(name) => onAddParty({ id: generateId(), name, phone: '', email: '', address: '', roles: { customer: true, supplier: true }, openingBalance: 0, notes: '', createdAt: new Date().toISOString() })}
+        onClose={() => setShowPasteImport(false)}
+      />
+    )}
 
     {mergeDone && <div className="rounded-xl border border-green-700/30 bg-green-900/20 px-4 py-3 text-sm text-green-300 flex justify-between"><span>{mergeDone}</span><button onClick={() => setMergeDone('')}><X size={14}/></button></div>}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
