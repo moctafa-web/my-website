@@ -35,6 +35,9 @@ interface Props {
   dailyInventoryScans?: any[];
   onAddDailyInventoryScan?: (session: any) => void;
   onUpdateDailyInventoryScan?: (session: any) => void;
+  /** فتح كارت سيريال/منتج مباشرة (من البحث الشامل) */
+  preselectedLookup?: { type: 'serial' | 'product'; id: string } | null;
+  onPreselectedLookupHandled?: () => void;
 }
 
 type UnifiedResultType = 'serial' | 'product' | 'saleInvoice' | 'purchaseInvoice';
@@ -51,6 +54,7 @@ export default function Inventory({
   products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onUpdateSerial, onDeleteProduct,
   weeklyInventoryCounts = [], onAddCount, onUpdateCount, onApproveCount,
   stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan,
+  preselectedLookup, onPreselectedLookupHandled,
 }: Props) {
   // ✅ Tab navigation for inventory sub-sections
   const [inventoryTab, setInventoryTab] = useState<'products' | 'counts' | 'reports' | 'transfers'>('products');
@@ -71,6 +75,30 @@ export default function Inventory({
   const [unifiedResult, setUnifiedResult] = useState<UnifiedSuggestion | null>(null);
   const [showUnifiedSuggestions, setShowUnifiedSuggestions] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+
+  // فتح كارت السيريال/المنتج لما نيجي من البحث الشامل
+  useEffect(() => {
+    if (!preselectedLookup) return;
+    if (preselectedLookup.type === 'serial') {
+      const s = serials.find(x => x.id === preselectedLookup.id);
+      if (s) {
+        const statusLabel = s.status === 'available' ? '🟢 متاح' : s.status === 'sold' ? '🔵 مباع' : s.status === 'transferred' ? '🟣 محوّل' : s.status === 'missing' ? '⚠️ مفقود' : '↩️ مرتجع';
+        setInventoryTab('products');
+        setUnifiedSearch(s.serial);
+        setUnifiedResult({ type: 'serial', data: s, title: s.serial, subtitle: `${s.productName} • ${statusLabel}`, searchLabel: s.serial, typeLabel: 'سيريال' });
+        setShowUnifiedSuggestions(false);
+      }
+    } else {
+      const p = products.find(x => x.id === preselectedLookup.id);
+      if (p) {
+        setInventoryTab('products');
+        setUnifiedSearch(p.name);
+        setUnifiedResult({ type: 'product', data: p, title: p.name, subtitle: `${p.sku} • مخزون: ${serials.filter(s => s.productId === p.id && s.status === 'available').length}`, searchLabel: p.name, typeLabel: 'منتج' });
+        setShowUnifiedSuggestions(false);
+      }
+    }
+    onPreselectedLookupHandled?.();
+  }, [preselectedLookup, serials, products, onPreselectedLookupHandled]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {

@@ -92,6 +92,8 @@ export default function ErpApp() {
   const [pendingPurchasesDateFilter, setPendingPurchasesDateFilter] = useState<string | null>(null);
   const [pendingSaleInvoiceId, setPendingSaleInvoiceId] = useState<string | null>(null);
   const [pendingPurchaseInvoiceId, setPendingPurchaseInvoiceId] = useState<string | null>(null);
+  const [pendingNoonOrderId, setPendingNoonOrderId] = useState<string | null>(null);
+  const [pendingInventoryLookup, setPendingInventoryLookup] = useState<{ type: 'serial' | 'product'; id: string } | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showQuickEntry, setShowQuickEntry] = useState(false);
 
@@ -336,6 +338,8 @@ export default function ErpApp() {
             dailyInventoryScans={state.dailyInventoryScans}
             onAddDailyInventoryScan={store.addDailyInventoryScan}
             onUpdateDailyInventoryScan={store.updateDailyInventoryScan}
+            preselectedLookup={pendingInventoryLookup}
+            onPreselectedLookupHandled={() => setPendingInventoryLookup(null)}
           />
         );
       case "suppliers":
@@ -370,6 +374,8 @@ export default function ErpApp() {
             onAddNoonOrders={store.addNoonOrders}
             onSettleNoonOrders={store.settleNoonOrders}
             onReturnNoonOrders={store.returnNoonOrders}
+            preselectedOrderId={pendingNoonOrderId}
+            onPreselectedOrderHandled={() => setPendingNoonOrderId(null)}
           />
         );
       case "finance":
@@ -460,7 +466,13 @@ export default function ErpApp() {
       {showGlobalSearch && (
         <GlobalSearch
           state={state}
-          onNavigate={setCurrentPage}
+          onOpenResult={({ type, id }) => {
+            if (type === "saleInvoice") { setPendingSaleInvoiceId(id); setCurrentPage("sales"); }
+            else if (type === "purchaseInvoice") { setPendingPurchaseInvoiceId(id); setCurrentPage("purchases"); }
+            else if (type === "noonOrder") { setPendingNoonOrderId(id); setCurrentPage("noon"); }
+            else if (type === "party") { setPendingCustomerStatementId(id); setCurrentPage("parties"); }
+            else { setPendingInventoryLookup({ type, id }); setCurrentPage("inventory"); }
+          }}
           onClose={() => setShowGlobalSearch(false)}
         />
       )}

@@ -1,27 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AppState } from '../types';
-import { formatCurrency, getProductUPCs } from '../utils/helpers';
-import { Search, X, Package, Users, Truck, FileText, Hash, ArrowLeft } from 'lucide-react';
+import { Search, X, Package, Users, FileText, Hash, ArrowLeft, Store } from 'lucide-react';
+import { ResultType, SearchResult, searchAll } from '../utils/globalSearch';
 
 interface Props {
   state: AppState;
-  onNavigate: (page: string) => void;
+  /** بيفتح العنصر نفسه (فاتورة / كشف حساب / كارت سيريال / منتج) مش بس الصفحة */
+  onOpenResult: (result: { type: ResultType; id: string }) => void;
   onClose: () => void;
 }
 
-type ResultType = 'product' | 'customer' | 'supplier' | 'saleInvoice' | 'purchaseInvoice' | 'serial';
-
-interface SearchResult {
-  type: ResultType;
-  id: string;
-  title: string;
-  subtitle: string;
-  page: string;
-}
-
-// بحث شامل سريع (Ctrl+K): يبحث في المنتجات، العملاء، الموردين، فواتير البيع والشراء، والسيريالات
-// من أي صفحة في النظام بدون الحاجة للتنقل اليدوي
-export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
+// بحث شامل سريع (Ctrl+K): يبحث في المنتجات، الأطراف، فواتير البيع والشراء، والسيريالات
+// والضغط على النتيجة يفتح العنصر مباشرة
+export default function GlobalSearch({ state, onOpenResult, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,124 +21,12 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
     inputRef.current?.focus();
   }, []);
 
-  const results: SearchResult[] = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const out: SearchResult[] = [];
-
-    // منتجات
-    state.products.forEach(p => {
-      if (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || getProductUPCs(p).some(u => u.includes(q))) {
-        out.push({
-          type: 'product', id: p.id, title: p.name,
-          subtitle: `${p.sku} • ${formatCurrency(p.salePrice)} • مخزون: ${p.stock}`,
-          page: 'products',
-        });
-      }
-    });
-
-    // السيريال قد يتكرر كسجل تاريخي عند شرائه مرة أخرى بعد بيعه.
-    // نعرض السيريال مرة واحدة بالحالة الحالية، مع ملخص عدد فواتير الشراء/البيع.
-    const matchingSerials = state.serials.filter(s =>
-      s.serial.toLowerCase().includes(q) ||
-      (s.imei1 || '').toLowerCase().includes(q) ||
-      (s.imei2 || '').toLowerCase().includes(q)
-    );
-    const serialGroups = new Map<string, typeof matchingSerials>();
-    matchingSerials.forEach(s => {
-      const key = s.serial.trim().toLowerCase();
-      const group = serialGroups.get(key) || [];
-      group.push(s);
-      serialGroups.set(key, group);
-    });
-    serialGroups.forEach(group => {
-      const current = group.find(s => s.status === 'available') ||
-        group.find(s => s.status === 'transferred') ||
-        group.find(s => s.status === 'missing') ||
-        [...group].reverse()[0];
-      if (!current) return;
-      const purchaseCount = new Set(group.map(s => s.purchaseInvoiceId).filter(Boolean)).size;
-      const saleCount = new Set(group.map(s => s.saleInvoiceId).filter(Boolean)).size;
-      const statusLabel = current.status === 'available' ? '🟢 متاح' : current.status === 'sold' ? '🔵 مباع' : current.status === 'transferred' ? '🟣 محول (نون/أمازون)' : current.status === 'missing' ? '⚠️ مفقود' : current.status;
-      const history = `${purchaseCount} شراء • ${saleCount} بيع`;
-      out.push({
-        type: 'serial', id: current.id, title: `${current.serial} — ${current.productName}`,
-        subtitle: `${statusLabel} • ${history}`,
-        page: 'inventory',
-      });
-    });
-
-    // عملاء
-    state.customers.forEach(c => {
-      if (c.name.toLowerCase().includes(q) || (c.phone || '').includes(q)) {
-        const invs = state.saleInvoices.filter(i => i.customerId === c.id);
-        const balance = invs.reduce((s, i) => s + i.total, 0) + (c.openingBalance || 0) - invs.reduce((s, i) => s + i.paid, 0);
-        out.push({
-          type: 'customer', id: c.id, title: c.name,
-          subtitle: `${c.phone || 'بدون هاتف'} • الرصيد: ${formatCurrency(balance)}`,
-          page: 'customers',
-        });
-      }
-    });
-
-    // موردين
-    state.suppliers.forEach(s => {
-      if (s.name.toLowerCase().includes(q) || (s.phone || '').includes(q)) {
-        const invs = state.purchaseInvoices.filter(i => i.supplierId === s.id);
-        const balance = invs.reduce((sum, i) => sum + i.total, 0) + (s.openingBalance || 0) - invs.reduce((sum, i) => sum + i.paid, 0);
-        out.push({
-          type: 'supplier', id: s.id, title: s.name,
-          subtitle: `${s.phone || 'بدون هاتف'} • الرصيد: ${formatCurrency(balance)}`,
-          page: 'suppliers',
-        });
-      }
-    });
-
-    // فواتير بيع
-    state.saleInvoices.forEach(inv => {
-      if (
-        inv.invoiceNumber.toLowerCase().includes(q) ||
-        inv.customerName.toLowerCase().includes(q) ||
-        inv.items.some(item =>
-          item.productName.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q) ||
-          (item.serials || []).some(s => s.serial.toLowerCase().includes(q) || (s.imei1 || '').toLowerCase().includes(q) || (s.imei2 || '').toLowerCase().includes(q))
-        )
-      ) {
-        out.push({
-          type: 'saleInvoice', id: inv.id, title: `فاتورة بيع ${inv.invoiceNumber}`,
-          subtitle: `${inv.customerName} • ${formatCurrency(inv.total)} • ${inv.date}`,
-          page: 'sales',
-        });
-      }
-    });
-
-    // فواتير شراء
-    state.purchaseInvoices.forEach(inv => {
-      if (
-        inv.invoiceNumber.toLowerCase().includes(q) ||
-        inv.supplierName.toLowerCase().includes(q) ||
-        inv.items.some(item =>
-          item.productName.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q) ||
-          (item.serials || []).some(s => s.serial.toLowerCase().includes(q) || (s.imei1 || '').toLowerCase().includes(q) || (s.imei2 || '').toLowerCase().includes(q))
-        )
-      ) {
-        out.push({
-          type: 'purchaseInvoice', id: inv.id, title: `فاتورة شراء ${inv.invoiceNumber}`,
-          subtitle: `${inv.supplierName} • ${formatCurrency(inv.total)} • ${inv.date}`,
-          page: 'purchases',
-        });
-      }
-    });
-
-    return out.slice(0, 30);
-  }, [query, state]);
+  const results: SearchResult[] = useMemo(() => searchAll(state, query), [query, state]);
 
   useEffect(() => { setSelectedIndex(0); }, [query]);
 
   const handleSelect = (result: SearchResult) => {
-    onNavigate(result.page);
+    onOpenResult({ type: result.type, id: result.id });
     onClose();
   };
 
@@ -161,22 +40,22 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
   const iconFor = (type: ResultType) => {
     switch (type) {
       case 'product': return <Package size={16} className="text-blue-400" />;
-      case 'customer': return <Users size={16} className="text-green-400" />;
-      case 'supplier': return <Truck size={16} className="text-orange-400" />;
+      case 'party': return <Users size={16} className="text-green-400" />;
       case 'saleInvoice': return <FileText size={16} className="text-violet-400" />;
       case 'purchaseInvoice': return <FileText size={16} className="text-cyan-400" />;
       case 'serial': return <Hash size={16} className="text-pink-400" />;
+      case 'noonOrder': return <Store size={16} className="text-yellow-400" />;
     }
   };
 
   const typeLabel = (type: ResultType) => {
     switch (type) {
       case 'product': return 'منتج';
-      case 'customer': return 'عميل';
-      case 'supplier': return 'مورد';
+      case 'party': return 'حساب';
       case 'saleInvoice': return 'فاتورة بيع';
       case 'purchaseInvoice': return 'فاتورة شراء';
       case 'serial': return 'سيريال';
+      case 'noonOrder': return 'أوردر منصة';
     }
   };
 
@@ -192,7 +71,7 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="بحث عن منتج، عميل، مورد، فاتورة، أو سيريال..."
+            placeholder="بحث عن سيريال، IMEI، منتج، حساب، فاتورة، أو أوردر نون..."
             className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-500"
           />
           <button onClick={onClose} className="p-1 rounded-lg text-gray-500 hover:text-white hover:bg-white/10">
@@ -205,7 +84,7 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
           {query.trim() === '' ? (
             <div className="px-4 py-8 text-center text-gray-500 text-sm">
               ابدأ الكتابة للبحث في كل النظام
-              <div className="mt-2 text-xs text-gray-600">منتجات • عملاء • موردين • فواتير • سيريالات</div>
+              <div className="mt-2 text-xs text-gray-600">سيريالات • أوردرات نون • منتجات • حسابات • فواتير</div>
             </div>
           ) : results.length === 0 ? (
             <div className="px-4 py-8 text-center text-gray-500 text-sm">لا توجد نتائج لـ "{query}"</div>
@@ -236,7 +115,7 @@ export default function GlobalSearch({ state, onNavigate, onClose }: Props) {
         {/* Footer hint */}
         <div className="px-4 py-2 border-t border-white/10 flex items-center gap-4 text-xs text-gray-600">
           <span><kbd className="bg-white/10 px-1.5 py-0.5 rounded">↑↓</kbd> للتنقل</span>
-          <span><kbd className="bg-white/10 px-1.5 py-0.5 rounded">Enter</kbd> للفتح</span>
+          <span><kbd className="bg-white/10 px-1.5 py-0.5 rounded">Enter</kbd> لفتح النتيجة</span>
           <span><kbd className="bg-white/10 px-1.5 py-0.5 rounded">Esc</kbd> للإغلاق</span>
         </div>
       </div>

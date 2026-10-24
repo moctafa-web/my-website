@@ -18,6 +18,9 @@ interface Props {
   onAddNoonOrders: (os: NoonOrder[]) => { addedCount: number; mergedCount: number } | void;
   onSettleNoonOrders: (settlements: { orderId: string; settledAmount: number; settledDate?: string }[], opts?: { actualTotal?: number; adjustments?: { orderId: string; amount: number; kind: NoonAdjustment['kind']; note?: string }[] }) => void;
   onReturnNoonOrders: (ids: string[], opts: { date?: string; restock: boolean }) => void;
+  /** فتح أوردر مباشرة (من البحث الشامل) */
+  preselectedOrderId?: string | null;
+  onPreselectedOrderHandled?: () => void;
 }
 
 const PLATFORMS: { id: OrderPlatform; label: string; emoji: string; color: string }[] = [
@@ -71,7 +74,7 @@ function SerialPicker({ candidates, value, usedElsewhere, onPick }: {
   );
 }
 
-export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders, onReturnNoonOrders }: Props) {
+export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrder, onUpdateNoonOrder, onAddNoonOrders, onSettleNoonOrders, onReturnNoonOrders, preselectedOrderId, onPreselectedOrderHandled }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
@@ -84,6 +87,13 @@ export default function NoonOrders({ noonOrders, products, serials, onAddNoonOrd
   const [selected, setSelected] = useState<string[]>([]);
   const [viewOrder, setViewOrder] = useState<NoonOrder | null>(null);
   const [viewMode, setViewMode] = useState<'orders' | 'reports'>('orders');
+
+  React.useEffect(() => {
+    if (!preselectedOrderId) return;
+    const o = noonOrders.find(x => x.id === preselectedOrderId);
+    if (o) { setViewMode('orders'); setViewOrder(o); }
+    onPreselectedOrderHandled?.();
+  }, [preselectedOrderId, noonOrders, onPreselectedOrderHandled]);
   const [selectedReportMonth, setSelectedReportMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
