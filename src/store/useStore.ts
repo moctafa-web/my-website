@@ -1703,6 +1703,22 @@ export function useStore() {
   }, []);
 
 
+  // تعليم دفعات إنها اتراجعت وصحيحة (تجاهل تحذير التكرار في كشف الحساب). مفيش أي أثر على الأرصدة أو الخزنة.
+  const markPaymentsReviewed = useCallback((ids: string[]) => {
+    const wanted = new Set(ids);
+    setState(prev => {
+      let changed = false;
+      const payments = prev.payments.map(p => {
+        if (!wanted.has(p.id) || p.dupReviewed) return p;
+        changed = true;
+        const updated = { ...p, dupReviewed: true };
+        saveToFirebase('payments', updated.id, updated);
+        return updated;
+      });
+      return changed ? { ...prev, payments } : prev;
+    });
+  }, []);
+
   // ==================== QUICK TREASURY MOVEMENTS ====================
   const addTreasuryTransfer = useCallback((from: 'cash' | 'bank', to: 'cash' | 'bank', amount: number, date: string, note: string): { success: boolean; message?: string } => {
     if (from === to) return { success: false, message: 'اختار خزانتين مختلفتين للتحويل' };
@@ -2793,7 +2809,7 @@ export function useStore() {
     addSaleInvoice, updateSaleInvoice, deleteSaleInvoice, returnSaleInvoice,
     addPurchaseInvoice, updatePurchaseInvoice, deletePurchaseInvoice, returnPurchaseInvoice,
     completePendingPurchase,
-    addPayment, deletePayment, updatePayment,
+    addPayment, deletePayment, updatePayment, markPaymentsReviewed,
     updatePaymentDate, updateSaleInvoiceDate, updatePurchaseInvoiceDate,
     addExpense,
     addTreasuryTransfer, addTreasuryAdjustment,

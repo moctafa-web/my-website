@@ -190,6 +190,7 @@ export default function ErpApp() {
             onAddPayment={store.addPayment}
             onDeletePayment={store.deletePayment}
             onUpdatePayment={store.updatePayment}
+            onMarkPaymentsReviewed={store.markPaymentsReviewed}
             onUpdatePaymentDate={store.updatePaymentDate}
             onUpdateSaleInvoiceDate={store.updateSaleInvoiceDate}
             onUpdatePurchaseInvoiceDate={store.updatePurchaseInvoiceDate}

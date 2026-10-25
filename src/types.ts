@@ -213,6 +213,8 @@ export interface Payment {
   transferDetails?: TransferDetails;
   checkDetails?: CheckDetails;
   relatedInvoiceIds?: string[]; // الفواتير المدفوعة بهذه الدفعة
+  /** المستخدم راجع الدفعة وأكد إنها صحيحة (تجاهل تحذير «دفعة مكررة؟») */
+  dupReviewed?: boolean;
   createdAt: string;
 }
 
