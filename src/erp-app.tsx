@@ -260,6 +260,8 @@ export default function ErpApp() {
             onPreselectedDateFilterHandled={() => setPendingSalesDateFilter(null)}
             preselectedInvoiceId={pendingSaleInvoiceId}
             onPreselectedInvoiceHandled={() => setPendingSaleInvoiceId(null)}
+            onAddPayment={store.addPayment}
+            payments={state.payments}
           />
         );
       case "purchases":
@@ -291,6 +293,8 @@ export default function ErpApp() {
             onPreselectedDateFilterHandled={() => setPendingPurchasesDateFilter(null)}
             preselectedInvoiceId={pendingPurchaseInvoiceId}
             onPreselectedInvoiceHandled={() => setPendingPurchaseInvoiceId(null)}
+            onAddPayment={store.addPayment}
+            payments={state.payments}
           />
         );
       case "debts":

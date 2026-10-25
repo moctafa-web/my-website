@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReturnRefundChoice, { EMPTY_REFUND_CHOICE, RefundChoice, buildRefundPayment, defaultRefundMethod, refundReady } from '../components/ReturnRefundChoice';
+import { Payment as PaymentRec } from '../types';
 import { SaleInvoice, NoonOrder, PurchaseInvoice, Supplier, Customer, Product, SerialItem, InvoiceItem, PaymentMethod, Brand } from '../types';
 import { loadDraft, saveDraft, clearDraft } from '../utils/invoiceDraft';
 import { formatCurrency, generateId, getTodayStr, normalizeDateValue, paymentMethodLabel, statusLabel, statusColor, printElement, normalizeForCompare, getProductUPCs, productHasUPC } from '../utils/helpers';
@@ -46,6 +48,9 @@ interface Props {
   onPreselectedDateFilterHandled?: () => void;
   preselectedInvoiceId?: string | null;
   onPreselectedInvoiceHandled?: () => void;
+  /** لتسجيل استرداد الفلوس عند مرتجع فاتورة مدفوعة */
+  onAddPayment?: (p: PaymentRec) => void;
+  payments?: PaymentRec[];
 }
 
 interface PurchItem {
@@ -67,7 +72,7 @@ export default function Purchases({
   preselectedSupplierId, onPreselectedHandled,
   preselectedPendingSerialId, onPreselectedPendingSerialHandled,
   preselectedDateFilter, onPreselectedDateFilterHandled,
-  preselectedInvoiceId, onPreselectedInvoiceHandled,
+  preselectedInvoiceId, onPreselectedInvoiceHandled, onAddPayment, payments = [],
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
@@ -75,6 +80,7 @@ export default function Purchases({
   const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<PurchaseInvoice | null>(null);
   const [confirmReturnInvoice, setConfirmReturnInvoice] = useState<PurchaseInvoice | null>(null);
+  const [refundChoice, setRefundChoice] = useState<RefundChoice>(EMPTY_REFUND_CHOICE);
   const [returnResult, setReturnResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<PurchaseInvoice | null>(null);
   const [confirmDeleteInvoice, setConfirmDeleteInvoice] = useState<PurchaseInvoice | null>(null);
@@ -883,11 +889,27 @@ export default function Purchases({
     setItemSearch({});
   };
 
+  // لما نافذة المرتجع تتفتح: نصفّر الاختيار ونحط طريقة الرد = طريقة دفع الفاتورة الأصلية
+  React.useEffect(() => {
+    if (!confirmReturnInvoice) return;
+    const orig = payments.find(p => p.id === `paid_${confirmReturnInvoice.id}`)?.paymentMethod;
+    setRefundChoice({ ...EMPTY_REFUND_CHOICE, method: defaultRefundMethod(orig) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmReturnInvoice?.id]);
+
   const handleReturnInvoice = () => {
     if (!confirmReturnInvoice || !onReturnPurchaseInvoice) return;
-    const res = onReturnPurchaseInvoice(confirmReturnInvoice.id);
+    if (!refundReady(refundChoice, confirmReturnInvoice.paid)) return;
+    const inv = confirmReturnInvoice;
+    const res = onReturnPurchaseInvoice(inv.id);
     setConfirmReturnInvoice(null);
-    setReturnResult(res);
+    setRefundChoice(EMPTY_REFUND_CHOICE);
+    if (res.ok && inv.paid > 0 && refundChoice.choice === 'refund' && onAddPayment) {
+      onAddPayment(buildRefundPayment('purchase', inv, { id: inv.supplierId, name: inv.supplierName }, refundChoice));
+      setReturnResult({ ok: true, message: `${res.message} — واتسجل استرداد ${formatCurrency(Math.round(Number(refundChoice.amount)))} من المورد كدفعة واردة.` });
+    } else {
+      setReturnResult(res);
+    }
     if (res.ok) setViewInvoice(null);
   };
 
@@ -1750,15 +1772,16 @@ export default function Purchases({
             <ul className="text-xs text-gray-300 space-y-1 mb-4 list-disc pr-4">
               <li>الأجهزة والكميات هتتخصم من المخزون (لازم تكون كلها لسه موجودة ومش مباعة).</li>
               <li>إجمالي الفاتورة ({formatCurrency(confirmReturnInvoice.total)}) هيتشال من حساب المورد.</li>
-              {confirmReturnInvoice.paid > 0 && <li>اللي اتدفع للمورد ({formatCurrency(confirmReturnInvoice.paid)}) هيفضل رصيد لينا عنده — اسجّل استلامه بدفعة واردة من كشف الحساب.</li>}
+              {confirmReturnInvoice.paid > 0 && <li>اللي اتدفع للمورد ({formatCurrency(confirmReturnInvoice.paid)}) هتحدد مصيره تحت.</li>}
               <li>الفاتورة هتفضل ظاهرة بعلامة «مرتجع» ومش هتتعدّل بعد كده.</li>
             </ul>
+            <ReturnRefundChoice mode="purchase" paid={confirmReturnInvoice.paid} value={refundChoice} onChange={setRefundChoice} />
             <div className="flex gap-2">
-              <button onClick={handleReturnInvoice}
-                className="flex-1 py-2 rounded-xl bg-fuchsia-700/30 border border-fuchsia-500/50 text-fuchsia-200 hover:bg-fuchsia-700/50 text-sm font-medium">
+              <button onClick={handleReturnInvoice} disabled={!refundReady(refundChoice, confirmReturnInvoice.paid)}
+                className="flex-1 py-2 rounded-xl bg-fuchsia-700/30 border border-fuchsia-500/50 text-fuchsia-200 hover:bg-fuchsia-700/50 text-sm font-medium disabled:opacity-40">
                 ↩ تأكيد المرتجع
               </button>
-              <button onClick={() => setConfirmReturnInvoice(null)} className="btn-secondary flex-1">إلغاء</button>
+              <button onClick={() => { setConfirmReturnInvoice(null); setRefundChoice(EMPTY_REFUND_CHOICE); }} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>
