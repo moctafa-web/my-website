@@ -43,6 +43,8 @@ interface Props {
   preselectedDateFilter?: string | null;
   onPreselectedDateFilterHandled?: () => void;
   preselectedInvoiceId?: string | null;
+  /** لو جيت من المخزون/البحث وعايز تفتح الفاتورة على التعديل أو المرتجع مباشرة */
+  preselectedInvoiceAction?: 'edit' | 'return' | null;
   onPreselectedInvoiceHandled?: () => void;
   /** لتسجيل رد الفلوس عند مرتجع فاتورة مدفوعة */
   onAddPayment?: (p: PaymentRec) => void;
@@ -82,7 +84,7 @@ export default function Sales({
   preselectedCustomerId, onPreselectedHandled,
   onAddProduct, onAddSupplier, onAddPurchaseInvoice, onAddSerials,
   preselectedDateFilter, onPreselectedDateFilterHandled,
-  preselectedInvoiceId, onPreselectedInvoiceHandled, onAddPayment, payments = [],
+  preselectedInvoiceId, preselectedInvoiceAction, onPreselectedInvoiceHandled, onAddPayment, payments = [],
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
@@ -137,7 +139,11 @@ export default function Sales({
   useEffect(() => {
     if (!preselectedInvoiceId) return;
     const inv = saleInvoices.find(i => i.id === preselectedInvoiceId);
-    if (inv) setViewInvoice(inv);
+    if (inv) {
+      if (preselectedInvoiceAction === 'edit' && !inv.returned) openEditForm(inv);
+      else if (preselectedInvoiceAction === 'return' && !inv.returned && onReturnSaleInvoice) { setViewInvoice(inv); setConfirmReturnInvoice(inv); }
+      else setViewInvoice(inv);
+    }
     onPreselectedInvoiceHandled?.();
   }, [preselectedInvoiceId, saleInvoices, onPreselectedInvoiceHandled]);
 

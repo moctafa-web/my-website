@@ -92,6 +92,7 @@ export default function ErpApp() {
   const [pendingPurchasesDateFilter, setPendingPurchasesDateFilter] = useState<string | null>(null);
   const [pendingSaleInvoiceId, setPendingSaleInvoiceId] = useState<string | null>(null);
   const [pendingPurchaseInvoiceId, setPendingPurchaseInvoiceId] = useState<string | null>(null);
+  const [pendingInvoiceAction, setPendingInvoiceAction] = useState<'edit' | 'return' | null>(null);
   const [pendingNoonOrderId, setPendingNoonOrderId] = useState<string | null>(null);
   const [pendingInventoryLookup, setPendingInventoryLookup] = useState<{ type: 'serial' | 'product'; id: string } | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
@@ -260,7 +261,8 @@ export default function ErpApp() {
             preselectedDateFilter={pendingSalesDateFilter}
             onPreselectedDateFilterHandled={() => setPendingSalesDateFilter(null)}
             preselectedInvoiceId={pendingSaleInvoiceId}
-            onPreselectedInvoiceHandled={() => setPendingSaleInvoiceId(null)}
+            preselectedInvoiceAction={pendingInvoiceAction}
+            onPreselectedInvoiceHandled={() => { setPendingSaleInvoiceId(null); setPendingInvoiceAction(null); }}
             onAddPayment={store.addPayment}
             payments={state.payments}
           />
@@ -293,7 +295,8 @@ export default function ErpApp() {
             preselectedDateFilter={pendingPurchasesDateFilter}
             onPreselectedDateFilterHandled={() => setPendingPurchasesDateFilter(null)}
             preselectedInvoiceId={pendingPurchaseInvoiceId}
-            onPreselectedInvoiceHandled={() => setPendingPurchaseInvoiceId(null)}
+            preselectedInvoiceAction={pendingInvoiceAction}
+            onPreselectedInvoiceHandled={() => { setPendingPurchaseInvoiceId(null); setPendingInvoiceAction(null); }}
             onAddPayment={store.addPayment}
             payments={state.payments}
           />
@@ -343,6 +346,11 @@ export default function ErpApp() {
             dailyInventoryScans={state.dailyInventoryScans}
             onAddDailyInventoryScan={store.addDailyInventoryScan}
             onUpdateDailyInventoryScan={store.updateDailyInventoryScan}
+            onOpenInvoiceAction={(type, id, action) => {
+              setPendingInvoiceAction(action);
+              if (type === "sale") { setPendingSaleInvoiceId(id); setCurrentPage("sales"); }
+              else { setPendingPurchaseInvoiceId(id); setCurrentPage("purchases"); }
+            }}
             preselectedLookup={pendingInventoryLookup}
             onPreselectedLookupHandled={() => setPendingInventoryLookup(null)}
           />

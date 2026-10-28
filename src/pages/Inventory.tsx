@@ -36,6 +36,8 @@ interface Props {
   onAddDailyInventoryScan?: (session: any) => void;
   onUpdateDailyInventoryScan?: (session: any) => void;
   /** فتح كارت سيريال/منتج مباشرة (من البحث الشامل) */
+  /** فتح فاتورة في صفحتها للتعديل أو المرتجع (من نافذة عرض الفاتورة هنا) */
+  onOpenInvoiceAction?: (type: 'sale' | 'purchase', id: string, action: 'edit' | 'return') => void;
   preselectedLookup?: { type: 'serial' | 'product'; id: string } | null;
   onPreselectedLookupHandled?: () => void;
 }
@@ -54,7 +56,7 @@ export default function Inventory({
   products, serials, saleInvoices = [], purchaseInvoices = [], noonOrders = [], customers = [], settings, onUpdateProduct, onUpdateSerial, onDeleteProduct,
   weeklyInventoryCounts = [], onAddCount, onUpdateCount, onApproveCount,
   stockTransfers = [], onAddTransfer, onUpdateTransfer, dailyOperations = [], dailyInventoryScans = [], onAddDailyInventoryScan, onUpdateDailyInventoryScan,
-  preselectedLookup, onPreselectedLookupHandled,
+  preselectedLookup, onPreselectedLookupHandled, onOpenInvoiceAction,
 }: Props) {
   // ✅ Tab navigation for inventory sub-sections
   const [inventoryTab, setInventoryTab] = useState<'products' | 'counts' | 'reports' | 'transfers'>('products');
@@ -1342,7 +1344,7 @@ export default function Inventory({
           <div className="bg-elevated border border-violet-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">🛒 {viewSaleInvoice.invoiceNumber}</h2>
-              <div className="flex items-center gap-2"><button onClick={() => printSaleInvoice(viewSaleInvoice)} className="btn-secondary text-xs">🖨️ طباعة</button><button onClick={() => setViewSaleInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button></div>
+              <div className="flex items-center gap-2 flex-wrap justify-end">{!viewSaleInvoice.returned && onOpenInvoiceAction && <><button onClick={() => { const id = viewSaleInvoice.id; setViewSaleInvoice(null); onOpenInvoiceAction('sale', id, 'edit'); }} className="btn-secondary text-xs">✏️ تعديل</button><button onClick={() => { const id = viewSaleInvoice.id; setViewSaleInvoice(null); onOpenInvoiceAction('sale', id, 'return'); }} className="btn-secondary text-xs text-fuchsia-300">↩ مرتجع</button></>}<button onClick={() => printSaleInvoice(viewSaleInvoice)} className="btn-secondary text-xs">🖨️ طباعة</button><button onClick={() => setViewSaleInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button></div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
               <div><span className="text-gray-500">العميل: </span><span className="text-white">{viewSaleInvoice.customerName}</span></div>
@@ -1403,7 +1405,7 @@ export default function Inventory({
           <div className="bg-elevated border border-blue-900/40 rounded-2xl p-6 w-full max-w-2xl my-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">📦 {viewPurchaseInvoice.invoiceNumber}</h2>
-              <div className="flex items-center gap-2"><button onClick={() => printPurchaseInvoice(viewPurchaseInvoice)} className="btn-secondary text-xs">🖨️ طباعة</button><button onClick={() => setViewPurchaseInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button></div>
+              <div className="flex items-center gap-2 flex-wrap justify-end">{!viewPurchaseInvoice.returned && onOpenInvoiceAction && <><button onClick={() => { const id = viewPurchaseInvoice.id; setViewPurchaseInvoice(null); onOpenInvoiceAction('purchase', id, 'edit'); }} className="btn-secondary text-xs">✏️ تعديل</button><button onClick={() => { const id = viewPurchaseInvoice.id; setViewPurchaseInvoice(null); onOpenInvoiceAction('purchase', id, 'return'); }} className="btn-secondary text-xs text-fuchsia-300">↩ مرتجع للمورد</button></>}<button onClick={() => printPurchaseInvoice(viewPurchaseInvoice)} className="btn-secondary text-xs">🖨️ طباعة</button><button onClick={() => setViewPurchaseInvoice(null)} className="p-2 rounded-lg text-gray-400 hover:bg-white/10">✕</button></div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
               <div><span className="text-gray-500">المورد: </span><span className="text-white">{viewPurchaseInvoice.supplierName}</span></div>

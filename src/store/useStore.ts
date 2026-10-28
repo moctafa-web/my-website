@@ -897,6 +897,11 @@ export function useStore() {
       const oldInvoiceTreasury = newState.treasuryTransactions.find(t => t.referenceId === oldInvoice.id);
       const autoPaymentAmount = oldAutoPayment?.amount || 0;
       const invoiceTreasuryAmount = oldInvoiceTreasury?.amount || 0;
+      // لو المستخدم غيّر «المدفوع» في تعديل الفاتورة: الدفعة المسجلة مع الفاتورة بتتقلّص (أو بتتشال لو صفر)
+      // بدل ما تفضل زي ما هي. الدفعات اليدوية اللي اتوزعت على الفاتورة (المدفوع القديم - الدفعة التلقائية) بتتحفظ زي ما هي.
+      const paidChanged = Number(invoice.paid) !== Number(oldInvoice.paid);
+      const manualPart = Math.max(0, Number(oldInvoice.paid) - autoPaymentAmount);
+      const keepAuto = paidChanged ? Math.min(autoPaymentAmount, Math.max(0, Number(invoice.paid) - manualPart)) : autoPaymentAmount;
 
       touchParty(oldInvoice.customerId, { invoices: -(oldInvoice.total), paid: -(oldInvoice.paid) });
 
@@ -929,15 +934,15 @@ export function useStore() {
 
       touchParty(invoice.customerId, { invoices: invoice.total, paid: invoice.paid });
 
-      if (autoPaymentAmount > 0) {
+      if (keepAuto > 0) {
         const newTreasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
-        newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance + autoPaymentAmount : newState.cashBalance;
-        newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance + autoPaymentAmount : newState.bankBalance;
+        newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance + keepAuto : newState.cashBalance;
+        newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance + keepAuto : newState.bankBalance;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
           id: oldInvoiceTreasury?.id || makeTransactionId(),
           type: 'sale',
           description: `فاتورة مبيعات ${invoice.invoiceNumber} - ${invoice.customerName}`,
-          amount: invoiceTreasuryAmount || autoPaymentAmount,
+          amount: paidChanged ? keepAuto : (invoiceTreasuryAmount || autoPaymentAmount),
           treasury: newTreasury,
           direction: 'in',
           referenceId: invoice.id,
@@ -949,7 +954,7 @@ export function useStore() {
           type: 'sale',
           referenceId: invoice.customerId,
           referenceName: invoice.customerName,
-          amount: autoPaymentAmount,
+          amount: keepAuto,
           paymentMethod: invoice.paymentMethod,
           direction: 'in',
           date: invoice.date,
@@ -960,6 +965,7 @@ export function useStore() {
         saveToFirebase('payments', autoPayment.id, autoPayment);
       } else {
         deleteFromFirebase('payments', `paid_${invoice.id}`);
+        if (oldInvoiceTreasury) deleteFromFirebase('treasuryTransactions', oldInvoiceTreasury.id);
       }
 
       invoice.items.forEach(item => {
@@ -1185,6 +1191,10 @@ export function useStore() {
       const oldInvoiceTreasury = newState.treasuryTransactions.find(t => t.referenceId === oldInvoice.id);
       const autoPaymentAmount = oldAutoPayment?.amount || 0;
       const invoiceTreasuryAmount = oldInvoiceTreasury?.amount || 0;
+      // لو المستخدم غيّر «المدفوع» في تعديل الفاتورة: الدفعة المسجلة مع الفاتورة بتتقلّص (أو بتتشال لو صفر)
+      const paidChanged = Number(invoice.paid) !== Number(oldInvoice.paid);
+      const manualPart = Math.max(0, Number(oldInvoice.paid) - autoPaymentAmount);
+      const keepAuto = paidChanged ? Math.min(autoPaymentAmount, Math.max(0, Number(invoice.paid) - manualPart)) : autoPaymentAmount;
       const changedProducts: Product[] = [];
       const changedSerials: SerialItem[] = [];
       const removedSerialIds: string[] = [];
@@ -1278,15 +1288,15 @@ export function useStore() {
       newState.payments = newState.payments.filter(p => p.id !== `paid_${invoice.id}`);
       deleteFromFirebase('payments', `paid_${invoice.id}`);
 
-      if (autoPaymentAmount > 0) {
+      if (keepAuto > 0) {
         const newTreasury = invoice.paymentMethod === 'cash' ? 'cash' : 'bank';
-        newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance - autoPaymentAmount : newState.cashBalance;
-        newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance - autoPaymentAmount : newState.bankBalance;
+        newState.cashBalance = newTreasury === 'cash' ? newState.cashBalance - keepAuto : newState.cashBalance;
+        newState.bankBalance = newTreasury === 'bank' ? newState.bankBalance - keepAuto : newState.bankBalance;
         newState.treasuryTransactions = [...newState.treasuryTransactions, {
           id: oldInvoiceTreasury?.id || makeTransactionId(),
           type: 'purchase',
           description: `فاتورة مشتريات ${invoice.invoiceNumber} - ${invoice.supplierName}`,
-          amount: invoiceTreasuryAmount || autoPaymentAmount,
+          amount: paidChanged ? keepAuto : (invoiceTreasuryAmount || autoPaymentAmount),
           treasury: newTreasury,
           direction: 'out',
           referenceId: invoice.id,
@@ -1298,7 +1308,7 @@ export function useStore() {
           type: 'purchase',
           referenceId: invoice.supplierId,
           referenceName: invoice.supplierName,
-          amount: autoPaymentAmount,
+          amount: keepAuto,
           paymentMethod: invoice.paymentMethod,
           direction: 'out',
           date: invoice.date,
@@ -1307,6 +1317,8 @@ export function useStore() {
         };
         newState.payments.push(autoPayment);
         saveToFirebase('payments', autoPayment.id, autoPayment);
+      } else if (oldInvoiceTreasury) {
+        deleteFromFirebase('treasuryTransactions', oldInvoiceTreasury.id);
       }
 
       // 4) totals للطرف تُحسب من الحركات الفعلية، فلا يهم هل الطرف عميل أم مورد.
@@ -1768,11 +1780,9 @@ export function useStore() {
     setState(prev => {
       const payment = prev.payments.find(p => p.id === paymentId);
       if (!payment) return prev;
-      if (paymentId.startsWith('paid_')) {
-        result = { success: false, message: 'دي دفعة مرتبطة بفاتورة. عدّل الفاتورة نفسها أو احذفها.' };
-        return prev;
-      }
       result = { success: true };
+      // الدفعة المسجلة مع الفاتورة (paid_...) حركتها في الخزنة مربوطة برقم الفاتورة نفسه
+      const linkedInvoiceId = paymentId.startsWith('paid_') ? paymentId.slice(5) : null;
 
       const treasury = payment.paymentMethod === 'cash' ? 'cash' : 'bank';
       const newState = { ...prev, payments: prev.payments.filter(p => p.id !== paymentId) };
@@ -1785,6 +1795,7 @@ export function useStore() {
       // حذف حركة الخزنة المرتبطة بالدفعة
       const matchingType = payment.direction === 'in' ? 'payment_in' : 'payment_out';
       const matching = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
+        || (linkedInvoiceId ? prev.treasuryTransactions.find(t => t.referenceId === linkedInvoiceId) : undefined)
         || prev.treasuryTransactions.find(t => !t.sourceId && t.referenceId === payment.referenceId && t.type === matchingType && t.amount === payment.amount && t.createdAt >= payment.createdAt);
       if (matching) newState.treasuryTransactions = prev.treasuryTransactions.filter(t => t.id !== matching.id);
 
@@ -1815,7 +1826,7 @@ export function useStore() {
   const updatePayment = useCallback((paymentId: string, patch: Partial<Pick<Payment, 'amount' | 'paymentMethod' | 'date' | 'notes' | 'instapayPerson'>>) => {
     setState(prev => {
       const old = prev.payments.find(p => p.id === paymentId);
-      if (!old || paymentId.startsWith('paid_')) return prev;
+      if (!old) return prev;
       const amount = patch.amount !== undefined ? Number(patch.amount) : old.amount;
       if (!(amount > 0)) return prev;
 
@@ -1843,6 +1854,7 @@ export function useStore() {
       // حركة الخزنة المرتبطة
       const matchingType = old.direction === 'in' ? 'payment_in' : 'payment_out';
       const matching = prev.treasuryTransactions.find(t => t.sourceId === paymentId)
+        || (paymentId.startsWith('paid_') ? prev.treasuryTransactions.find(t => t.referenceId === paymentId.slice(5)) : undefined)
         || prev.treasuryTransactions.find(t => !t.sourceId && t.referenceId === old.referenceId && t.type === matchingType && t.amount === old.amount && t.createdAt >= old.createdAt);
       let tx: TreasuryTransaction;
       if (matching) {
